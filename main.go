@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -25,7 +26,7 @@ func main() {
 	parallel := flag.String("parallel", "1", "число параллельных слотов (--parallel)")
 	tools := flag.String("tools", "all", "режим инструментов (--tools)")
 	jinja := flag.Bool("jinja", true, "включить Jinja-шаблоны чата (--jinja)")
-    mcpProxy := flag.Bool("webui-mcp-proxy", false, "включить CORS-прокси для MCP-серверов в WebUI (--webui-mcp-proxy)")
+	mcpProxy := flag.Bool("webui-mcp-proxy", false, "включить CORS-прокси в WebUI и запустить mcp-search-server (--webui-mcp-proxy)")
 	verbose := flag.Bool("v", false, "печатать команду перед запуском")
 
 	// ------- Кастомная справка -------
@@ -34,9 +35,6 @@ func main() {
 	}
 	flag.Parse()
 
-	// Если пользователь передал -h/--help, flag.Parse() уже вызвал flag.Usage
-	// и завершил программу с кодом 2. Дополнительная обработка не нужна,
-	// но на всякий случай — защита от пустого вызова:
 	if len(os.Args) == 2 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "-help") {
 		printUsage(os.Stdout)
 		os.Exit(0)
@@ -80,8 +78,9 @@ func main() {
 		args = append(args, "--jinja")
 	}
 	if *mcpProxy {
-        args = append(args, "--webui-mcp-proxy")
-    }
+		args = append(args, "--webui-mcp-proxy")
+	}
+
 	// ------- Создаём команду -------
 	cmd := exec.Command(serverPath, args...)
 
@@ -115,9 +114,36 @@ func main() {
 		fmt.Printf("Запуск llama-server на %s:%s ...\n", *host, *port)
 	}
 
-	// ------- Запуск -------
+	// ------- NEW: запускаем mcp-search-server, если включён --webui-mcp-proxy -------
+	var mcpCmd *exec.Cmd
+	if *mcpProxy {
+		mcpCmd = exec.Command("mcp-search-server", "--addr", ":8090")
+		// SEARCH_ENABLED=true передаём как переменную окружения, а не как аргумент
+		mcpCmd.Env = append(os.Environ(), "SEARCH_ENABLED=true")
+		mcpCmd.Stdout = os.Stdout
+		mcpCmd.Stderr = os.Stderr
+		// mcpCmd.Stdin = os.Stdin // обычно не требуется; если нужно — раскомментируйте
+		if cmd.Dir != "" {
+			mcpCmd.Dir = cmd.Dir
+		}
+
+		if *verbose {
+			fmt.Printf("MCP-сервер: SEARCH_ENABLED=true mcp-search-server --addr :8090\n\n")
+		}
+
+		if err := mcpCmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "ошибка запуска mcp-search-server: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// ------- Запуск llama-server -------
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "ошибка запуска сервера: %v\n", err)
+		if mcpCmd != nil && mcpCmd.Process != nil {
+			_ = mcpCmd.Process.Signal(syscall.SIGINT)
+			_ = mcpCmd.Wait()
+		}
 		os.Exit(1)
 	}
 
@@ -131,18 +157,52 @@ func main() {
 		if cmd.Process != nil {
 			_ = cmd.Process.Signal(syscall.SIGINT)
 		}
+		if mcpCmd != nil && mcpCmd.Process != nil {
+			_ = mcpCmd.Process.Signal(syscall.SIGINT)
+		}
 	}()
 
-	// ------- Ожидание завершения -------
+	// ------- Ожидание завершения llama-server -------
 	err = cmd.Wait()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
+			stopMcp(mcpCmd)
 			os.Exit(exitErr.ExitCode())
 		}
 		fmt.Fprintf(os.Stderr, "сервер завершился с ошибкой: %v\n", err)
+		stopMcp(mcpCmd)
 		os.Exit(1)
 	}
 	fmt.Println("llama-server завершён.")
+	stopMcp(mcpCmd)
+}
+
+// stopMcp корректно останавливает mcp-search-server.
+func stopMcp(mcpCmd *exec.Cmd) {
+	if mcpCmd == nil || mcpCmd.Process == nil {
+		return
+	}
+
+	// Посылаем SIGINT, чтобы дать процессу завершиться штатно
+	_ = mcpCmd.Process.Signal(syscall.SIGINT)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- mcpCmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			if _, ok := err.(*exec.ExitError); !ok {
+				fmt.Fprintf(os.Stderr, "mcp-search-server завершился с ошибкой: %v\n", err)
+			}
+		}
+	case <-time.After(3 * time.Second):
+		fmt.Fprintln(os.Stderr, "mcp-search-server не завершился за 3 секунды — убиваем")
+		_ = mcpCmd.Process.Kill()
+		_ = mcpCmd.Wait()
+	}
 }
 
 // expandHome заменяет ведущий "~" на домашний каталог пользователя.
@@ -163,6 +223,9 @@ func printUsage(w *os.File) {
 Запускает локальный сервер llama.cpp с готовым набором параметров,
 корректно разворачивает ~ в путях, пробрасывает логи в терминал
 и аккуратно завершает дочерний процесс по Ctrl+C / SIGTERM.
+
+При использовании -webui-mcp-proxy дополнительно запускается
+SEARCH_ENABLED=true mcp-search-server --addr :8090.
 
 Использование:
   llama-runner [флаги]
@@ -197,8 +260,9 @@ func printUsage(w *os.File) {
   -jinja
         включить Jinja-шаблоны чата, соответствует --jinja (по умолчанию true)
   -webui-mcp-proxy
-        включить CORS-прокси для MCP-серверов в WebUI,
-        соответствует --webui-mcp-proxy (по умолчанию false)
+        включает --webui-mcp-proxy для llama-server и запускает
+        SEARCH_ENABLED=true mcp-search-server --addr :8090
+        (по умолчанию false)
 
 Прочее:
   -v    печатать полную команду и рабочую директорию перед запуском
@@ -218,7 +282,7 @@ func printUsage(w *os.File) {
   # посмотреть, что будет выполнено, без реального запуска
   server -v -dir ~/work
 
-  # запуск с прокси для MCP-серверов
+  # запуск с прокси для MCP-серверов и поисковым MCP-сервером
   server -webui-mcp-proxy
 
 Совет:
