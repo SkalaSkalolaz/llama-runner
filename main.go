@@ -27,6 +27,7 @@ func main() {
 	tools := flag.String("tools", "all", "режим инструментов (--tools)")
 	jinja := flag.Bool("jinja", true, "включить Jinja-шаблоны чата (--jinja)")
 	mcpProxy := flag.Bool("webui-mcp-proxy", false, "включить CORS-прокси в WebUI и запустить mcp-search-server (--webui-mcp-proxy)")
+    lazyMmap := flag.Bool("lm-lazy", false, "включить mmap-память с ленивым режимом (-lm mmap --lazy-mode on)")
 	verbose := flag.Bool("v", false, "печатать команду перед запуском")
 
 	// ------- Кастомная справка -------
@@ -80,7 +81,9 @@ func main() {
 	if *mcpProxy {
 		args = append(args, "--webui-mcp-proxy")
 	}
-
+    if *lazyMmap {
+        args = append(args, "-lm", "mmap", "--lazy-mode", "on")
+    }
 	// ------- Создаём команду -------
 	cmd := exec.Command(serverPath, args...)
 
@@ -257,6 +260,10 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
         число параллельных слотов, соответствует --parallel (по умолчанию "1")
   -tools string
         режим инструментов, соответствует --tools (по умолчанию "all")
+  -lm-lazy
+        включить дисковый mmap с ленивым режимом
+        Полезно, чтобы не грузить n-граммовую память в RAM целиком,
+        а держать её отображённой на диск (по умолчанию false)
   -jinja
         включить Jinja-шаблоны чата, соответствует --jinja (по умолчанию true)
   -webui-mcp-proxy
