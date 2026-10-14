@@ -49,16 +49,28 @@ func main() {
         "не выводить логи llama-server в терминал при работе с Claude Code (пишет в -log-file)")
 
 	// ------- Кастомная справка -------
-	flag.Usage = func() {
-		printUsage(os.Stderr)
-	}
-	flag.Parse()
 
-	if len(os.Args) == 2 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "-help") {
-		printUsage(os.Stdout)
-		os.Exit(0)
-	}
-
+    flag.Usage = func() {
+        printUsage(os.Stderr)
+    }
+    flag.Parse()
+    
+    if len(os.Args) == 2 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "-help") {
+        printUsage(os.Stdout)
+        os.Exit(0)
+    }
+    
+    // CHANGED: если запуск не в режиме -server и -alias не задан явно,
+    // подставляем "local" — чтобы Claude Code не искал несуществующие claude-* модели.
+    aliasSet := false
+    flag.Visit(func(f *flag.Flag) {
+        if f.Name == "alias" {
+            aliasSet = true
+        }
+    })
+    if !aliasSet && !*serverOnly {
+        *alias = "local"
+    }
 	// ------- Разворачиваем ~ в путях -------
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -460,7 +472,8 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
   -dir string
         рабочая директория для llama-server (по умолчанию — текущая)
   -alias string
-        алиас модели: --alias для llama-server и ANTHROPIC_DEFAULT_*_MODEL для Claude Code
+        алиас модели: --alias для llama-server и ANTHROPIC_DEFAULT_*_MODEL для Claude Code.
+        Если не указан и не задан -server, по умолчанию используется "local".
 
 Флаги Claude Code:
   -server
