@@ -43,6 +43,8 @@ func main() {
 		"алиас модели: передаётся llama-server как --alias и в ANTHROPIC_DEFAULT_*_MODEL. Если пусто — не передаётся")
 	readyTimeout := flag.Duration("ready-timeout", 180*time.Second,
 		"сколько ждать готовности llama-server по /health перед запуском Claude Code")
+    chatTemplate := flag.String("chat-template", "~/GGUF/qwen-fixed-chat-template.jinja",
+        "путь к файлу исправленного Jinja-шаблона чата (можно с ~)")
     logFile := flag.String("log-file", "~/.cache/llama-runner/llama-server.log",
         "файл для логов llama-server и mcp-search-server в режиме Claude Code (можно с ~)")
     quietServer := flag.Bool("quiet-server", true,
@@ -116,6 +118,17 @@ func main() {
 		args = append(args, "--alias", *alias)
 	}
 
+    if *chatTemplate != "" {
+        templatePath := expandHome(*chatTemplate, home)
+        if _, err := os.Stat(templatePath); err != nil {
+            fmt.Fprintf(os.Stderr, "предупреждение: файл шаблона %q не найден (%v), запускаю без --chat-template-file\n", templatePath, err)
+        } else {
+            args = append(args, "--chat-template-file", templatePath)
+            if *verbose {
+                fmt.Printf("Chat template: %s\n", templatePath)
+            }
+        }
+    }
 	// ------- Создаём команду -------
 	cmd := exec.Command(serverPath, args...)
 
@@ -491,6 +504,10 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
         уводить логи llama-server в файл, а не в терминал (по умолчанию true).
         Установите -quiet-server=false, если хотите видеть логи в терминале
         (только для отладки — интерфейс Claude Code будет ломаться).
+  -chat-template string
+        путь к исправленному Jinja-шаблону чата (можно с ~).
+        По умолчанию "~/GGUF/qwen-fixed-chat-template.jinja".
+        Если файла нет — сервер стартует без кастомного шаблона.
 
 Параметры llama.cpp:
   -c, -b, -ub string
