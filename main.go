@@ -43,6 +43,10 @@ func main() {
 		"алиас модели: передаётся llama-server как --alias и в ANTHROPIC_DEFAULT_*_MODEL. Если пусто — не передаётся")
 	readyTimeout := flag.Duration("ready-timeout", 180*time.Second,
 		"сколько ждать готовности llama-server по /health перед запуском Claude Code")
+    logFile := flag.String("log-file", "~/.cache/llama-runner/llama-server.log",
+        "файл для логов llama-server и mcp-search-server в режиме Claude Code (можно с ~)")
+    quietServer := flag.Bool("quiet-server", true,
+        "не выводить логи llama-server в терминал при работе с Claude Code (пишет в -log-file)")
 
 	// ------- Кастомная справка -------
 	flag.Usage = func() {
@@ -120,24 +124,57 @@ func main() {
 		}
 	}
 
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if *verbose {
-		fmt.Printf("Рабочая директория: %s\n", cmd.Dir)
-		fmt.Printf("Команда: %s %s\n\n", serverPath, strings.Join(args, " "))
-	} else {
-		fmt.Printf("Запуск llama-server на %s:%s ...\n", *host, *port)
-	}
+    // ------- CHANGED: логи llama-server уводим в файл, если работаем с Claude Code -------
+    var serverLogFile *os.File
+    if !*serverOnly && *quietServer {
+        logPath := expandHome(*logFile, home)
+        if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+            fmt.Fprintf(os.Stderr, "не удалось создать каталог для логов %q: %v\n", filepath.Dir(logPath), err)
+            os.Exit(1)
+        }
+        f, lerr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+        if lerr != nil {
+            fmt.Fprintf(os.Stderr, "не удалось открыть лог-файл %q: %v\n", logPath, lerr)
+            os.Exit(1)
+        }
+        serverLogFile = f
+        defer serverLogFile.Close()
+        cmd.Stdout = f
+        cmd.Stderr = f
+    } else {
+        cmd.Stdout = os.Stdout
+        cmd.Stderr = os.Stderr
+    }
+    
+    // stdin всё равно нужен, но llama-server его не использует в обычном режиме;
+    // оставляем на случай интерактивных сценариев.
+    cmd.Stdin = os.Stdin
+    
+    if *verbose {
+        fmt.Printf("Рабочая директория: %s\n", cmd.Dir)
+        fmt.Printf("Команда: %s %s\n\n", serverPath, strings.Join(args, " "))
+        if serverLogFile != nil {
+            fmt.Printf("Логи llama-server: %s\n", serverLogFile.Name())
+        }
+    } else {
+        fmt.Printf("Запуск llama-server на %s:%s ...\n", *host, *port)
+        if serverLogFile != nil {
+            fmt.Printf("Логи llama-server: %s\n", serverLogFile.Name())
+        }
+    }
 
 	// ------- Запуск mcp-search-server при --webui-mcp-proxy -------
 	var mcpCmd *exec.Cmd
 	if *mcpProxy {
 		mcpCmd = exec.Command("mcp-search-server", "--addr", ":8090")
 		mcpCmd.Env = append(os.Environ(), "SEARCH_ENABLED=true")
-		mcpCmd.Stdout = os.Stdout
-		mcpCmd.Stderr = os.Stderr
+        if serverLogFile != nil {
+            mcpCmd.Stdout = serverLogFile
+            mcpCmd.Stderr = serverLogFile
+        } else {
+            mcpCmd.Stdout = os.Stdout
+            mcpCmd.Stderr = os.Stderr
+        }
 		if cmd.Dir != "" {
 			mcpCmd.Dir = cmd.Dir
 		}
@@ -434,6 +471,13 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
         рабочая директория для Claude Code (по умолчанию — текущая)
   -ready-timeout duration
         сколько ждать готовности /health перед стартом Claude Code (по умолчанию 180s)
+  -log-file string
+        файл для логов llama-server и mcp-search-server в режиме Claude Code
+        (по умолчанию "~/.cache/llama-runner/llama-server.log")
+  -quiet-server
+        уводить логи llama-server в файл, а не в терминал (по умолчанию true).
+        Установите -quiet-server=false, если хотите видеть логи в терминале
+        (только для отладки — интерфейс Claude Code будет ломаться).
 
 Параметры llama.cpp:
   -c, -b, -ub string
