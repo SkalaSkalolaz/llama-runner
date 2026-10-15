@@ -1,5 +1,8 @@
 # llama-runner
 
+[![Go](https://img.shields.io/badge/Go-1.24-00ADD8.svg)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
+
 Локальный лаунчер для **llama-server** и **Claude Code**.
 
 По умолчанию запускает локальный `llama-server` с вашей GGUF-моделью, дождавшись его готовности автоматически поднимает **Claude Code**, привязанный к этому серверу. Когда Claude Code закрывается — `llama-server` останавливается.
