@@ -146,4 +146,6 @@ go build -o server .
 
 ## Лицензия
 
-MIT
+[BSD 3-Clause License](LICENSE)
+
+Copyright (c) [2026] [Skala Skalolaz]
