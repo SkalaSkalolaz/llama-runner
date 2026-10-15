@@ -14,10 +14,10 @@
 go build -o server .
 ```
 
-Для сборки с версией:
+Переопределить версию при сборке (по умолчанию `"1.0"`):
 
 ```bash
-go build -ldflags="-X main.version=1.0.0" -o server .
+go build -ldflags="-X main.version=1.2.0" -o server .
 ```
 
 Проверить версию:
