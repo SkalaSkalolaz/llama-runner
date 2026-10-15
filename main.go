@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+var version = "1.0"
+
 func main() {
 	// ------- Флаги командной строки -------
 	workDir := flag.String("dir", "", "рабочая директория для llama-server (по умолчанию — текущая)")
@@ -56,13 +58,19 @@ func main() {
 		"куда записать временный MCP-конфиг для Claude Code. По умолчанию — во временный каталог ОС")
 	mcpStrict := flag.Bool("mcp-strict", false,
 		"передать Claude Code --strict-mcp-config: использовать только MCP из этого лаунчера, игнорировать ~/.claude.json")
+	versionFlag := flag.Bool("version", false, "показать версию и выйти")
 	// ------- Кастомная справка -------
 
     flag.Usage = func() {
         printUsage(os.Stderr)
     }
     flag.Parse()
-    
+
+    if *versionFlag {
+        fmt.Println(version)
+        os.Exit(0)
+    }
+
     if len(os.Args) == 2 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "-help") {
         printUsage(os.Stdout)
         os.Exit(0)
