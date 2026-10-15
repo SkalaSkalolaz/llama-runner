@@ -1,15 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
-	"net/http" // NEW
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync" // NEW
+	"sync"
 	"syscall"
 	"time"
 )
@@ -49,7 +50,12 @@ func main() {
         "файл для логов llama-server и mcp-search-server в режиме Claude Code (можно с ~)")
     quietServer := flag.Bool("quiet-server", true,
         "не выводить логи llama-server в терминал при работе с Claude Code (пишет в -log-file)")
-
+	mcpAddr := flag.String("mcp-addr", "127.0.0.1:8090",
+		"адрес mcp-search-server в формате host:port")
+	mcpConfigOut := flag.String("mcp-config", "",
+		"куда записать временный MCP-конфиг для Claude Code. По умолчанию — во временный каталог ОС")
+	mcpStrict := flag.Bool("mcp-strict", false,
+		"передать Claude Code --strict-mcp-config: использовать только MCP из этого лаунчера, игнорировать ~/.claude.json")
 	// ------- Кастомная справка -------
 
     flag.Usage = func() {
@@ -191,7 +197,7 @@ func main() {
 	// ------- Запуск mcp-search-server при --webui-mcp-proxy -------
 	var mcpCmd *exec.Cmd
 	if *mcpProxy {
-		mcpCmd = exec.Command("mcp-search-server", "--addr", ":8090")
+		mcpCmd = exec.Command("mcp-search-server", "--addr", *mcpAddr)
 		mcpCmd.Env = append(os.Environ(), "SEARCH_ENABLED=true")
         if serverLogFile != nil {
             mcpCmd.Stdout = serverLogFile
@@ -298,6 +304,35 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("llama-server готов. Запуск Claude Code...")
+	// ── Ждём готовности mcp-search-server (если запущен) ─────────
+	var (
+		mcpSSEURL    string
+		mcpConfigFile string
+	)
+	if *mcpProxy {
+		mcpHealthURL := fmt.Sprintf("http://%s/health", *mcpAddr)
+		mcpSSEURL = fmt.Sprintf("http://%s/sse", *mcpAddr)
+
+		fmt.Printf("Ожидание готовности MCP-сервера (%s) ...\n", mcpHealthURL)
+		if err := waitForServer(mcpHealthURL, 15*time.Second); err != nil {
+			// Не роняем лаунчер: Claude Code может работать и без поиска.
+			fmt.Fprintf(os.Stderr,
+				"предупреждение: mcp-search-server не готов: %v\n"+
+					"Claude Code будет запущен без web_search.\n", err)
+		} else {
+			path, werr := writeMCPConfig(*mcpConfigOut, mcpSSEURL)
+			if werr != nil {
+				fmt.Fprintf(os.Stderr,
+					"предупреждение: не удалось создать MCP-конфиг: %v\n", werr)
+			} else {
+				mcpConfigFile = path
+				defer os.Remove(mcpConfigFile)
+				if *verbose {
+					fmt.Printf("MCP-конфиг: %s (url=%s)\n", path, mcpSSEURL)
+				}
+			}
+		}
+	}
 
 	// --- Путь к claude ---
 	claudePath := expandHome(*claudeBin, home)
@@ -327,8 +362,19 @@ func main() {
 	}
 
 	// --- Создаём процесс Claude Code ---
-	cc := exec.Command(claudePath)
+	claudeArgs := []string{}
+	if mcpConfigFile != "" {
+		claudeArgs = append(claudeArgs, "--mcp-config", mcpConfigFile)
+		if *mcpStrict {
+			claudeArgs = append(claudeArgs, "--strict-mcp-config")
+		}
+	}
+
+	cc := exec.Command(claudePath, claudeArgs...)
 	cc.Env = claudeEnv
+	if *verbose && len(claudeArgs) > 0 {
+		fmt.Printf("Claude Code args: %v\n", claudeArgs)
+	}
 	cc.Stdin = os.Stdin
 	cc.Stdout = os.Stdout
 	cc.Stderr = os.Stderr
@@ -445,6 +491,39 @@ func stopMcp(mcpCmd *exec.Cmd) {
 	}
 }
 
+func writeMCPConfig(path, sseURL string) (string, error) {
+	if path == "" {
+		f, err := os.CreateTemp("", "llama-runner-mcp-*.json")
+		if err != nil {
+			return "", err
+		}
+		path = f.Name()
+		_ = f.Close()
+	} else {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return "", err
+		}
+	}
+
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"search": map[string]any{
+				"type": "sse",
+				"url":  sseURL,
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // expandHome заменяет ведущий "~" на домашний каталог пользователя.
 func expandHome(path, home string) string {
 	if path == "~" {
@@ -504,6 +583,15 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
         уводить логи llama-server в файл, а не в терминал (по умолчанию true).
         Установите -quiet-server=false, если хотите видеть логи в терминале
         (только для отладки — интерфейс Claude Code будет ломаться).
+  -mcp-addr string
+        адрес mcp-search-server (host:port, по умолчанию 127.0.0.1:8090).
+        Используется только вместе с -webui-mcp-proxy.
+  -mcp-config string
+        путь к временному MCP-конфигу для Claude Code.
+        По умолчанию — во временном каталоге ОС (удаляется после выхода).
+  -mcp-strict
+        передать Claude Code --strict-mcp-config: использовать только
+        MCP-серверы, объявленные этим лаунчером, игнорируя ~/.claude.json.
   -chat-template string
         путь к исправленному Jinja-шаблону чата (можно с ~).
         По умолчанию "~/GGUF/qwen-fixed-chat-template.jinja".
@@ -547,7 +635,13 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
   server -v -claude-dir ~/work
 
   # запуск с прокси для MCP-серверов и поисковым MCP-сервером
+  server -webui-mcp-proxy -server
+
+  # сервер + Claude Code с автоматически подключённым web_search
   server -webui-mcp-proxy
+
+  # то же, но не примешивать другие MCP-серверы из ~/.claude.json
+  server -webui-mcp-proxy -mcp-strict
 
 Совет:
   Если сервер должен быть доступен из локальной сети, укажите
