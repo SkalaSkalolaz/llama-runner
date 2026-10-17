@@ -49,15 +49,40 @@ go build -o server .
 
 ### Параметры llama.cpp
 
-| Флаг | Описание |
-|------|----------|
-| `-c, -b, -ub string` | Размер контекста (`65536`) / батча (`2048`) / микро-батча (`1024`) |
-| `-fa string` | Flash attention (`-fa`, по умолчанию `auto`) |
-| `-parallel string` | Число параллельных слотов |
-| `-tools string` | Режим инструментов (по умолчанию `all`) |
-| `-jinja` | Включить Jinja-шаблоны чата |
-| `-lm-lazy` | Mmap с ленивым режимом |
-| `-webui-mcp-proxy` | Включить CORS-прокси и запустить mcp-search-server |
+| Флаг | Значение по умолчанию | Описание |
+|------|----------------------|----------|
+| `-c, -b, -ub string` | `65536` / `2048` / `1024` | Размер контекста / батча / микро-батча |
+| `-fa string` | `auto` | Flash attention (`-fa`) |
+| `-parallel string` | `1` | Число параллельных слотов |
+| `-tools string` | `all` | Режим инструментов (`--tools`) |
+| `-jinja` | `true` | Включить Jinja-шаблоны чата (`--jinja`) |
+| `-lm-lazy` | `false` | Mmap с ленивым режимом (`-lm mmap --lazy-mode on`) |
+| `-webui-mcp-proxy` | `false` | Включить CORS-прокси и запустить mcp-search-server (`--webui-mcp-proxy`) |
+| `-ngl string` | _(не передаётся)_ | Число слоёв модели на GPU (`-ngl`), напр. `999` |
+| `-mmproj string` | _(не передаётся)_ | Путь к мультимодальному проектору (`--mmproj`, можно с `~`) |
+| `-temp string` | _(не передаётся)_ | Температура сэмплинга (`--temp`) |
+| `-top-p string` | _(не передаётся)_ | Top-p сэмплинг (`--top-p`) |
+| `-cache-type-k string` | _(не передаётся)_ | Тип K-кэша (`--cache-type-k`), напр. `q8_0` |
+| `-cache-type-v string` | _(не передаётся)_ | Тип V-кэша (`--cache-type-v`), напр. `q8_0` |
+
+### Спекулятивное декодирование
+
+| Флаг | Значение по умолчанию | Описание |
+|------|----------------------|----------|
+| `-spec-type string` | _(не передаётся)_ | Тип спекулятивного декодирования (`--spec-type`), напр. `draft-dflash` |
+| `-spec-draft-model string` | _(не передаётся)_ | Путь к драфтер-модели (`--spec-draft-model`, можно с `~`) |
+| `-spec-draft-n-max string` | _(не передаётся)_ | Макс. число черновых токенов драфтера (`--spec-draft-n-max`) |
+| `-spec-draft-ngl string` | _(не передаётся)_ | Число слоёв драфтера на GPU (`--spec-draft-ngl`) |
+
+### Обновление llama.cpp
+
+| Флаг | Значение по умолчанию | Описание |
+|------|----------------------|----------|
+| `-update` | `false` | Обновить llama.cpp: `git pull --ff-only`, `cmake configure/build/install`, затем выйти (без запуска сервера) |
+| `-llama-src string` | `~/src/llama.cpp` | Путь к исходникам llama.cpp (для `-update`, можно с `~`) |
+| `-install-prefix string` | `~/.local` | Префикс для `-DCMAKE_INSTALL_PREFIX` (для `-update`, можно с `~`) |
+| `-cuda` | `true` | Собирать с CUDA (`-DGGML_CUDA=ON`) (для `-update`) |
+| `-cuda-arch string` | `61` | Архитектура CUDA (`-DCMAKE_CUDA_ARCHITECTURES`, для `-update`). `""` — не передавать флаг (CMake выберет default) |
 
 ### Флаги Claude Code
 
@@ -72,14 +97,15 @@ go build -o server .
 | `-mcp-addr string` | Адрес mcp-search-server `host:port` (по умолчанию `127.0.0.1:8090`) |
 | `-mcp-config string` | Путь к временному MCP-конфигу для Claude Code (по умолчанию — во временный каталог ОС) |
 | `-mcp-strict` | Передать Claude Code `--strict-mcp-config`: использовать только MCP из лаунчера |
-| `-chat-template string` | Путь к файлу Jinja-шаблона чата (по умолчанию `~/GGUF/qwen-fixed-chat-template.jinja`) |
+| `-chat-template string` | Шаблон чата (по умолчанию `"auto"`). `"auto"` — если имя файла модели содержит "qwen" (без учёта регистра), берёт `~/GGUF/qwen-fixed-chat-template.jinja`; иначе не передаёт шаблон. Явный путь — использовать его. Явный `""` — без шаблона. |
 
 ### Прочее
 
 | Флаг | Описание |
 |------|----------|
-| `-v` | Печатать полную команду перед запуском |
-| `-h, --help` | Показать справку |
+| `-v` | Печатать полную команду и рабочую директорию перед запуском |
+| `-version` | Показать версию (`1.1`) и выйти |
+| `-h, --help` | Показать справку и выйти |
 
 ---
 
@@ -111,17 +137,66 @@ go build -o server .
 ./server -webui-mcp-proxy -mcp-strict
 ```
 
+### Обновление llama.cpp
+
+```bash
+# Обновить llama.cpp (архитектура по умолчанию — sm_61, Pascal) и выйти
+./server -update
+
+# Обновить для Turing (sm_75)
+./server -update -cuda-arch 75
+
+# Обновить без явной архитектуры (CMake выберет default)
+./server -update -cuda-arch ""
+
+# Обновить и сразу запустить сервер
+./server -update && ./server -server -model ~/GGUF/model.gguf
+```
+
+### Спекулятивное декодирование (LiLiCorr)
+
+```bash
+# Сервер + Claude Code с LiLiCorr-драфтером
+./server -server \
+  -model  ~/models/nemotron-bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
+  -mmproj ~/models/nemotron-bolt/mmproj-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
+  -spec-type draft-dflash \
+  -spec-draft-model ~/models/nemotron-bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf \
+  -spec-draft-n-max 6 -spec-draft-ngl 999 -ngl 999 \
+  -c 98304 -b 2048 -ub 512 \
+  -cache-type-k q8_0 -cache-type-v q8_0 \
+  -temp 1.0 -top-p 0.95 -fa on -jinja -chat-template ""
+```
+
+### Немного о мультимодальности
+
+```bash
+# Сервер + Claude Code с мультимодальной моделью (vision)
+./server -server \
+  -model  ~/models/llama-3.2-11B-Vision-instruct-fp8.gguf \
+  -mmproj  ~/models/llama-3.2-11B-Vision-instruct-mmproj-f16.gguf
+```
+
 ---
 
 ## Режимы работы
 
 ### Сервер + Claude Code (по умолчанию)
 
-1. Запускает `llama-server` с указанными параметрами
-2. Ожидает готовности по `/health` (таймаут по умолчанию 180 с)
-3. Запускает Claude Code с переменными `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_DEFAULT_*_MODEL`
-4. Если задан `-webui-mcp-proxy` — дополнительно поднимает `mcp-search-server` и генерирует временный MCP-конфиг
-5. При выходе Claude Code или сигнале SIGINT/SIGTERM останавливает все дочерние процессы
+1. Проверяет, что `llama-server` и модель существуют на указанных путях
+2. Запускает `llama-server` с указанными параметрами
+3. Ожидает готовности по `/health` (таймаут по умолчанию 180 с)
+4. Если задан `-webui-mcp-proxy` — поднимает `mcp-search-server` и генерирует временный MCP-конфиг
+5. Запускает Claude Code с переменными `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_DEFAULT_*_MODEL`
+6. При выходе Claude Code или сигнале SIGINT/SIGTERM останавливает все дочерние процессы (Claude Code → llama-server → mcp-search-server)
+
+### Обновление llama.cpp
+
+```bash
+./server -update
+```
+
+Выполняет: `git pull --ff-only` → `cmake configure` (с `-DGGML_CUDA=ON` и заданной архитектурой) → `cmake build` (на все ядра) → `cmake install`. Сервер **не** запускается.
 
 ### Только llama-server
 
@@ -144,6 +219,12 @@ go build -o server .
 | `ANTHROPIC_AUTH_TOKEN` | `local-llama` |
 | `ANTHROPIC_DEFAULT_*_MODEL` | алиас модели (если задан `-alias`) |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` |
+
+---
+
+## Совет
+
+Если сервер должен быть доступен из локальной сети, укажите `-host 0.0.0.0`. Значение `127.0.0.1` принимает соединения только с этой же машины.
 
 ---
 

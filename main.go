@@ -9,13 +9,14 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
 
-var version = "1.0"
+var version = "1.1"
 
 func main() {
 	// ------- Флаги командной строки -------
@@ -35,7 +36,33 @@ func main() {
 	lazyMmap := flag.Bool("lm-lazy", false, "включить mmap-память с ленивым режимом (-lm mmap --lazy-mode on)")
 	verbose := flag.Bool("v", false, "печатать команду перед запуском")
 
-	// NEW: флаги, связанные с Claude Code
+	// Дополнительные параметры llama.cpp (передаются, только если заданы)
+	ngl := flag.String("ngl", "", "число слоёв модели на GPU (-ngl), например 999. Не передаётся, если пусто")
+	mmproj := flag.String("mmproj", "", "путь к мультимодальному проектору (--mmproj, можно с ~). Не передаётся, если пусто")
+	temp := flag.String("temp", "", "температура сэмплинга (--temp). Не передаётся, если пусто")
+	topP := flag.String("top-p", "", "top-p сэмплинг (--top-p). Не передаётся, если пусто")
+	cacheTypeK := flag.String("cache-type-k", "", "тип K-кэша (--cache-type-k), напр. q8_0. Не передаётся, если пусто")
+	cacheTypeV := flag.String("cache-type-v", "", "тип V-кэша (--cache-type-v), напр. q8_0. Не передаётся, если пусто")
+
+	// Спекулятивное декодирование (draft-модель)
+	specType := flag.String("spec-type", "", "тип спекулятивного декодирования (--spec-type), напр. draft-dflash. Не передаётся, если пусто")
+	specDraftModel := flag.String("spec-draft-model", "", "путь к драфтер-модели (--spec-draft-model, можно с ~). Не передаётся, если пусто")
+	specDraftNMax := flag.String("spec-draft-n-max", "", "макс. число черновых токенов драфтера (--spec-draft-n-max). Не передаётся, если пусто")
+	specDraftNGL := flag.String("spec-draft-ngl", "", "число слоёв драфтера на GPU (--spec-draft-ngl). Не передаётся, если пусто")
+
+	// Флаги обновления llama.cpp (режим -update)
+	updateFlag := flag.Bool("update", false,
+		"обновить llama.cpp: git pull + cmake configure/build/install, затем выйти (без запуска сервера)")
+	llamaSrc := flag.String("llama-src", "~/src/llama.cpp",
+		"путь к исходникам llama.cpp (для -update, можно с ~)")
+	installPrefix := flag.String("install-prefix", "~/.local",
+		"префикс установки для -DCMAKE_INSTALL_PREFIX (для -update, можно с ~)")
+	withCuda := flag.Bool("cuda", true,
+		"собирать с CUDA (-DGGML_CUDA=ON) (для -update)")
+	cudaArch := flag.String("cuda-arch", "61",
+		"архитектура CUDA для -DCMAKE_CUDA_ARCHITECTURES (для -update). \"\" — не передавать флаг (CMake выберет default)")
+
+	// Флаги, связанные с Claude Code
 	serverOnly := flag.Bool("server", false,
 		"запустить ТОЛЬКО llama-server (старое поведение). Без этого флага после старта сервера автоматически запускается Claude Code")
 	claudeBin := flag.String("claude-bin", "claude",
@@ -46,12 +73,12 @@ func main() {
 		"алиас модели: передаётся llama-server как --alias и в ANTHROPIC_DEFAULT_*_MODEL. Если пусто — не передаётся")
 	readyTimeout := flag.Duration("ready-timeout", 180*time.Second,
 		"сколько ждать готовности llama-server по /health перед запуском Claude Code")
-    chatTemplate := flag.String("chat-template", "~/GGUF/qwen-fixed-chat-template.jinja",
-        "путь к файлу исправленного Jinja-шаблона чата (можно с ~)")
-    logFile := flag.String("log-file", "~/.cache/llama-runner/llama-server.log",
-        "файл для логов llama-server и mcp-search-server в режиме Claude Code (можно с ~)")
-    quietServer := flag.Bool("quiet-server", true,
-        "не выводить логи llama-server в терминал при работе с Claude Code (пишет в -log-file)")
+	chatTemplate := flag.String("chat-template", "auto",
+		`шаблон чата (можно с ~). "auto" (по умолчанию) — если имя файла модели содержит "qwen" (без учёта регистра), использовать ~/GGUF/qwen-fixed-chat-template.jinja, иначе шаблон не передаётся вовсе. Явный "" — не передавать шаблон. Явный путь — использовать его.`)
+	logFile := flag.String("log-file", "~/.cache/llama-runner/llama-server.log",
+		"файл для логов llama-server и mcp-search-server в режиме Claude Code (можно с ~)")
+	quietServer := flag.Bool("quiet-server", true,
+		"не выводить логи llama-server в терминал при работе с Claude Code (пишет в -log-file)")
 	mcpAddr := flag.String("mcp-addr", "127.0.0.1:8090",
 		"адрес mcp-search-server в формате host:port")
 	mcpConfigOut := flag.String("mcp-config", "",
@@ -59,41 +86,56 @@ func main() {
 	mcpStrict := flag.Bool("mcp-strict", false,
 		"передать Claude Code --strict-mcp-config: использовать только MCP из этого лаунчера, игнорировать ~/.claude.json")
 	versionFlag := flag.Bool("version", false, "показать версию и выйти")
+
 	// ------- Кастомная справка -------
+	flag.Usage = func() {
+		printUsage(os.Stderr)
+	}
+	flag.Parse()
 
-    flag.Usage = func() {
-        printUsage(os.Stderr)
-    }
-    flag.Parse()
+	if *versionFlag {
+		fmt.Println(version)
+		os.Exit(0)
+	}
 
-    if *versionFlag {
-        fmt.Println(version)
-        os.Exit(0)
-    }
+	if len(os.Args) == 2 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "-help") {
+		printUsage(os.Stdout)
+		os.Exit(0)
+	}
 
-    if len(os.Args) == 2 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "-help") {
-        printUsage(os.Stdout)
-        os.Exit(0)
-    }
-    
-    // CHANGED: если запуск не в режиме -server и -alias не задан явно,
-    // подставляем "local" — чтобы Claude Code не искал несуществующие claude-* модели.
-    aliasSet := false
-    flag.Visit(func(f *flag.Flag) {
-        if f.Name == "alias" {
-            aliasSet = true
-        }
-    })
-    if !aliasSet && !*serverOnly {
-        *alias = "local"
-    }
-	// ------- Разворачиваем ~ в путях -------
+	// Если запуск не в режиме -server и -alias не задан явно, подставляем "local"
+	aliasSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "alias" {
+			aliasSet = true
+		}
+	})
+	if !aliasSet && !*serverOnly {
+		*alias = "local"
+	}
+
+	// ------- Разворачиваем ~ -------
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "не удалось получить домашний каталог: %v\n", err)
 		os.Exit(1)
 	}
 
+	// =================================================================
+	// РЕЖИМ -update: обновляем и пересобираем llama.cpp, затем выходим.
+	// =================================================================
+	if *updateFlag {
+		srcAbs := expandHome(*llamaSrc, home)
+		installAbs := expandHome(*installPrefix, home)
+		if err := updateLlamaCPP(srcAbs, installAbs, *cudaArch, *withCuda, *verbose); err != nil {
+			fmt.Fprintf(os.Stderr, "ошибка обновления llama.cpp: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("llama.cpp успешно обновлён и установлен.")
+		return
+	}
+
+	// ------- Проверяем пути -------
 	serverPath := expandHome(*serverBin, home)
 	modelPath := expandHome(*model, home)
 
@@ -104,6 +146,24 @@ func main() {
 	if _, err := os.Stat(modelPath); err != nil {
 		fmt.Fprintf(os.Stderr, "модель не найдена по пути %q: %v\n", modelPath, err)
 		os.Exit(1)
+	}
+
+	// ------- Автоопределение chat-template -------
+	// "auto": Qwen (по имени файла) → дефолтный qwen-шаблон, иначе — без шаблона.
+	templateToUse := *chatTemplate
+	if templateToUse == "auto" {
+		modelBase := strings.ToLower(filepath.Base(modelPath))
+		if strings.Contains(modelBase, "qwen") {
+			templateToUse = "~/GGUF/qwen-fixed-chat-template.jinja"
+			if *verbose {
+				fmt.Printf("Автоопределение шаблона: имя модели содержит \"qwen\" → %s\n", templateToUse)
+			}
+		} else {
+			templateToUse = ""
+			if *verbose {
+				fmt.Printf("Автоопределение шаблона: модель не Qwen → шаблон не передаётся (--chat-template \"\")\n")
+			}
+		}
 	}
 
 	// ------- Собираем аргументы для llama-server -------
@@ -127,22 +187,62 @@ func main() {
 	if *lazyMmap {
 		args = append(args, "-lm", "mmap", "--lazy-mode", "on")
 	}
-	// NEW: алиас модели
 	if *alias != "" {
 		args = append(args, "--alias", *alias)
 	}
+	if *ngl != "" {
+		args = append(args, "-ngl", *ngl)
+	}
+	if *temp != "" {
+		args = append(args, "--temp", *temp)
+	}
+	if *topP != "" {
+		args = append(args, "--top-p", *topP)
+	}
+	if *cacheTypeK != "" {
+		args = append(args, "--cache-type-k", *cacheTypeK)
+	}
+	if *cacheTypeV != "" {
+		args = append(args, "--cache-type-v", *cacheTypeV)
+	}
+	if *mmproj != "" {
+		mmprojPath := expandHome(*mmproj, home)
+		if _, err := os.Stat(mmprojPath); err != nil {
+			fmt.Fprintf(os.Stderr, "mmproj не найден по пути %q: %v\n", mmprojPath, err)
+			os.Exit(1)
+		}
+		args = append(args, "--mmproj", mmprojPath)
+	}
+	if *specType != "" {
+		args = append(args, "--spec-type", *specType)
+	}
+	if *specDraftNMax != "" {
+		args = append(args, "--spec-draft-n-max", *specDraftNMax)
+	}
+	if *specDraftNGL != "" {
+		args = append(args, "--spec-draft-ngl", *specDraftNGL)
+	}
+	if *specDraftModel != "" {
+		draftPath := expandHome(*specDraftModel, home)
+		if _, err := os.Stat(draftPath); err != nil {
+			fmt.Fprintf(os.Stderr, "spec-draft-model не найден по пути %q: %v\n", draftPath, err)
+			os.Exit(1)
+		}
+		args = append(args, "--spec-draft-model", draftPath)
+	}
+	// chat-template: templateToUse уже развёрнут из "auto" выше.
+	if templateToUse != "" {
+		templatePath := expandHome(templateToUse, home)
+		if _, err := os.Stat(templatePath); err != nil {
+			fmt.Fprintf(os.Stderr, "предупреждение: файл шаблона %q не найден (%v), запускаю без --chat-template-file\n", templatePath, err)
+		} else {
+			args = append(args, "--chat-template-file", templatePath)
+			if *verbose {
+				fmt.Printf("Chat template: %s\n", templatePath)
+			}
+		}
+	}
 
-    if *chatTemplate != "" {
-        templatePath := expandHome(*chatTemplate, home)
-        if _, err := os.Stat(templatePath); err != nil {
-            fmt.Fprintf(os.Stderr, "предупреждение: файл шаблона %q не найден (%v), запускаю без --chat-template-file\n", templatePath, err)
-        } else {
-            args = append(args, "--chat-template-file", templatePath)
-            if *verbose {
-                fmt.Printf("Chat template: %s\n", templatePath)
-            }
-        }
-    }
 	// ------- Создаём команду -------
 	cmd := exec.Command(serverPath, args...)
 
@@ -163,62 +263,58 @@ func main() {
 		}
 	}
 
-    // ------- CHANGED: логи llama-server уводим в файл, если работаем с Claude Code -------
-    var serverLogFile *os.File
-    if !*serverOnly && *quietServer {
-        logPath := expandHome(*logFile, home)
-        if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
-            fmt.Fprintf(os.Stderr, "не удалось создать каталог для логов %q: %v\n", filepath.Dir(logPath), err)
-            os.Exit(1)
-        }
-        f, lerr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-        if lerr != nil {
-            fmt.Fprintf(os.Stderr, "не удалось открыть лог-файл %q: %v\n", logPath, lerr)
-            os.Exit(1)
-        }
-        serverLogFile = f
-        defer serverLogFile.Close()
-        cmd.Stdout = f
-        cmd.Stderr = f
-    } else {
-        cmd.Stdout = os.Stdout
-        cmd.Stderr = os.Stderr
-    }
-    
-    // stdin всё равно нужен, но llama-server его не использует в обычном режиме;
-    // оставляем на случай интерактивных сценариев.
-    cmd.Stdin = os.Stdin
-    
-    if *verbose {
-        fmt.Printf("Рабочая директория: %s\n", cmd.Dir)
-        fmt.Printf("Команда: %s %s\n\n", serverPath, strings.Join(args, " "))
-        if serverLogFile != nil {
-            fmt.Printf("Логи llama-server: %s\n", serverLogFile.Name())
-        }
-    } else {
-        fmt.Printf("Запуск llama-server на %s:%s ...\n", *host, *port)
-        if serverLogFile != nil {
-            fmt.Printf("Логи llama-server: %s\n", serverLogFile.Name())
-        }
-    }
+	var serverLogFile *os.File
+	if !*serverOnly && *quietServer {
+		logPath := expandHome(*logFile, home)
+		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "не удалось создать каталог для логов %q: %v\n", filepath.Dir(logPath), err)
+			os.Exit(1)
+		}
+		f, lerr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if lerr != nil {
+			fmt.Fprintf(os.Stderr, "не удалось открыть лог-файл %q: %v\n", logPath, lerr)
+			os.Exit(1)
+		}
+		serverLogFile = f
+		defer serverLogFile.Close()
+		cmd.Stdout = f
+		cmd.Stderr = f
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	cmd.Stdin = os.Stdin
 
-	// ------- Запуск mcp-search-server при --webui-mcp-proxy -------
+	if *verbose {
+		fmt.Printf("Рабочая директория: %s\n", cmd.Dir)
+		fmt.Printf("Команда: %s %s\n\n", serverPath, strings.Join(args, " "))
+		if serverLogFile != nil {
+			fmt.Printf("Логи llama-server: %s\n", serverLogFile.Name())
+		}
+	} else {
+		fmt.Printf("Запуск llama-server на %s:%s ...\n", *host, *port)
+		if serverLogFile != nil {
+			fmt.Printf("Логи llama-server: %s\n", serverLogFile.Name())
+		}
+	}
+
+	// ------- mcp-search-server -------
 	var mcpCmd *exec.Cmd
 	if *mcpProxy {
 		mcpCmd = exec.Command("mcp-search-server", "--addr", *mcpAddr)
 		mcpCmd.Env = append(os.Environ(), "SEARCH_ENABLED=true")
-        if serverLogFile != nil {
-            mcpCmd.Stdout = serverLogFile
-            mcpCmd.Stderr = serverLogFile
-        } else {
-            mcpCmd.Stdout = os.Stdout
-            mcpCmd.Stderr = os.Stderr
-        }
+		if serverLogFile != nil {
+			mcpCmd.Stdout = serverLogFile
+			mcpCmd.Stderr = serverLogFile
+		} else {
+			mcpCmd.Stdout = os.Stdout
+			mcpCmd.Stderr = os.Stderr
+		}
 		if cmd.Dir != "" {
 			mcpCmd.Dir = cmd.Dir
 		}
 		if *verbose {
-			fmt.Printf("MCP-сервер: SEARCH_ENABLED=true mcp-search-server --addr :8090\n\n")
+			fmt.Printf("MCP-сервер: SEARCH_ENABLED=true mcp-search-server --addr %s\n\n", *mcpAddr)
 		}
 		if err := mcpCmd.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "ошибка запуска mcp-search-server: %v\n", err)
@@ -236,9 +332,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ------- CHANGED: единый менеджер дочерних процессов для сигналов -------
-	// claudeCmd назначается позже (только в режиме "сервер + Claude"),
-	// поэтому защищаем его мьютексом.
+	// ------- Менеджер дочерних процессов для сигналов -------
 	var (
 		mu        sync.Mutex
 		claudeCmd *exec.Cmd
@@ -273,7 +367,7 @@ func main() {
 	}()
 
 	// =================================================================
-	// РЕЖИМ 1: -server — только llama-server (старое поведение)
+	// РЕЖИМ 1: -server — только llama-server
 	// =================================================================
 	if *serverOnly {
 		err = cmd.Wait()
@@ -294,8 +388,6 @@ func main() {
 	// =================================================================
 	// РЕЖИМ 2 (по умолчанию): llama-server + Claude Code
 	// =================================================================
-
-	// 0.0.0.0 / :: нельзя использовать для HTTP-запросов — приводим к 127.0.0.1
 	healthHost := *host
 	if healthHost == "" || healthHost == "0.0.0.0" || healthHost == "::" {
 		healthHost = "127.0.0.1"
@@ -312,9 +404,9 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("llama-server готов. Запуск Claude Code...")
-	// ── Ждём готовности mcp-search-server (если запущен) ─────────
+
 	var (
-		mcpSSEURL    string
+		mcpSSEURL     string
 		mcpConfigFile string
 	)
 	if *mcpProxy {
@@ -323,7 +415,6 @@ func main() {
 
 		fmt.Printf("Ожидание готовности MCP-сервера (%s) ...\n", mcpHealthURL)
 		if err := waitForServer(mcpHealthURL, 15*time.Second); err != nil {
-			// Не роняем лаунчер: Claude Code может работать и без поиска.
 			fmt.Fprintf(os.Stderr,
 				"предупреждение: mcp-search-server не готов: %v\n"+
 					"Claude Code будет запущен без web_search.\n", err)
@@ -342,7 +433,6 @@ func main() {
 		}
 	}
 
-	// --- Путь к claude ---
 	claudePath := expandHome(*claudeBin, home)
 	if resolved, lerr := exec.LookPath(claudePath); lerr == nil {
 		claudePath = resolved
@@ -354,7 +444,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- Окружение для Claude Code ---
 	claudeEnv := append(os.Environ(),
 		"ANTHROPIC_BASE_URL="+baseURL,
 		"ANTHROPIC_AUTH_TOKEN=local-llama",
@@ -369,7 +458,6 @@ func main() {
 		)
 	}
 
-	// --- Создаём процесс Claude Code ---
 	claudeArgs := []string{}
 	if mcpConfigFile != "" {
 		claudeArgs = append(claudeArgs, "--mcp-config", mcpConfigFile)
@@ -387,7 +475,6 @@ func main() {
 	cc.Stdout = os.Stdout
 	cc.Stderr = os.Stderr
 
-	// Рабочая директория для Claude Code
 	if *claudeDir != "" {
 		absDir, derr := filepath.Abs(expandHome(*claudeDir, home))
 		if derr != nil {
@@ -427,7 +514,6 @@ func main() {
 	}
 	setClaudeCmd(cc)
 
-	// --- Ждём завершения Claude Code ---
 	ccErr := cc.Wait()
 	if ccErr != nil {
 		if exitErr, ok := ccErr.(*exec.ExitError); ok {
@@ -439,7 +525,6 @@ func main() {
 		fmt.Println("Claude Code завершён. Останавливаем llama-server...")
 	}
 
-	// --- Гасим llama-server ---
 	if cmd.Process != nil {
 		_ = cmd.Process.Signal(syscall.SIGINT)
 	}
@@ -448,8 +533,83 @@ func main() {
 	fmt.Println("Готово.")
 }
 
-// NEW: waitForServer периодически опрашивает /health, пока сервер не ответит 200 OK,
-// либо пока не истечёт timeout.
+// updateLlamaCPP обновляет исходники llama.cpp и пересобирает/переустанавливает их.
+func updateLlamaCPP(srcPath, installPrefix, cudaArch string, withCuda, verbose bool) error {
+	info, err := os.Stat(srcPath)
+	if err != nil {
+		return fmt.Errorf("исходники llama.cpp не найдены по пути %q: %w", srcPath, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("путь %q не является каталогом", srcPath)
+	}
+
+	fmt.Printf("Обновление исходников в %s...\n", srcPath)
+	pullArgs := []string{"-C", srcPath, "pull", "--ff-only"}
+	if verbose {
+		fmt.Printf("  git %s\n", strings.Join(pullArgs, " "))
+	}
+	pull := exec.Command("git", pullArgs...)
+	pull.Stdout = os.Stdout
+	pull.Stderr = os.Stderr
+	if err := pull.Run(); err != nil {
+		return fmt.Errorf("git pull: %w", err)
+	}
+
+	cmakeArgs := []string{
+		"-B", "build",
+		"-DCMAKE_BUILD_TYPE=Release",
+		"-DCMAKE_INSTALL_PREFIX=" + installPrefix,
+	}
+	if withCuda {
+		cmakeArgs = append(cmakeArgs, "-DGGML_CUDA=ON")
+		if cudaArch != "" {
+			cmakeArgs = append(cmakeArgs, "-DCMAKE_CUDA_ARCHITECTURES="+cudaArch)
+		} else {
+			cmakeArgs = append(cmakeArgs, "-U", "CMAKE_CUDA_ARCHITECTURES")
+		}
+	}
+	if verbose {
+		fmt.Printf("  cmake %s\n", strings.Join(cmakeArgs, " "))
+	}
+	configure := exec.Command("cmake", cmakeArgs...)
+	configure.Dir = srcPath
+	configure.Stdout = os.Stdout
+	configure.Stderr = os.Stderr
+	if err := configure.Run(); err != nil {
+		return fmt.Errorf("cmake configure: %w", err)
+	}
+
+	jobs := runtime.NumCPU()
+	fmt.Printf("Сборка (%d потоков)...\n", jobs)
+	buildArgs := []string{"--build", "build", "--config", "Release", "-j", fmt.Sprintf("%d", jobs)}
+	if verbose {
+		fmt.Printf("  cmake %s\n", strings.Join(buildArgs, " "))
+	}
+	build := exec.Command("cmake", buildArgs...)
+	build.Dir = srcPath
+	build.Stdout = os.Stdout
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		return fmt.Errorf("cmake build: %w", err)
+	}
+
+	fmt.Printf("Установка в %s...\n", installPrefix)
+	installArgs := []string{"--install", "build"}
+	if verbose {
+		fmt.Printf("  cmake %s\n", strings.Join(installArgs, " "))
+	}
+	install := exec.Command("cmake", installArgs...)
+	install.Dir = srcPath
+	install.Stdout = os.Stdout
+	install.Stderr = os.Stderr
+	if err := install.Run(); err != nil {
+		return fmt.Errorf("cmake install: %w", err)
+	}
+
+	return nil
+}
+
+// waitForServer периодически опрашивает /health, пока сервер не ответит 200 OK.
 func waitForServer(url string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 3 * time.Second}
@@ -544,7 +704,6 @@ func expandHome(path, home string) string {
 }
 
 // printUsage печатает подробную справку программы.
-// CHANGED: добавлены описания новых флагов (-server, -claude-bin, -claude-dir, -alias, -ready-timeout).
 func printUsage(w *os.File) {
 	fmt.Fprintf(w, `llama-runner — лаунчер для llama-server и Claude Code
 
@@ -553,12 +712,37 @@ func printUsage(w *os.File) {
 Когда Claude Code завершается, llama-server автоматически останавливается.
 
 С флагом -server запускается ТОЛЬКО llama-server (прежнее поведение).
+С флагом -update обновляется llama.cpp (git pull + сборка + установка), затем выход.
 
 При использовании -webui-mcp-proxy дополнительно запускается
 SEARCH_ENABLED=true mcp-search-server --addr :8090.
 
 Использование:
   server [флаги]
+
+Автоопределение chat-template (по умолчанию -chat-template "auto"):
+  - если имя файла модели содержит "qwen" (без учёта регистра) —
+    используется ~/GGUF/qwen-fixed-chat-template.jinja;
+  - иначе шаблон не передаётся вовсе (эквивалент -chat-template "").
+  Явное значение -chat-template (путь или "") имеет приоритет.
+
+Обновление llama.cpp:
+  -update
+        обновить llama.cpp: git pull --ff-only, cmake configure/build/install,
+        затем выйти. Сервер не запускается. Удобно комбинировать:
+          server -update && server -server -model ~/GGUF/model.gguf
+  -llama-src string
+        путь к исходникам llama.cpp (по умолчанию "~/src/llama.cpp")
+  -install-prefix string
+        префикс для -DCMAKE_INSTALL_PREFIX (по умолчанию "~/.local")
+  -cuda
+        собирать с CUDA, т.е. -DGGML_CUDA=ON (по умолчанию true).
+        Установите -cuda=false для CPU-only сборки.
+  -cuda-arch string
+        значение для -DCMAKE_CUDA_ARCHITECTURES. По умолчанию "61"
+        (Pascal, GTX 1080 Ti). Укажите иную (например "75" для Turing,
+        "86" для Ampere). Пустая строка "" — не передавать флаг вовсе
+        (CMake возьмёт свой default; закешированное значение сбрасывается).
 
 Основные флаги:
   -bin string
@@ -588,26 +772,20 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
         файл для логов llama-server и mcp-search-server в режиме Claude Code
         (по умолчанию "~/.cache/llama-runner/llama-server.log")
   -quiet-server
-        уводить логи llama-server в файл, а не в терминал (по умолчанию true).
-        Установите -quiet-server=false, если хотите видеть логи в терминале
-        (только для отладки — интерфейс Claude Code будет ломаться).
+        уводить логи llama-server в файл, а не в терминал (по умолчанию true)
   -mcp-addr string
-        адрес mcp-search-server (host:port, по умолчанию 127.0.0.1:8090).
-        Используется только вместе с -webui-mcp-proxy.
+        адрес mcp-search-server (host:port, по умолчанию 127.0.0.1:8090)
   -mcp-config string
-        путь к временному MCP-конфигу для Claude Code.
-        По умолчанию — во временном каталоге ОС (удаляется после выхода).
+        путь к временному MCP-конфигу для Claude Code
   -mcp-strict
-        передать Claude Code --strict-mcp-config: использовать только
-        MCP-серверы, объявленные этим лаунчером, игнорируя ~/.claude.json.
+        передать Claude Code --strict-mcp-config
   -chat-template string
-        путь к исправленному Jinja-шаблону чата (можно с ~).
-        По умолчанию "~/GGUF/qwen-fixed-chat-template.jinja".
-        Если файла нет — сервер стартует без кастомного шаблона.
+        шаблон чата (можно с ~). "auto" (по умолчанию) — Qwen: ~/GGUF/qwen-fixed-chat-template.jinja,
+        иначе шаблон не передаётся. Явный "" — без шаблона. Явный путь — использовать его.
 
 Параметры llama.cpp:
   -c, -b, -ub string
-        размер контекста / батча / микро-батча
+        размер контекста / батча / микро-батча (по умолчанию 65536/2048/1024)
   -fa string
         flash attention (-fa, по умолчанию "auto")
   -parallel string
@@ -621,35 +799,69 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
   -webui-mcp-proxy
         включить --webui-mcp-proxy и поднять mcp-search-server
 
+Дополнительные параметры llama.cpp (передаются, только если заданы):
+  -ngl string
+        число слоёв модели на GPU (-ngl), например 999
+  -mmproj string
+        путь к мультимодальному проектору (--mmproj)
+  -temp string
+        температура сэмплинга (--temp)
+  -top-p string
+        top-p сэмплинг (--top-p)
+  -cache-type-k string
+        тип K-кэша (--cache-type-k), например q8_0
+  -cache-type-v string
+        тип V-кэша (--cache-type-v), например q8_0
+
+Спекулятивное декодирование (передаётся, только если задано):
+  -spec-type string
+        тип спекулятивного декодирования (--spec-type), например draft-dflash
+  -spec-draft-model string
+        путь к драфтер-модели (--spec-draft-model)
+  -spec-draft-n-max string
+        макс. число черновых токенов драфтера (--spec-draft-n-max)
+  -spec-draft-ngl string
+        число слоёв драфтера на GPU (--spec-draft-ngl)
+
 Прочее:
   -v    печатать полную команду и рабочую директорию перед запуском
+  -version
+        показать версию и выйти
   -h, --help
         показать эту справку и выйти
 
 Примеры:
+  # обновить llama.cpp (архитектура по умолчанию — "61") и выйти
+  server -update
+
+  # обновить для Turing (sm_75)
+  server -update -cuda-arch 75
+
+  # обновить без явной архитектуры (CMake выберет default)
+  server -update -cuda-arch ""
+
+  # обновить, затем запустить сервер Nemotron (без LiLiCorr)
+  server -update && server -server \
+    -model ~/GGUF/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
+    -c 16384 -b 2048 -ub 512 -fa on -jinja
+    # chat-template можно не указывать — автоопределение само отключит шаблон
+
   # сервер + Claude Code с дефолтными параметрами
   server
 
-  # сервер + Claude Code, алиас модели и рабочая папка проекта
-  server -alias qwen3-coder -claude-dir ~/my-project
-
-  # только сервер (как раньше)
+  # только сервер
   server -server
 
-  # только сервер на другом порту
-  server -server -port 9090
-
-  # посмотреть, что будет выполнено
-  server -v -claude-dir ~/work
-
-  # запуск с прокси для MCP-серверов и поисковым MCP-сервером
-  server -webui-mcp-proxy -server
-
-  # сервер + Claude Code с автоматически подключённым web_search
-  server -webui-mcp-proxy
-
-  # то же, но не примешивать другие MCP-серверы из ~/.claude.json
-  server -webui-mcp-proxy -mcp-strict
+  # Nemotron с LiLiCorr-драфтером
+  server -server \
+    -model  ~/models/nemotron-bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
+    -mmproj ~/models/nemotron-bolt/mmproj-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
+    -spec-type draft-dflash \
+    -spec-draft-model ~/models/nemotron-bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf \
+    -spec-draft-n-max 6 -spec-draft-ngl 999 -ngl 999 \
+    -c 98304 -b 2048 -ub 512 \
+    -cache-type-k q8_0 -cache-type-v q8_0 \
+    -temp 1.0 -top-p 0.95 -fa on -jinja
 
 Совет:
   Если сервер должен быть доступен из локальной сети, укажите
