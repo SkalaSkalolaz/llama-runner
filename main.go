@@ -4,19 +4,21 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
 
-var version = "1.1"
+var version = "1.2"
 
 func main() {
 	// ------- Флаги командной строки -------
@@ -76,7 +78,7 @@ func main() {
 	chatTemplate := flag.String("chat-template", "auto",
 		`шаблон чата (можно с ~). "auto" (по умолчанию) — если имя файла модели содержит "qwen" (без учёта регистра), использовать ~/GGUF/qwen-fixed-chat-template.jinja, иначе шаблон не передаётся вовсе. Явный "" — не передавать шаблон. Явный путь — использовать его.`)
 	logFile := flag.String("log-file", "~/.cache/llama-runner/llama-server.log",
-		"файл для логов llama-server и mcp-search-server в режиме Claude Code (можно с ~)")
+		"файл для логов llama-server и mcp-search-server в режиме Claude Code (можно с ~; права 0600)")
 	quietServer := flag.Bool("quiet-server", true,
 		"не выводить логи llama-server в терминал при работе с Claude Code (пишет в -log-file)")
 	mcpAddr := flag.String("mcp-addr", "127.0.0.1:8090",
@@ -121,6 +123,32 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Проверяем параметры до запуска внешних процессов.
+	if *readyTimeout <= 0 {
+		fatalf("-ready-timeout должен быть больше нуля")
+	}
+	if strings.TrimSpace(*host) == "" {
+		fatalf("-host не может быть пустым")
+	}
+	portNum, parseErr := strconv.Atoi(*port)
+	if parseErr != nil || portNum < 1 || portNum > 65535 {
+		fatalf("некорректный -port %q: ожидается число от 1 до 65535", *port)
+	}
+	if strings.TrimSpace(*mcpAddr) == "" {
+		fatalf("-mcp-addr не может быть пустым")
+	}
+	if *mcpProxy {
+		if _, _, err := net.SplitHostPort(*mcpAddr); err != nil {
+			fatalf("некорректный -mcp-addr %q: используйте host:port", *mcpAddr)
+		}
+	}
+	chatTemplateExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "chat-template" {
+			chatTemplateExplicit = true
+		}
+	})
+
 	// =================================================================
 	// РЕЖИМ -update: обновляем и пересобираем llama.cpp, затем выходим.
 	// =================================================================
@@ -136,8 +164,14 @@ func main() {
 	}
 
 	// ------- Проверяем пути -------
-	serverPath := expandHome(*serverBin, home)
-	modelPath := expandHome(*model, home)
+	serverPath, err := filepath.Abs(expandHome(*serverBin, home))
+	if err != nil {
+		fatalf("не удалось определить абсолютный путь llama-server: %v", err)
+	}
+	modelPath, err := filepath.Abs(expandHome(*model, home))
+	if err != nil {
+		fatalf("не удалось определить абсолютный путь модели: %v", err)
+	}
 
 	if _, err := os.Stat(serverPath); err != nil {
 		fmt.Fprintf(os.Stderr, "llama-server не найден по пути %q: %v\n", serverPath, err)
@@ -206,7 +240,10 @@ func main() {
 		args = append(args, "--cache-type-v", *cacheTypeV)
 	}
 	if *mmproj != "" {
-		mmprojPath := expandHome(*mmproj, home)
+		mmprojPath, pathErr := filepath.Abs(expandHome(*mmproj, home))
+		if pathErr != nil {
+			fatalf("не удалось определить абсолютный путь mmproj: %v", pathErr)
+		}
 		if _, err := os.Stat(mmprojPath); err != nil {
 			fmt.Fprintf(os.Stderr, "mmproj не найден по пути %q: %v\n", mmprojPath, err)
 			os.Exit(1)
@@ -223,7 +260,10 @@ func main() {
 		args = append(args, "--spec-draft-ngl", *specDraftNGL)
 	}
 	if *specDraftModel != "" {
-		draftPath := expandHome(*specDraftModel, home)
+		draftPath, pathErr := filepath.Abs(expandHome(*specDraftModel, home))
+		if pathErr != nil {
+			fatalf("не удалось определить абсолютный путь spec-draft-model: %v", pathErr)
+		}
 		if _, err := os.Stat(draftPath); err != nil {
 			fmt.Fprintf(os.Stderr, "spec-draft-model не найден по пути %q: %v\n", draftPath, err)
 			os.Exit(1)
@@ -232,9 +272,16 @@ func main() {
 	}
 	// chat-template: templateToUse уже развёрнут из "auto" выше.
 	if templateToUse != "" {
-		templatePath := expandHome(templateToUse, home)
-		if _, err := os.Stat(templatePath); err != nil {
-			fmt.Fprintf(os.Stderr, "предупреждение: файл шаблона %q не найден (%v), запускаю без --chat-template-file\n", templatePath, err)
+		templatePath, pathErr := filepath.Abs(expandHome(templateToUse, home))
+		if pathErr != nil {
+			fatalf("не удалось определить абсолютный путь chat-template: %v", pathErr)
+		}
+		info, statErr := os.Stat(templatePath)
+		if statErr != nil || !info.Mode().IsRegular() {
+			if chatTemplateExplicit {
+				fatalf("указанный -chat-template недоступен или не является обычным файлом: %q (%v)", templatePath, statErr)
+			}
+			fmt.Fprintf(os.Stderr, "предупреждение: автоматически выбранный шаблон %q недоступен (%v); использую шаблон из GGUF, если он есть\n", templatePath, statErr)
 		} else {
 			args = append(args, "--chat-template-file", templatePath)
 			if *verbose {
@@ -245,7 +292,32 @@ func main() {
 
 	// ------- Создаём команду -------
 	cmd := exec.Command(serverPath, args...)
-
+    // Подкладываем соседний lib-каталог для llama-server, чтобы он находил
+    // свои .so (libggml*, backend-библиотеки) даже если ldconfig-кэш устарел
+    // или ~/.local/lib не прописан в /etc/ld.so.conf.d.
+    if cmd.Env == nil {
+        cmd.Env = os.Environ()
+    }
+    for _, sub := range []string{"lib", "lib64"} {
+        cand := filepath.Join(filepath.Dir(serverPath), "..", sub)
+        abs, err := filepath.Abs(cand)
+        if err != nil {
+            continue
+        }
+        if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+            continue
+        }
+        oldLP := os.Getenv("LD_LIBRARY_PATH")
+        newLP := abs
+        if oldLP != "" {
+            newLP = abs + ":" + oldLP
+        }
+        cmd.Env = append(cmd.Env, "LD_LIBRARY_PATH="+newLP)
+        if *verbose {
+            fmt.Printf("LD_LIBRARY_PATH для llama-server: %s\n", newLP)
+        }
+        break
+    }
 	if *workDir != "" {
 		absDir, err := filepath.Abs(expandHome(*workDir, home))
 		if err != nil {
@@ -266,14 +338,18 @@ func main() {
 	var serverLogFile *os.File
 	if !*serverOnly && *quietServer {
 		logPath := expandHome(*logFile, home)
-		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 			fmt.Fprintf(os.Stderr, "не удалось создать каталог для логов %q: %v\n", filepath.Dir(logPath), err)
 			os.Exit(1)
 		}
-		f, lerr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		f, lerr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if lerr != nil {
 			fmt.Fprintf(os.Stderr, "не удалось открыть лог-файл %q: %v\n", logPath, lerr)
 			os.Exit(1)
+		}
+		if err := f.Chmod(0o600); err != nil {
+			_ = f.Close()
+			fatalf("не удалось установить права доступа к лог-файлу %q: %v", logPath, err)
 		}
 		serverLogFile = f
 		defer serverLogFile.Close()
@@ -331,6 +407,7 @@ func main() {
 		}
 		os.Exit(1)
 	}
+	serverProcess := trackProcess(cmd)
 
 	// ------- Менеджер дочерних процессов для сигналов -------
 	var (
@@ -370,7 +447,7 @@ func main() {
 	// РЕЖИМ 1: -server — только llama-server
 	// =================================================================
 	if *serverOnly {
-		err = cmd.Wait()
+		err = serverProcess.Wait()
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				stopMcp(mcpCmd)
@@ -392,26 +469,32 @@ func main() {
 	if healthHost == "" || healthHost == "0.0.0.0" || healthHost == "::" {
 		healthHost = "127.0.0.1"
 	}
-	baseURL := fmt.Sprintf("http://%s:%s", healthHost, *port)
+	baseURL := "http://" + net.JoinHostPort(strings.Trim(healthHost, "[]"), *port)
 	healthURL := baseURL + "/health"
 
 	fmt.Printf("Ожидание готовности сервера (%s), таймаут %v ...\n", healthURL, *readyTimeout)
-	if err := waitForServer(healthURL, *readyTimeout); err != nil {
+	if err := waitForServerProcess(healthURL, *readyTimeout, serverProcess); err != nil {
 		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
 		stopChildren()
-		_ = cmd.Wait()
+		_ = serverProcess.Wait()
 		stopMcp(mcpCmd)
 		os.Exit(1)
 	}
 	fmt.Println("llama-server готов. Запуск Claude Code...")
-
-	var (
-		mcpSSEURL     string
-		mcpConfigFile string
-	)
+    var (
+        mcpEndpointURL string
+        mcpConfigFile  string
+    )
 	if *mcpProxy {
-		mcpHealthURL := fmt.Sprintf("http://%s/health", *mcpAddr)
-		mcpSSEURL = fmt.Sprintf("http://%s/sse", *mcpAddr)
+		mcpHost, mcpPort, splitErr := net.SplitHostPort(*mcpAddr)
+		if splitErr != nil {
+			fatalf("некорректный -mcp-addr %q: %v", *mcpAddr, splitErr)
+		}
+
+        mcpURL := "http://" + net.JoinHostPort(strings.Trim(mcpHost, "[]"), mcpPort)
+        mcpHealthURL := mcpURL + "/health"
+        // Claude Code подключается через Streamable HTTP, а не SSE.
+        mcpEndpointURL = mcpURL + "/mcp"
 
 		fmt.Printf("Ожидание готовности MCP-сервера (%s) ...\n", mcpHealthURL)
 		if err := waitForServer(mcpHealthURL, 15*time.Second); err != nil {
@@ -419,17 +502,21 @@ func main() {
 				"предупреждение: mcp-search-server не готов: %v\n"+
 					"Claude Code будет запущен без web_search.\n", err)
 		} else {
-			path, werr := writeMCPConfig(*mcpConfigOut, mcpSSEURL)
+			requestedConfigPath := expandHome(*mcpConfigOut, home)
+            path, werr := writeMCPConfig(requestedConfigPath, mcpEndpointURL)
 			if werr != nil {
 				fmt.Fprintf(os.Stderr,
 					"предупреждение: не удалось создать MCP-конфиг: %v\n", werr)
 			} else {
 				mcpConfigFile = path
-				defer os.Remove(mcpConfigFile)
-				if *verbose {
-					fmt.Printf("MCP-конфиг: %s (url=%s)\n", path, mcpSSEURL)
+				// Удаляем только временный файл, созданный лаунчером.
+				if requestedConfigPath == "" {
+					defer os.Remove(mcpConfigFile)
 				}
-			}
+                if *verbose {
+                    fmt.Printf("MCP-конфиг: %s (url=%s, type=http)\n", path, mcpEndpointURL)
+                }
+            }
 		}
 	}
 
@@ -439,7 +526,7 @@ func main() {
 	} else if !filepath.IsAbs(claudePath) {
 		fmt.Fprintf(os.Stderr, "Claude Code не найден (%q): %v\n", *claudeBin, lerr)
 		stopChildren()
-		_ = cmd.Wait()
+		_ = serverProcess.Wait()
 		stopMcp(mcpCmd)
 		os.Exit(1)
 	}
@@ -480,14 +567,14 @@ func main() {
 		if derr != nil {
 			fmt.Fprintf(os.Stderr, "не удалось определить абсолютный путь claude-dir: %v\n", derr)
 			stopChildren()
-			_ = cmd.Wait()
+			_ = serverProcess.Wait()
 			stopMcp(mcpCmd)
 			os.Exit(1)
 		}
 		if info, serr := os.Stat(absDir); serr != nil || !info.IsDir() {
 			fmt.Fprintf(os.Stderr, "claude-dir %q недоступна: %v\n", absDir, serr)
 			stopChildren()
-			_ = cmd.Wait()
+			_ = serverProcess.Wait()
 			stopMcp(mcpCmd)
 			os.Exit(1)
 		}
@@ -508,7 +595,7 @@ func main() {
 	if err := cc.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "ошибка запуска Claude Code: %v\n", err)
 		stopChildren()
-		_ = cmd.Wait()
+		_ = serverProcess.Wait()
 		stopMcp(mcpCmd)
 		os.Exit(1)
 	}
@@ -528,13 +615,18 @@ func main() {
 	if cmd.Process != nil {
 		_ = cmd.Process.Signal(syscall.SIGINT)
 	}
-	_ = cmd.Wait()
+	_ = serverProcess.Wait()
 	stopMcp(mcpCmd)
 	fmt.Println("Готово.")
 }
 
 // updateLlamaCPP обновляет исходники llama.cpp и пересобирает/переустанавливает их.
 func updateLlamaCPP(srcPath, installPrefix, cudaArch string, withCuda, verbose bool) error {
+	var err error
+	srcPath, err = filepath.Abs(srcPath)
+	if err != nil {
+		return fmt.Errorf("не удалось определить абсолютный путь исходников: %w", err)
+	}
 	info, err := os.Stat(srcPath)
 	if err != nil {
 		return fmt.Errorf("исходники llama.cpp не найдены по пути %q: %w", srcPath, err)
@@ -555,10 +647,15 @@ func updateLlamaCPP(srcPath, installPrefix, cudaArch string, withCuda, verbose b
 		return fmt.Errorf("git pull: %w", err)
 	}
 
+	installAbs, err := filepath.Abs(installPrefix)
+	if err != nil {
+		return fmt.Errorf("не удалось определить абсолютный install-prefix: %w", err)
+	}
 	cmakeArgs := []string{
-		"-B", "build",
+		"-S", srcPath,
+		"-B", filepath.Join(srcPath, "build"),
 		"-DCMAKE_BUILD_TYPE=Release",
-		"-DCMAKE_INSTALL_PREFIX=" + installPrefix,
+		"-DCMAKE_INSTALL_PREFIX=" + installAbs,
 	}
 	if withCuda {
 		cmakeArgs = append(cmakeArgs, "-DGGML_CUDA=ON")
@@ -567,6 +664,10 @@ func updateLlamaCPP(srcPath, installPrefix, cudaArch string, withCuda, verbose b
 		} else {
 			cmakeArgs = append(cmakeArgs, "-U", "CMAKE_CUDA_ARCHITECTURES")
 		}
+	} else {
+		// Явно выключаем CUDA: одного отсутствия флага недостаточно,
+		// если в существующем build-каталоге сохранён старый cache.
+		cmakeArgs = append(cmakeArgs, "-DGGML_CUDA=OFF", "-U", "CMAKE_CUDA_ARCHITECTURES")
 	}
 	if verbose {
 		fmt.Printf("  cmake %s\n", strings.Join(cmakeArgs, " "))
@@ -581,7 +682,7 @@ func updateLlamaCPP(srcPath, installPrefix, cudaArch string, withCuda, verbose b
 
 	jobs := runtime.NumCPU()
 	fmt.Printf("Сборка (%d потоков)...\n", jobs)
-	buildArgs := []string{"--build", "build", "--config", "Release", "-j", fmt.Sprintf("%d", jobs)}
+	buildArgs := []string{"--build", filepath.Join(srcPath, "build"), "--config", "Release", "-j", fmt.Sprintf("%d", jobs)}
 	if verbose {
 		fmt.Printf("  cmake %s\n", strings.Join(buildArgs, " "))
 	}
@@ -594,7 +695,7 @@ func updateLlamaCPP(srcPath, installPrefix, cudaArch string, withCuda, verbose b
 	}
 
 	fmt.Printf("Установка в %s...\n", installPrefix)
-	installArgs := []string{"--install", "build"}
+	installArgs := []string{"--install", filepath.Join(srcPath, "build")}
 	if verbose {
 		fmt.Printf("  cmake %s\n", strings.Join(installArgs, " "))
 	}
@@ -607,6 +708,70 @@ func updateLlamaCPP(srcPath, installPrefix, cudaArch string, withCuda, verbose b
 	}
 
 	return nil
+}
+
+// trackedProcess централизует Wait: для каждого дочернего процесса Wait вызывается ровно один раз.
+type trackedProcess struct {
+	done chan struct{}
+	err  error
+}
+
+func trackProcess(cmd *exec.Cmd) *trackedProcess {
+	p := &trackedProcess{done: make(chan struct{})}
+	go func() {
+		p.err = cmd.Wait()
+		close(p.done)
+	}()
+	return p
+}
+
+func (p *trackedProcess) Wait() error {
+	<-p.done
+	return p.err
+}
+
+// waitForServerProcess прекращает ожидание готовности, если процесс сервера завершился раньше.
+func waitForServerProcess(url string, timeout time.Duration, process *trackedProcess) error {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	client := &http.Client{Timeout: 3 * time.Second}
+	var lastErr error
+	check := func() (bool, error) {
+		resp, err := client.Get(url)
+		if err != nil {
+			lastErr = err
+			return false, nil
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return true, nil
+		}
+		lastErr = fmt.Errorf("статус %d", resp.StatusCode)
+		return false, nil
+	}
+	for {
+		select {
+		case <-process.done:
+			return fmt.Errorf("llama-server завершился до готовности: %v", process.Wait())
+		default:
+		}
+		ready, _ := check()
+		if ready {
+			return nil
+		}
+		select {
+		case <-process.done:
+			return fmt.Errorf("llama-server завершился до готовности: %v", process.Wait())
+		case <-deadline.C:
+			if lastErr == nil {
+				lastErr = fmt.Errorf("таймаут")
+			}
+			return fmt.Errorf("сервер не стал готов за %v: %v", timeout, lastErr)
+		case <-ticker.C:
+		}
+	}
 }
 
 // waitForServer периодически опрашивает /health, пока сервер не ответит 200 OK.
@@ -655,41 +820,74 @@ func stopMcp(mcpCmd *exec.Cmd) {
 	case <-time.After(3 * time.Second):
 		fmt.Fprintln(os.Stderr, "mcp-search-server не завершился за 3 секунды — убиваем")
 		_ = mcpCmd.Process.Kill()
-		_ = mcpCmd.Wait()
+		select {
+		case err := <-done:
+			if err != nil {
+				if _, ok := err.(*exec.ExitError); !ok {
+					fmt.Fprintf(os.Stderr, "ошибка ожидания mcp-search-server: %v\n", err)
+				}
+			}
+		case <-time.After(3 * time.Second):
+			fmt.Fprintln(os.Stderr, "предупреждение: процесс mcp-search-server не подтвердил завершение после Kill")
+		}
 	}
 }
 
-func writeMCPConfig(path, sseURL string) (string, error) {
-	if path == "" {
+func writeMCPConfig(path, httpURL string) (string, error) {
+	temporary := path == ""
+	if temporary {
 		f, err := os.CreateTemp("", "llama-runner-mcp-*.json")
 		if err != nil {
 			return "", err
 		}
 		path = f.Name()
-		_ = f.Close()
-	} else {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := f.Close(); err != nil {
+			_ = os.Remove(path)
 			return "", err
+		}
+	} else {
+		dir := filepath.Dir(path)
+		if dir != "." && dir != "" {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return "", err
+			}
 		}
 	}
 
-	cfg := map[string]any{
-		"mcpServers": map[string]any{
-			"search": map[string]any{
-				"type": "sse",
-				"url":  sseURL,
-			},
-		},
-	}
-
+    cfg := map[string]any{
+        "mcpServers": map[string]any{
+            "search": map[string]any{
+                "type": "http",
+                "url":  httpURL,
+            },
+        },
+    }
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
+		if temporary {
+			_ = os.Remove(path)
+		}
 		return "", err
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
+		if temporary {
+			_ = os.Remove(path)
+		}
+		return "", err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		if temporary {
+			_ = os.Remove(path)
+		}
 		return "", err
 	}
 	return path, nil
+}
+
+// fatalf выводит диагностическое сообщение и завершает программу с кодом 2.
+func fatalf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "ошибка: "+format+"\n", args...)
+	os.Exit(2)
 }
 
 // expandHome заменяет ведущий "~" на домашний каталог пользователя.
@@ -776,7 +974,7 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
   -mcp-addr string
         адрес mcp-search-server (host:port, по умолчанию 127.0.0.1:8090)
   -mcp-config string
-        путь к временному MCP-конфигу для Claude Code
+        путь к MCP-конфигу для Claude Code; заданный файл сохраняется после выхода
   -mcp-strict
         передать Claude Code --strict-mcp-config
   -chat-template string
