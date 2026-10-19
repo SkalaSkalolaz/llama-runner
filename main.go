@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-var version = "1.2"
+var version = "1.3"
 
 func main() {
 	// ------- Флаги командной строки -------
@@ -45,7 +45,9 @@ func main() {
 	topP := flag.String("top-p", "", "top-p сэмплинг (--top-p). Не передаётся, если пусто")
 	cacheTypeK := flag.String("cache-type-k", "", "тип K-кэша (--cache-type-k), напр. q8_0. Не передаётся, если пусто")
 	cacheTypeV := flag.String("cache-type-v", "", "тип V-кэша (--cache-type-v), напр. q8_0. Не передаётся, если пусто")
-
+    // Управление диагностикой и подбором памяти llama.cpp
+    fitMode := flag.String("fit", "", "режим подбора параметров под память (--fit on|off). Не передаётся, если пусто")
+    logVerbosity := flag.String("lv", "", "уровень детализации логов llama.cpp (-lv N, 0..5). Не передаётся, если пусто")
 	// Спекулятивное декодирование (draft-модель)
 	specType := flag.String("spec-type", "", "тип спекулятивного декодирования (--spec-type), напр. draft-dflash. Не передаётся, если пусто")
 	specDraftModel := flag.String("spec-draft-model", "", "путь к драфтер-модели (--spec-draft-model, можно с ~). Не передаётся, если пусто")
@@ -238,6 +240,12 @@ func main() {
 	}
 	if *cacheTypeV != "" {
 		args = append(args, "--cache-type-v", *cacheTypeV)
+	}
+	if *fitMode != "" {
+		args = append(args, "--fit", *fitMode)
+	}
+	if *logVerbosity != "" {
+		args = append(args, "-lv", *logVerbosity)
 	}
 	if *mmproj != "" {
 		mmprojPath, pathErr := filepath.Abs(expandHome(*mmproj, home))
@@ -1010,6 +1018,15 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
         тип K-кэша (--cache-type-k), например q8_0
   -cache-type-v string
         тип V-кэша (--cache-type-v), например q8_0
+  -fit string
+        режим подбора параметров под доступную память (--fit on|off).
+        Пример: -fit off — отключить автоподбор (полезно при отладке
+        падений в llama.cpp). Не передаётся, если пусто.
+  -lv string
+        уровень детализации логов llama.cpp (-lv N, где N=0..5).
+        Пример: -lv 4 — максимально подробный лог (нужен для диагностики
+        MTP/DFlash: видно n_draft, n_accept, accept_rate).
+        Не путать с -v — флагом самого лаунчера.
 
 Спекулятивное декодирование (передаётся, только если задано):
   -spec-type string
