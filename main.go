@@ -643,17 +643,23 @@ func updateLlamaCPP(srcPath, installPrefix, cudaArch string, withCuda, verbose b
 		return fmt.Errorf("путь %q не является каталогом", srcPath)
 	}
 
-	fmt.Printf("Обновление исходников в %s...\n", srcPath)
-	pullArgs := []string{"-C", srcPath, "pull", "--ff-only"}
-	if verbose {
-		fmt.Printf("  git %s\n", strings.Join(pullArgs, " "))
+	upstreamCheck := exec.Command("git", "-C", srcPath,
+		"rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	if err := upstreamCheck.Run(); err != nil {
+		fmt.Println("  (у текущей ветки нет upstream — git pull пропущен, используем текущий код)")
+	} else {
+		pullArgs := []string{"-C", srcPath, "pull", "--ff-only"}
+		if verbose {
+			fmt.Printf("  git %s\n", strings.Join(pullArgs, " "))
+		}
+		pull := exec.Command("git", pullArgs...)
+		pull.Stdout = os.Stdout
+		pull.Stderr = os.Stderr
+		if err := pull.Run(); err != nil {
+			return fmt.Errorf("git pull: %w", err)
+		}
 	}
-	pull := exec.Command("git", pullArgs...)
-	pull.Stdout = os.Stdout
-	pull.Stderr = os.Stderr
-	if err := pull.Run(); err != nil {
-		return fmt.Errorf("git pull: %w", err)
-	}
+
 
 	installAbs, err := filepath.Abs(installPrefix)
 	if err != nil {
