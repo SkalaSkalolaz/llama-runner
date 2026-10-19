@@ -1,6 +1,8 @@
 # llama-runner
 
-[![Go](https://img.shields.io/badge/Go-1.24-00ADD8.svg)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](https://go.dev/)
+[![Tests](https://img.shields.io/badge/tests-40%2B-brightgreen.svg)](#разработка)
+[![Race](https://img.shields.io/badge/race-clean-brightgreen.svg)](#разработка)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
 Локальный лаунчер: запускает `llama-server` с вашей GGUF-моделью и автоматически открывает **Claude Code**, привязанный к этому серверу. При закрытии Claude Code сервер останавливается.
@@ -14,6 +16,14 @@ go build -o server .
 ./server -server          # только llama-server (старое поведение)
 ./server -webui-mcp-proxy # + поисковый MCP-сервер и прокси CORS
 ```
+
+## Разработка
+
+```bash
+go build ./...
+go vet ./...
+go test -v ./...
+go test -race ./...
 
 ## Что умеет
 

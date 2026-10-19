@@ -1,3 +1,15 @@
 server
 .gogitor/
 .gogitor.json
+
+# model files
+*.gguf
+*.ggml
+
+# logs
+*.log
+
+# editor / OS
+.DS_Store
+*.swp
+*~
