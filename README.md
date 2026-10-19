@@ -5,6 +5,8 @@
 [![Race](https://img.shields.io/badge/race-clean-brightgreen.svg)](#разработка)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
+[![CI](https://github.com/SkalaSkalolaz/llama-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/SkalaSkalolaz/llama-runner/actions/workflows/ci.yml)
+
 Локальный лаунчер: запускает `llama-server` с вашей GGUF-моделью и автоматически открывает **Claude Code**, привязанный к этому серверу. При закрытии Claude Code сервер останавливается.
 
 ## Быстрый старт
