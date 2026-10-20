@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var version = "1.4"
+var version = "1.5"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, realRunner{}))

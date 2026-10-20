@@ -56,7 +56,13 @@ type Config struct {
     McpConfigOut string
     McpStrict    bool
 
+   // Внешний OpenAI-совместимый провайдер
+    OpenAIBaseURL string
+    OpenAIKey     string   
+    OpenAIModel   string       
+
     VersionFlag bool
+    ProxyAddr string
 
     // Производные (заполняются после Parse/Validate)
     Home            string

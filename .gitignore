@@ -13,3 +13,17 @@ server
 .DS_Store
 *.swp
 *~
+
+# Build artifacts
+/server
+*.exe
+*.test
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/

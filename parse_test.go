@@ -30,6 +30,9 @@ func TestParseFlags_Defaults(t *testing.T) {
 	if cfg.ChatTemplateSet {
 		t.Error("ChatTemplateSet should be false")
 	}
+	if cfg.ProxyAddr != "127.0.0.1:8082" {
+		t.Errorf("ProxyAddr = %q, want 127.0.0.1:8082", cfg.ProxyAddr)
+	}
 }
 
 func TestParseFlags_ExplicitChatTemplate(t *testing.T) {

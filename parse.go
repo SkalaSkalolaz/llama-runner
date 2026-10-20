@@ -6,6 +6,7 @@ import (
     "io"
     "os"
 	"path/filepath"
+    "net/url"
     "net"
     "strconv"
     "strings"
@@ -69,6 +70,11 @@ func parseFlags(args []string, stderr io.Writer) (*Config, error) {
 
     fs.BoolVar(&cfg.VersionFlag, "version", false, "показать версию")
 
+    fs.StringVar(&cfg.OpenAIBaseURL, "openai", "", "URL OpenAI-совместимого API")
+    fs.StringVar(&cfg.OpenAIKey, "key", "", "API-ключ для внешнего провайдера")
+    fs.StringVar(&cfg.OpenAIModel, "model-openai", "", "Название модели у внешнего провайдера")
+    fs.StringVar(&cfg.ProxyAddr, "proxy-addr", "127.0.0.1:8082", "адрес локального прокси (гибридный режим)")
+
     if err := fs.Parse(args); err != nil {
         return nil, err
     }
@@ -101,6 +107,26 @@ func validateConfig(cfg *Config) error {
     if cfg.McpProxy {
         if _, _, err := net.SplitHostPort(cfg.McpAddr); err != nil {
             return fmt.Errorf("некорректный -mcp-addr %q: используйте host:port", cfg.McpAddr)
+        }
+    }
+    // Проверка согласованности OpenAI-параметров
+    if cfg.OpenAIBaseURL != "" || cfg.OpenAIKey != "" || cfg.OpenAIModel != "" {
+        if cfg.OpenAIBaseURL == "" {
+            return fmt.Errorf("-openai обязателен при использовании -key или -model-openai")
+        }
+        if cfg.OpenAIKey == "" {
+            return fmt.Errorf("-key обязателен при использовании -openai")
+        }
+        if cfg.OpenAIModel == "" {
+            return fmt.Errorf("-model-openai обязателен при использовании -openai")
+        }
+        if _, err := url.ParseRequestURI(cfg.OpenAIBaseURL); err != nil {
+            return fmt.Errorf("некорректный -openai URL %q: %v", cfg.OpenAIBaseURL, err)
+        }
+       if cfg.ProxyAddr != "" {
+            if _, _, err := net.SplitHostPort(cfg.ProxyAddr); err != nil {
+                return fmt.Errorf("некорректный -proxy-addr %q: используйте host:port", cfg.ProxyAddr)
+            }
         }
     }
     return nil
@@ -179,21 +205,34 @@ func buildServerArgs(cfg *Config, paths ServerPaths) []string {
 
 // buildClaudeEnv собирает env для Claude Code (не мутирует baseEnv).
 func buildClaudeEnv(cfg *Config, baseURL string, baseEnv []string) []string {
-    env := append([]string{}, baseEnv...)
-    env = append(env,
-        "ANTHROPIC_BASE_URL="+baseURL,
-        "ANTHROPIC_AUTH_TOKEN=local-llama",
-        "ANTHROPIC_API_KEY=local-llama",
-        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
-    )
-    if cfg.Alias != "" {
-        env = append(env,
-            "ANTHROPIC_DEFAULT_SONNET_MODEL="+cfg.Alias,
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL="+cfg.Alias,
-            "ANTHROPIC_DEFAULT_OPUS_MODEL="+cfg.Alias,
-        )
-    }
-    return env
+	env := append([]string{}, baseEnv...)
+	env = append(env,
+		"ANTHROPIC_BASE_URL="+baseURL,
+		"ANTHROPIC_AUTH_TOKEN=local-llama",
+		"ANTHROPIC_API_KEY=local-llama",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+	)
+
+	// Имя локальной модели: cfg.Alias (уже "local" по умолчанию из run())
+	localModel := cfg.Alias
+	if localModel == "" {
+		localModel = "local"
+	}
+
+	if cfg.OpenAIBaseURL != "" && cfg.OpenAIModel != "" {
+		env = append(env,
+			"ANTHROPIC_DEFAULT_SONNET_MODEL="+localModel,        // llama-server
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+localModel,         // llama-server
+			"ANTHROPIC_DEFAULT_OPUS_MODEL="+cfg.OpenAIModel,     // внешний провайдер
+		)
+	} else if cfg.Alias != "" {
+		env = append(env,
+			"ANTHROPIC_DEFAULT_SONNET_MODEL="+cfg.Alias,
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+cfg.Alias,
+			"ANTHROPIC_DEFAULT_OPUS_MODEL="+cfg.Alias,
+		)
+	}
+	return env
 }
 
 // buildClaudeArgs — аргументы для claude.

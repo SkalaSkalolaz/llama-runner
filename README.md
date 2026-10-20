@@ -55,6 +55,22 @@ go test -race ./...
 | `-v` | | Показать команду перед запуском |
 | `-version` | | Показать версию |
 
+## Гибридный режим: llama-server + внешний OpenAI API
+
+Можно одновременно использовать локальный llama-server и внешний
+OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, …).
+В Claude Code переключение моделей — через `/model`:
+
+- `sonnet`, `haiku` → локальный llama-server
+- `opus` → внешний провайдер
+
+```bash
+./server \
+  -openai https://api.orcarouter.ai/v1 \
+  -key $ORCAROUTER_API_KEY \
+  -model-openai deepseek/deepseek-v4-flash-free
+```
+
 ## Примеры
 
 ```bash
