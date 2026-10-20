@@ -61,8 +61,11 @@ go test -race ./...
 OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, …).
 В Claude Code переключение моделей — через `/model`:
 
-- `sonnet`, `haiku` → локальный llama-server
-- `opus` → внешний провайдер
+- `llama-server` (или выбор из меню `/model`) → локальный llama-server
+- **Все остальные** (`sonnet`, `haiku`, `opus`, любое другое имя) → внешний провайдер
+
+`llama-server` также добавлен в интерактивное меню `/model` через
+`ANTHROPIC_CUSTOM_MODEL_OPTION`, чтобы его можно было выбрать стрелками.
 
 ```bash
 ./server \

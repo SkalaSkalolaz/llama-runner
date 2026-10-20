@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const localModelName = "llama-server"
+
 // proxyHandler маршрутизирует запросы Anthropic API между llama-server и внешним OpenAI.
 type proxyHandler struct {
 	llamaServerURL string
@@ -54,22 +56,27 @@ func (h *proxyHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 		DisplayName string `json:"display_name"`
 		CreatedAt   string `json:"created_at"`
 	}
-	localID := h.cfg.Alias
-	if localID == "" {
-		localID = "local"
-	}
 	now := time.Now().UTC().Format(time.RFC3339)
+
+	data := []model{
+		{ID: localModelName, Type: "model", DisplayName: localModelName, CreatedAt: now},
+		{ID: h.cfg.OpenAIModel, Type: "model", DisplayName: h.cfg.OpenAIModel, CreatedAt: now},
+	}
+	// Стандартные алиасы — для наглядности в /v1/models.
+	// Маршрутизация всё равно пойдёт на openai, т.к. они не "llama-server".
+	for _, alias := range []string{"sonnet", "haiku", "opus"} {
+		data = append(data, model{ID: alias, Type: "model", DisplayName: alias, CreatedAt: now})
+	}
+
 	resp := map[string]any{
-		"data": []model{
-			{ID: localID, Type: "model", DisplayName: localID, CreatedAt: now},
-			{ID: h.cfg.OpenAIModel, Type: "model", DisplayName: h.cfg.OpenAIModel, CreatedAt: now},
-		},
+		"data":     data,
 		"has_more": false,
-		"first_id": localID,
-		"last_id":  h.cfg.OpenAIModel,
+		"first_id": localModelName,
+		"last_id":  "opus",
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
 // ---- /v1/messages ----
 
 func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
@@ -85,19 +92,18 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	model, _ := req["model"].(string)
-	stream, _ := req["stream"].(bool)
-
-	// Выбор маршрута: если модель совпадает с OpenAIModel — внешний, иначе — llama-server.
-	// Сравнение без учёта регистра и с обрезкой пробелов — на всякий случай.
-	isExternal := strings.EqualFold(strings.TrimSpace(model), strings.TrimSpace(h.cfg.OpenAIModel))
-
-	if isExternal {
-		h.forwardToOpenAI(w, r, req, stream)
-		return
-	}
-	h.forwardToLlama(w, r, req, stream)
+    model, _ := req["model"].(string)
+    stream, _ := req["stream"].(bool)
+    
+    // Локальный сервер — только явное имя "llama-server".
+    // Всё остальное (sonnet, haiku, opus, gpt-4, ...) — внешний провайдер.
+    isLocal := strings.EqualFold(strings.TrimSpace(model), localModelName)
+    
+    if isLocal {
+        h.forwardToLlama(w, r, req, stream)
+        return
+    }
+    h.forwardToOpenAI(w, r, req, stream)
 }
 
 // ---- Маршрут в llama-server ----
@@ -129,11 +135,11 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 		return
 	}
 
-	if stream {
-		convertOpenAIStreamToAnthropic(w, resp, h.cfg.Alias)
-		return
-	}
-	convertOpenAIResponseToAnthropic(w, resp, h.cfg.Alias)
+    if stream {
+        convertOpenAIStreamToAnthropic(w, resp, "llama-server")
+        return
+    }
+    convertOpenAIResponseToAnthropic(w, resp, "llama-server")
 }
 
 // ---- Маршрут во внешний OpenAI-совместимый сервис ----

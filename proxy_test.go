@@ -71,7 +71,7 @@ func TestAnthropicToOpenAI_WithTools(t *testing.T) {
 }
 
 func TestHandleModels_HasFirstLastID(t *testing.T) {
-	h := &proxyHandler{cfg: &Config{Alias: "local", OpenAIModel: "gpt-4"}}
+	h := &proxyHandler{cfg: &Config{OpenAIModel: "gpt-4"}}
 	w := httptest.NewRecorder()
 	h.handleModels(w, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
 
@@ -79,25 +79,31 @@ func TestHandleModels_HasFirstLastID(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["first_id"] != "local" {
-		t.Errorf("first_id = %v, want local", got["first_id"])
+	if got["first_id"] != "llama-server" {
+		t.Errorf("first_id = %v, want llama-server", got["first_id"])
 	}
-	if got["last_id"] != "gpt-4" {
-		t.Errorf("last_id = %v, want gpt-4", got["last_id"])
+	if got["last_id"] != "opus" {
+		t.Errorf("last_id = %v, want opus", got["last_id"])
 	}
 }
 
-func TestHandleModels_EmptyAliasFallback(t *testing.T) {
-	h := &proxyHandler{cfg: &Config{Alias: "", OpenAIModel: "gpt-4"}}
+func TestHandleModels_AlwaysHasLocal(t *testing.T) {
+	h := &proxyHandler{cfg: &Config{OpenAIModel: "gpt-4"}}
 	w := httptest.NewRecorder()
 	h.handleModels(w, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
 
 	var got map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
 	data := got["data"].([]any)
-	first := data[0].(map[string]any)
-	if first["id"] != "local" {
-		t.Errorf("first model id = %v, want local", first["id"])
+	found := false
+	for _, item := range data {
+		if item.(map[string]any)["id"] == "llama-server" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("llama-server not found in /v1/models")
 	}
 }
 
@@ -137,12 +143,20 @@ func TestBuildClaudeEnv_WithOpenAI(t *testing.T) {
 		p := strings.SplitN(kv, "=", 2)
 		m[p[0]] = p[1]
 	}
-	if m["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "local" {
-		t.Errorf("sonnet = %q, want local", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
-	}
-	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "gpt-4" {
-		t.Errorf("opus = %q, want gpt-4", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
-	}
+    // Все стандартные алиасы теперь ведут на внешнюю модель.
+    if m["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "gpt-4" {
+        t.Errorf("sonnet = %q, want gpt-4", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
+    }
+    if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "gpt-4" {
+        t.Errorf("opus = %q, want gpt-4", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+    }
+    if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "gpt-4" {
+        t.Errorf("haiku = %q, want gpt-4", m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
+    }
+    // llama-server добавлен как кастомная опция.
+    if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "llama-server" {
+        t.Errorf("custom option = %q, want llama-server", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
+    }
 }
 
 func TestValidateConfig_OpenAIMissingKey(t *testing.T) {

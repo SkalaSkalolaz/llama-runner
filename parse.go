@@ -218,12 +218,16 @@ func buildClaudeEnv(cfg *Config, baseURL string, baseEnv []string) []string {
 	if localModel == "" {
 		localModel = "local"
 	}
-
 	if cfg.OpenAIBaseURL != "" && cfg.OpenAIModel != "" {
+		// В гибридном режиме все стандартные алиасы ведут на внешний провайдер.
 		env = append(env,
-			"ANTHROPIC_DEFAULT_SONNET_MODEL="+localModel,        // llama-server
-			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+localModel,         // llama-server
-			"ANTHROPIC_DEFAULT_OPUS_MODEL="+cfg.OpenAIModel,     // внешний провайдер
+			"ANTHROPIC_DEFAULT_SONNET_MODEL="+cfg.OpenAIModel,
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+cfg.OpenAIModel,
+			"ANTHROPIC_DEFAULT_OPUS_MODEL="+cfg.OpenAIModel,
+			// llama-server добавлен как единственная кастомная опция в меню /model.
+			"ANTHROPIC_CUSTOM_MODEL_OPTION=llama-server",
+			"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=llama-server (local)",
+			"ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION=Route to local llama-server",
 		)
 	} else if cfg.Alias != "" {
 		env = append(env,
