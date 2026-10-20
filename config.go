@@ -30,6 +30,10 @@ type Config struct {
     FitMode      string
     LogVerbosity string
 
+   // Управление глубиной "размышлений" (reasoning) llama-server
+    Reasoning       string       
+    ReasoningBudget string
+
     // Speculative
     SpecType       string
     SpecDraftModel string

@@ -107,3 +107,31 @@ func TestBuildClaudeArgs_Strict(t *testing.T) {
 		t.Errorf("got %v, want %v", args, want)
 	}
 }
+
+func TestBuildServerArgs_Reasoning(t *testing.T) {
+	cfg := &Config{Host: "127.0.0.1", Port: "8080", Tools: "all",
+		CtxSize: "16384", BatchSize: "512", UbatchSize: "128",
+		FlashAttn: "auto", Parallel: "1", Jinja: true,
+		Reasoning: "on", ReasoningBudget: "2048"}
+	args := buildServerArgs(cfg, ServerPaths{Model: "/m.gguf"})
+
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--reasoning on") {
+		t.Errorf("missing --reasoning on in %s", joined)
+	}
+	if !strings.Contains(joined, "--reasoning-budget 2048") {
+		t.Errorf("missing --reasoning-budget 2048 in %s", joined)
+	}
+}
+
+func TestBuildServerArgs_ReasoningOmitted(t *testing.T) {
+	cfg := &Config{Host: "127.0.0.1", Port: "8080", Tools: "all",
+		CtxSize: "16384", BatchSize: "512", UbatchSize: "128",
+		FlashAttn: "auto", Parallel: "1", Jinja: true}
+	args := buildServerArgs(cfg, ServerPaths{Model: "/m.gguf"})
+	for _, a := range args {
+		if a == "--reasoning" || a == "--reasoning-budget" {
+			t.Errorf("flag %q should not be present by default", a)
+		}
+	}
+}

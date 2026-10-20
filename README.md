@@ -37,6 +37,8 @@ go test -race ./...
 - **Мультимодальность:** `-mmproj` подключает проектор.
 - **Алиас модели:** `-alias` подставляет `--alias` в llama-server и `ANTHROPIC_DEFAULT_*_MODEL` в Claude Code.
 - **Чат-шаблон:** `-chat-template "auto"` (по имени файла, например `qwen-fixed-chat-template.jinja`), явный путь или `""`.
+- **Управление глубиной размышлений:** `-reasoning` и `-reasoning-budget` (работает только для моделей
+  с поддержкой reasoning).
 
 ## Основные флаги
 
@@ -52,6 +54,8 @@ go test -race ./...
 | `-fa` | `auto` | Flash attention |
 | `-parallel` | `1` | Кол-во параллельных слотов |
 | `-ready-timeout` | `180s` | Таймаут ожидания готовности |
+| `-reasoning` | _(не передаётся)_ | Режим размышлений: `on`/`off`/`auto` |
+| `-reasoning-budget` | _(не передаётся)_ | Бюджет токенов на размышления: `-1`/`0`/`N` |
 | `-v` | | Показать команду перед запуском |
 | `-version` | | Показать версию |
 

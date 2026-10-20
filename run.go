@@ -529,6 +529,8 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
   -lv string           уровень логов llama.cpp
   -lm-lazy             mmap с ленивым режимом
   -webui-mcp-proxy     CORS-прокси + mcp-search-server
+  -reasoning string    режим размышлений: on|off|auto
+  -reasoning-budget N  бюджет токенов на размышления: -1/0/N
 
 Спекулятивное декодирование:
   -spec-type string        тип (draft-mtp, draft-dflash)

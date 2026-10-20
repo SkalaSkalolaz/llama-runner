@@ -44,7 +44,10 @@ func parseFlags(args []string, stderr io.Writer) (*Config, error) {
     fs.StringVar(&cfg.CacheTypeV, "cache-type-v", "", "тип V-кэша")
     fs.StringVar(&cfg.FitMode, "fit", "", "режим --fit")
     fs.StringVar(&cfg.LogVerbosity, "lv", "", "уровень логов (-lv)")
-
+    fs.StringVar(&cfg.Reasoning, "reasoning", "",
+        "режим размышлений: on|off|auto (пусто — значение llama-server по умолчанию)")
+    fs.StringVar(&cfg.ReasoningBudget, "reasoning-budget", "",
+        "бюджет токенов на размышления: -1 (без лимита), 0 (отключить), N (положительное число)")
     fs.StringVar(&cfg.SpecType, "spec-type", "", "тип spec-декодирования")
     fs.StringVar(&cfg.SpecDraftModel, "spec-draft-model", "", "путь к драфтеру")
     fs.StringVar(&cfg.SpecDraftNMax, "spec-draft-n-max", "", "n-max драфтера")
@@ -107,6 +110,22 @@ func validateConfig(cfg *Config) error {
     if cfg.McpProxy {
         if _, _, err := net.SplitHostPort(cfg.McpAddr); err != nil {
             return fmt.Errorf("некорректный -mcp-addr %q: используйте host:port", cfg.McpAddr)
+        }
+    }
+
+    // Валидация reasoning-флагов
+    if cfg.Reasoning != "" {
+        switch cfg.Reasoning {
+        case "on", "off", "auto":
+            // ok
+        default:
+            return fmt.Errorf("некорректный -reasoning %q: ожидается on, off или auto", cfg.Reasoning)
+        }
+    }
+    if cfg.ReasoningBudget != "" {
+        n, err := strconv.Atoi(cfg.ReasoningBudget)
+        if err != nil || n < -1 {
+            return fmt.Errorf("некорректный -reasoning-budget %q: ожидается -1, 0 или положительное число", cfg.ReasoningBudget)
         }
     }
     // Проверка согласованности OpenAI-параметров
@@ -194,7 +213,10 @@ func buildServerArgs(cfg *Config, paths ServerPaths) []string {
     if cfg.CacheTypeV != "" { args = append(args, "--cache-type-v", cfg.CacheTypeV) }
     if cfg.FitMode != "" { args = append(args, "--fit", cfg.FitMode) }
     if cfg.LogVerbosity != "" { args = append(args, "-lv", cfg.LogVerbosity) }
+    if cfg.Reasoning != "" { args = append(args, "--reasoning", cfg.Reasoning) }
+    if cfg.ReasoningBudget != "" { args = append(args, "--reasoning-budget", cfg.ReasoningBudget) }
     if paths.Mmproj != "" { args = append(args, "--mmproj", paths.Mmproj) }
+
     if cfg.SpecType != "" { args = append(args, "--spec-type", cfg.SpecType) }
     if cfg.SpecDraftNMax != "" { args = append(args, "--spec-draft-n-max", cfg.SpecDraftNMax) }
     if cfg.SpecDraftNGL != "" { args = append(args, "--spec-draft-ngl", cfg.SpecDraftNGL) }
