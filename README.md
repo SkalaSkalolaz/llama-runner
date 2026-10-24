@@ -1,25 +1,28 @@
 # llama-runner
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](https://go.dev/)
-[![Tests](https://img.shields.io/badge/tests-40%2B-brightgreen.svg)](#разработка)
-[![Race](https://img.shields.io/badge/race-clean-brightgreen.svg)](#разработка)
+[![Tests](https://img.shields.io/badge/tests-40%2B-brightgreen.svg)](#development)
+[![Race](https://img.shields.io/badge/race-clean-brightgreen.svg)](#development)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
 [![CI](https://github.com/SkalaSkalolaz/llama-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/SkalaSkalolaz/llama-runner/actions/workflows/ci.yml)
 
-Локальный лаунчер: запускает `llama-server` с вашей GGUF-моделью и автоматически открывает **Claude Code**, привязанный к этому серверу. При закрытии Claude Code сервер останавливается.
+**English** · [Русский](README_RU.md)
 
-## Быстрый старт
+A local launcher: starts `llama-server` with your GGUF model and automatically opens
+**Claude Code** attached to that server. When Claude Code exits, the server shuts down.
+
+## Quick start
 
 ```bash
-go build -o server .
+go build -o llama-runner .
 
-./server                  # сервер + Claude Code (по умолчанию)
-./server -server          # только llama-server (старое поведение)
-./server -webui-mcp-proxy # + поисковый MCP-сервер и прокси CORS
+./llama-runner                  # llama-server + Claude Code (default)
+./llama-runner -server          # llama-server only (legacy behaviour)
+./llama-runner -webui-mcp-proxy # + search MCP server and CORS proxy
 ```
 
-## Разработка
+## Development
 
 ```bash
 go build ./...
@@ -28,87 +31,93 @@ go test -v ./...
 go test -race ./...
 ```
 
-## Что умеет
+## Features
 
-- **Автоматический запуск:** проверяет наличие модели, поднимает сервер, ждёт готовности `/health` и открывает Claude Code.
-- **MCP-прокси:** `-webui-mcp-proxy` запускает `mcp-search-server`, генерирует временный MCP-конфиг и пробрасывает CORS. С `-mcp-strict` — только этот MCP, без сторонних из `~/.claude.json`.
-- **Обновление llama.cpp:** `-update` выполняет `git pull` → `cmake configure/build/install`.
-- **Спекулятивное декодирование:** флаги `-spec-type`, `-spec-draft-model`, `-spec-draft-n-max`, `-spec-draft-ngl`.
-- **Мультимодальность:** `-mmproj` подключает проектор.
-- **Алиас модели:** `-alias` подставляет `--alias` в llama-server и `ANTHROPIC_DEFAULT_*_MODEL` в Claude Code.
-- **Чат-шаблон:** `-chat-template "auto"` (по имени файла, например `qwen-fixed-chat-template.jinja`), явный путь или `""`.
-- **Управление глубиной размышлений:** `-reasoning` и `-reasoning-budget` (работает только для моделей
-  с поддержкой reasoning).
+- **Automatic startup:** checks that the model exists, brings the server up, waits for
+  `/health` to be ready and opens Claude Code.
+- **MCP proxy:** `-webui-mcp-proxy` starts `mcp-search-server`, generates a temporary MCP
+  config and passes through CORS. With `-mcp-strict` — only this MCP, nothing third-party
+  from `~/.claude.json`.
+- **llama.cpp updates:** `-update` runs `git pull` → `cmake configure/build/install`.
+- **Speculative decoding:** `-spec-type`, `-spec-draft-model`, `-spec-draft-n-max`,
+  `-spec-draft-ngl` flags.
+- **Multimodality:** `-mmproj` attaches a projector.
+- **Model alias:** `-alias` sets `--alias` in llama-server and `ANTHROPIC_DEFAULT_*_MODEL`
+  in Claude Code.
+- **Chat template:** `-chat-template "auto"` (inferred from the file name, e.g.
+  `qwen-fixed-chat-template.jinja`), an explicit path, or `""`.
+- **Reasoning depth control:** `-reasoning` and `-reasoning-budget` (only works for models
+  that support reasoning).
 
-## Основные флаги
+## Main flags
 
-| Флаг | По умолчанию | Что |
-|------|-------------|-----|
-| `-model` | `~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf` | Путь к GGUF |
-| `-bin` | `~/.local/bin/llama-server` | Путь к llama-server |
-| `-host:port` | `127.0.0.1:8080` | Адрес и порт сервера |
-| `-alias` | `local` | Алиас модели |
-| `-c, -b, -ub` | `65536/2048/1024` | Контекст / батч / микро-батч |
-| `-jinja` | `true` | Jinja-шаблоны |
-| `-ngl` | _(не передаётся)_ | Слоёв на GPU |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-model` | `~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf` | Path to the GGUF file |
+| `-bin` | `~/.local/bin/llama-server` | Path to llama-server |
+| `-host:port` | `127.0.0.1:8080` | Server address and port |
+| `-alias` | `local` | Model alias |
+| `-c, -b, -ub` | `65536/2048/1024` | Context / batch / micro-batch |
+| `-jinja` | `true` | Jinja templates |
+| `-ngl` | _(not passed)_ | Number of layers offloaded to GPU |
 | `-fa` | `auto` | Flash attention |
-| `-parallel` | `1` | Кол-во параллельных слотов |
-| `-ready-timeout` | `180s` | Таймаут ожидания готовности |
-| `-reasoning` | _(не передаётся)_ | Режим размышлений: `on`/`off`/`auto` |
-| `-reasoning-budget` | _(не передаётся)_ | Бюджет токенов на размышления: `-1`/`0`/`N` |
-| `-v` | | Показать команду перед запуском |
-| `-version` | | Показать версию |
+| `-parallel` | `1` | Number of parallel slots |
+| `-ready-timeout` | `180s` | Readiness wait timeout |
+| `-reasoning` | _(not passed)_ | Reasoning mode: `on`/`off`/`auto` |
+| `-reasoning-budget` | _(not passed)_ | Token budget for reasoning: `-1`/`0`/`N` |
+| `-v` | | Print the command before running it |
+| `-version` | | Print the version |
 
-## Гибридный режим: llama-server + внешний OpenAI API
+## Hybrid mode: llama-server + external OpenAI API
 
-Можно одновременно использовать локальный llama-server и внешний
-OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, …).
-В Claude Code переключение моделей — через `/model`:
+You can use a local llama-server and an external OpenAI-compatible service
+(OrcaRouter, OpenRouter, DeepSeek, …) at the same time.
+In Claude Code, switch models with `/model`:
 
-- `llama-server` (или выбор из меню `/model`) → локальный llama-server
-- **Все остальные** (`sonnet`, `haiku`, `opus`, любое другое имя) → внешний провайдер
+- `llama-server` (or picking it from the `/model` menu) → local llama-server
+- **Everything else** (`sonnet`, `haiku`, `opus`, any other name) → external provider
 
-`llama-server` также добавлен в интерактивное меню `/model` через
-`ANTHROPIC_CUSTOM_MODEL_OPTION`, чтобы его можно было выбрать стрелками.
+`llama-server` is also added to the interactive `/model` menu via
+`ANTHROPIC_CUSTOM_MODEL_OPTION` so it can be selected with the arrow keys.
 
 ```bash
-./server \
+./llama-runner \
   -openai https://api.orcarouter.ai/v1 \
   -key $ORCAROUTER_API_KEY \
   -model-openai deepseek/deepseek-v4-flash-free
 ```
 
-## Примеры
+## Examples
 
 ```bash
-# Сервер + Claude Code в папке проекта
-./server -alias qwen3-coder -claude-dir ~/my-project
+# Server + Claude Code in a project directory
+./llama-runner -alias qwen3-coder -claude-dir ~/my-project
 
-# Только сервер на другом порту
-./server -server -port 9090
+# Server only, on a different port
+./llama-runner -server -port 9090
 
-# Сервер + Claude Code с поиском
-./server -webui-mcp-proxy
+# Server + Claude Code with web search
+./llama-runner -webui-mcp-proxy
 
-# Без лишних MCP из ~/.claude.json
-./server -webui-mcp-proxy -mcp-strict
+# Without extra MCP servers from ~/.claude.json
+./llama-runner -webui-mcp-proxy -mcp-strict
 
-# С LiLiCorr (спекулятивное декодирование)
-./server -server -model ~/models/nemotron-bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
+# With LiLiCorr (speculative decoding)
+./llama-runner -server -model ~/models/nemotron-bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
   -mmproj ~/models/nemotron-bolt/mmproj-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
   -spec-type draft-dflash -spec-draft-model ~/models/...-LiLiCorr.gguf \
   -spec-draft-n-max 6 -spec-draft-ngl 999 -ngl 999 \
   -c 98304 -b 2048 -ub 512 -cache-type-k q8_0 -cache-type-v q8_0 \
   -temp 1.0 -top-p 0.95 -fa on -jinja -chat-template ""
 
-# Обновить llama.cpp (архитектура Pascal) и запустить
-./server -update -cuda-arch 61 && ./server -server -model ~/GGUF/model.gguf
+# Update llama.cpp (Pascal architecture) and start
+./llama-runner -update -cuda-arch 61 && ./llama-runner -server -model ~/GGUF/model.gguf
 ```
 
-## Переменные окружения, передаваемые Claude Code
+## Environment variables passed to Claude Code
 
 `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY=local-llama`, `ANTHROPIC_AUTH_TOKEN=local-llama`,
-`ANTHROPIC_DEFAULT_*_MODEL` (при `-alias`), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+`ANTHROPIC_DEFAULT_*_MODEL` (with `-alias`), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
 
 ---
 
