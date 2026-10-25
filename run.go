@@ -496,7 +496,7 @@ func printUsage(w io.Writer) {
 SEARCH_ENABLED=true mcp-search-server --addr :8090.
 
 Использование:
-  server [флаги]
+  llama-runner [флаги]
 
 Основные флаги:
   -bin string
@@ -569,16 +569,16 @@ Claude Code:
 
 Примеры:
   # Сервер + Claude Code
-  server
+  llama-runner
 
   # Только сервер
-  server -server -port 9090
+  llama-runner -server -port 9090
 
   # MCP-поиск + Claude Code
-  server -webui-mcp-proxy
+  llama-runner -webui-mcp-proxy
 
   # Обновить llama.cpp
-  server -update -cuda-arch 61
+  llama-runner -update -cuda-arch 61
 
 Совет:
   Для доступа из локальной сети используйте -host 0.0.0.0.
