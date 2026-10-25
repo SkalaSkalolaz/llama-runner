@@ -5,8 +5,7 @@
 пункты раздела «Критерий готовности» этой вехи. Прогресс по вехам зеркалится в
 [STATE.md](STATE.md) — его обновляем тем же коммитом.
 
-Текущая готовность: **0 / 8 вех** (см. STATE.md).
-
+Текущая готовность: **3 / 8 вех** (см. STATE.md).
 ---
 
 ## Базовые факты на старте (замерено 2026-10-24)
@@ -171,36 +170,33 @@
 - [x] Все golden-тесты зелёные; ни один ранее проходивший кейс не изменился.
       *11 golden'ов (10 кейсов + `image_mmproj`), `plain_text` побайтно прежний.*
 - [x] `tool_result`-массив и `system`-массив покрыты тестами.
-- [ ] Ручной прогон: tool use на локальной модели доходит до результата инструмента
-      (проверяется в smoke). **Не выполнено** — нужен живой `llama-server` с моделью и
-      интерактивный `claude`. Чек-лист добавлен в `scripts/smoke.sh` (блок «M1 — фиксы
-      конвертера запроса»). До этого прогона веха M1 считается **в работе**, а не закрытой.
-
+- [x] Ручной прогон: tool use на локальной модели доходит до результата инструмента
+      (проверено 2026-10-25 на живой модели: tool_result-массив, `Error: `, system-блок).
 ---
 
 ## Веха 2 — Стриминг OpenAI → Anthropic
 
-- [ ] Тесты на `convertOpenAIStreamToAnthropic` (`proxy.go:408-557`) через `httptest`:
+- [x] Тесты на `convertOpenAIStreamToAnthropic` через `httptest`:
       text-only, text + tool_calls + text после текста, несколько tool_calls с разными
       `index`, `finish_reason=length`, обрыв потока **до** `[DONE]`.
-      Проверять точную последовательность: `message_start` → `content_block_start` →
-      `content_block_delta` → `content_block_stop` → `message_delta` → `message_stop`.
-- [ ] **`scanner.Err()` не проверяется** (`proxy.go:451-441`): оборванный апстрим сейчас
-      финализируется как успешный `message_stop`. При ошибке сканера — отдать
-      `event: error` + `data: {"type":"error","error":{...}}` и закрыть поток
-      (JSON-тело уже нельзя: заголовки отправлены).
-- [ ] `usage` всегда 0 (`proxy.go:431, 554`): запрашивать `stream_options:
-      {"include_usage": true}` и проставлять реальные `input_tokens`/`output_tokens`
-      в `message_start`/`message_delta`. Если апстрим usage не прислал — оставить 0,
-      не выдумывать.
-- [ ] Перенести в `convert.go` рядом с конвертером запроса.
+      *6 тестов в `stream_test.go`.*
+- [x] **`scanner.Err()` проверяется**: обрыв апстрима → `event: error`, без `message_stop`.
+      *`convert.go:convertOpenAIStreamToAnthropic`, ветка «Обработка обрыва потока».
+      Тесты: `TestConvertStream_Interrupted`, `TestConvertStream_CleanEOFWithoutDone`.*
+- [x] `usage`: запрашивается `stream_options: {"include_usage": true}`, реальные
+      `input_tokens`/`output_tokens` в `message_delta`; в `message_start` — 0
+      (у OpenAI usage приходит только в конце, достоверно неоткуда взять).
+      *`proxy.go:forwardToLlama/forwardToOpenAI`, `convert.go`. Тесты:
+      `TestConvertStream_UsageInMessageDelta`, `TestConvertStream_TextOnly`.*
+- [x] Функция перенесена в `convert.go`; `proxy.go` больше не импортирует `bufio`.
 
 **Критерий готовности**
 
-- [ ] Стриминг покрыт тестами (было 0 — стало ≥5 кейсов).
-- [ ] Обрыв апстрима даёт `error`-событие, а не фиктивный `message_stop`.
-- [ ] В `-v` видно ненулевой usage на реальном запросе.
-
+- [x] Стриминг покрыт тестами (6 кейсов).
+- [x] Обрыв апстрима даёт `error`-событие, не фиктивный `message_stop`.
+- [x] В `-v` видно ненулевой usage на реальном запросе
+      (проверено 2026-10-25: `grep '← usage'` даёт ненулевые значения;
+      обрыв `pkill -9` даёт `event: error`, нормальный стоп не задет).
 ---
 
 ## Веха 3 — Ключ, лимиты тела, таймауты

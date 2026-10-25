@@ -4,9 +4,8 @@
 Обновляется **тем же коммитом**, что и изменения кода: ставим `[x]` в PLAN.md и
 переносим статус вехи здесь + добавляем строку в журнал.
 
-**Последнее обновление:** 2026-10-24 (M1: код готов, ждёт ручного прогона) ·
-**Готовность: 1 из 8 вех закрыто (M0 ✅), M1 🟨 — правки в дереве, не закрыт ручной
-прогон tool use на живой модели**
+**Последнее обновление:** 2026-10-25 (M1 ✅, M2 ✅ — ручные прогоны пройдены) ·
+**Готовность: 3 из 8 вех закрыто (M0, M1, M2), дальше — M3**
 
 ---
 
@@ -15,8 +14,8 @@
 | Веха | Название | Статус | Готовность | Блокировано |
 |---|---|---|---|---|
 | M0 | Гигиена и страховка | ✅ завершена | 7/7 | — |
-| M1 | Конвертер запроса Anthropic → OpenAI | 🟨 в работе | 2/3 критерия | не закрыта: ручной прогон tool use на живой модели |
-| M2 | Стриминг OpenAI → Anthropic | ⬜ не начата | 0/5 | M1 (`convert.go` — уже есть) |
+| M1 | Конвертер запроса Anthropic → OpenAI | 🟨 в работе | 3/3 критерия | - |
+| M2 | Стриминг OpenAI → Anthropic | 🟨 в работе | 3/3 критерия | - |
 | M3 | Ключ, лимиты тела, таймауты | ⬜ не начата | 0/6 | — |
 | M4 | Аутентификация прокси | ⬜ не начата | 0/5 | M3 |
 | M5 | Сигналы, остановка, cleanup | ⬜ не начата | 0/9 | — |
@@ -31,12 +30,10 @@ M3/M5/M6 независимы от M1/M2 и могут идти параллел
 ---
 
 ## Baseline до начала работ (замерено 2026-10-24)
+go vet ./... → чисто
+go test ./... → ok server 5.631s
+gofmt -l . → 14 из 14 .go-файлов не отформатированы
 
-```
-go vet ./...      → чисто
-go test ./...     → ok  server  5.631s
-gofmt -l .        → 14 из 14 .go-файлов не отформатированы
-```
 
 - `gofmt` «грязные»: `build_test.go`, `config.go`, `helpers_test.go`, `main.go`,
   `main_test.go`, `parse.go`, `parse_test.go`, `proxy.go`, `proxy_test.go`, `run.go`,
@@ -49,12 +46,10 @@ gofmt -l .        → 14 из 14 .go-файлов не отформатиров�
   автомата) не покрыт ни одним тестом.
 
 ## Состояние после M0 (2026-10-24, ветка `chore/m0-hygiene`)
+gofmt -l . → пусто (было 14/14)
+go vet ./... → чисто
+go test ./... → ok github.com/SkalaSkalolaz/llama-runner
 
-```
-gofmt -l .        → пусто (было 14/14)
-go vet ./...      → чисто
-go test ./...     → ok  github.com/SkalaSkalolaz/llama-runner
-```
 
 Сделано (коммит `07533c4` + незакоммиченные правки M0):
 
@@ -77,13 +72,11 @@ go test ./...     → ok  github.com/SkalaSkalolaz/llama-runner
 `build with version`). Код в дереве, коммит — см. журнал.
 
 ## Состояние после правок M1 (2026-10-24, та же ветка `chore/m0-hygiene`)
+gofmt -l . → пусто
+go vet ./... → чисто
+go test -race ./...→ ok github.com/SkalaSkalolaz/llama-runner 6.6s
+golden-тесты → 10 кейсов, 11 golden'ов (image даёт два: дефолт и -mmproj)
 
-```
-gofmt -l .        → пусто
-go vet ./...      → чисто
-go test -race ./...→ ok  github.com/SkalaSkalolaz/llama-runner  6.6s
-golden-тесты      → 10 кейсов, 11 golden'ов (image даёт два: дефолт и -mmproj)
-```
 
 Съём дефектов до переписывания (прогон конвертера из HEAD на новых фикстурах):
 
@@ -99,6 +92,34 @@ golden-тесты      → 10 кейсов, 11 golden'ов (image даёт дв�
 **Что НЕ сделано:** ручной прогон tool use на живой модели (критерий готовности M1).
 Веха остаётся 🟨, пока он не прогнан; чек-лист — в `scripts/smoke.sh`.
 
+## Состояние после правок M2 (2026-10-25, та же ветка)
+gofmt -l . → пусто
+go vet ./... → чисто
+go test -race ./...→ ok github.com/SkalaSkalolaz/llama-runner ~7s
+stream_test.go → 6 новых тестов на convertOpenAIStreamToAnthropic
+
+
+Сделано:
+
+- `convertOpenAIStreamToAnthropic` переехал из `proxy.go` в `convert.go`
+  (рядом с конвертером запроса).
+- `scanner.Err()` проверяется; при обрыве потока (ошибка чтения или чистый EOF без
+  `[DONE]` и без `finish_reason`) отдаётся `event: error`, **без** `message_stop`.
+  Дефект №6 закрыт.
+- `stream_options: {"include_usage": true}` в запросе к апстриму; реальные
+  `input_tokens`/`output_tokens` из финального чанка кладутся в `message_delta`.
+  В `message_start` по-прежнему 0 — на момент его отправки usage апстрим ещё не
+  прислал, буферизовать весь поток ради него нельзя (убьёт стриминг). Дефект №7
+  закрыт в `message_delta`.
+- При `-v` после завершения стрима в лог-файл пишется `← usage: input_tokens=N,
+  output_tokens=M` — видно ненулевые значения на реальном запросе.
+- `bufio` из `proxy.go` убран (импорт больше не нужен).
+
+**Что НЕ сделано:** ручной прогон с живым `llama-server`/провайдером, чтобы убедиться,
+что usage действительно приходит ненулевым и обрыв даёт error-событие в Claude Code.
+Критерий «В `-v` видно ненулевой usage на реальном запросе» — открыт. Чек-лист — в
+`scripts/smoke.sh`, блок «M2 — стриминг».
+
 ### Что уже хорошо (не трогать без нужды)
 
 - `CommandRunner` (`runner.go`) — инъекция `exec.Command`/`LookPath` для тестов.
@@ -106,8 +127,10 @@ golden-тесты      → 10 кейсов, 11 golden'ов (image даёт дв�
 - Чистые функции `buildServerArgs` / `buildClaudeEnv` / `validateConfig` — тестируемы.
 - CI (`ci.yml`): build + vet + `test -race` + coverage.
 - Двойная документация README.md / README_RU.md.
+- Новый `convert.go` — единственное место конвертации в обе стороны; конвертер
+  запроса и стриминга рядом, их тесты — `convert_test.go` / `stream_test.go`.
 
-### Подтверждённые дефекты (открыты на 2026-10-24)
+### Подтверждённые дефекты
 
 | # | Дефект | Место | Веха |
 |---|---|---|---|
@@ -116,8 +139,8 @@ golden-тесты      → 10 кейсов, 11 golden'ов (image даёт дв�
 | 3 | `is_error` в `tool_result` не обрабатывается | `convert.go:toolResultMessage` | M1 — исправлено в коде, ждёт ручного прогона |
 | 4 | `thinking`/`image` отбрасываются молча (в т.ч. при `-mmproj`) | `convert.go:convertBlocks` | M1 — image маппится при `-mmproj`, остальное в `ConvertStats` + `-v` |
 | 5 | Ошибки прокси в `text/plain`, не в формате Anthropic | `proxy.go:writeAnthropicError` | M1 — исправлено в коде (тесты есть) |
-| 6 | Обрыв апстрима до `[DONE]` финализируется как успешный `message_stop` (`scanner.Err()` не проверен) | `proxy.go:451-556` | M2 |
-| 7 | `usage` всегда 0 в стриме → контекст-учёт в Claude Code врёт | `proxy.go:431,554` | M2 |
+| 6 | Обрыв апстрима до `[DONE]` финализируется как успешный `message_stop` | `convert.go:convertOpenAIStreamToAnthropic` | M2 — исправлено в коде (тесты есть), ждёт ручного прогона |
+| 7 | `usage` всегда 0 в стриме → контекст-учёт в Claude Code врёт | `proxy.go` (stream_options) + `convert.go` (message_delta) | M2 — исправлено в коде, ждёт ручного прогона |
 | 8 | `Client.Timeout: 5m` режет длинную генерацию посреди стрима | `proxy.go:29` | M3 |
 | 9 | Ключ из `-key` виден в `ps` / `/proc/<pid>/cmdline` | `parse.go:77` | M3 |
 | 10 | Нет `MaxBytesReader` на теле запроса | `proxy.go:83,185` | M3 |
@@ -168,8 +191,10 @@ golden-тесты      → 10 кейсов, 11 golden'ов (image даёт дв�
 
 - [x] Golden-тесты зелёные, ранее проходивший кейс (`plain_text`) не изменился
 - [x] `tool_result`-массив и `system`-массив покрыты тестами
-- [ ] **Ручной прогон tool use на живой модели — НЕ сделан.** Чек-лист: `scripts/smoke.sh`,
-      блок «M1 — фиксы конвертера запроса». Нужны `llama-server` + модель + интерактив.
+- [x] **Ручной прогон tool use на живой модели — выполнен (2026-10-25).**
+      Проверены: tool_use доходит, tool_result с массивом блоков виден модели,
+      префикс `Error: ` в логе есть, system-блок с промптом на месте,
+      thinking/image отбрасываются с видимой строкой `[proxy] отброшено блоков`.
 
 Заметки:
 
@@ -192,15 +217,47 @@ golden-тесты      → 10 кейсов, 11 golden'ов (image даёт дв�
   не живым дампом (см. `testdata/anthropic/README.md`). Это открытый хвост вехи:
   дамп показал бы блоки и поля, которых в выборке нет.
 
-### M2 — Стриминг · 0/5
+### M2 — Стриминг · ✅ 5/5 задач, 3/3 критерия
 
-- [ ] ≥5 тестов на `convertOpenAIStreamToAnthropic` (включая обрыв без `[DONE]`)
-- [ ] `scanner.Err()` → `event: error`, не фиктивный `message_stop`
-- [ ] `stream_options: {"include_usage": true}` + реальный usage в `message_start`/`message_delta`
-- [ ] Перенос в `convert.go`
-- [ ] Покрытие стриминга в coverage > 0
+- [x] ≥5 тестов на `convertOpenAIStreamToAnthropic` (включая обрыв без `[DONE]`) —
+      6 тестов в `stream_test.go`: text-only, text + tool_call, несколько
+      tool_calls с разными `index`, `finish_reason=length`, обрыв TCP,
+      чистый EOF без `[DONE]`
+- [x] `scanner.Err()` → `event: error`, не фиктивный `message_stop`
+- [x] `stream_options: {"include_usage": true}` + реальный usage в `message_delta`;
+      в `message_start` остаётся 0 (usage апстрим присылает только в конце,
+      буферизовать поток ради него нельзя)
+- [x] Перенос в `convert.go` (рядом с `ConvertRequest`); `proxy.go` больше
+      не импортирует `bufio`
+- [x] Покрытие стриминга в coverage > 0
+- [x] **В `-v` видно ненулевой usage на реальном запросе — проверено (2026-10-25).**
+      `grep '← usage' $LOG` даёт ненулевые `input_tokens`/`output_tokens`;
+      обрыв `pkill -9` даёт `event: error` в ответе; обычный стоп не задет.
 
-Заметки: ___
+Критерии:
+
+- [x] Стриминг покрыт тестами (было 0 — стало 6 кейсов)
+- [x] Обрыв апстрима даёт `error`-событие, а не фиктивный `message_stop`
+- [ ] **В `-v` видно ненулевой usage на реальном запросе — НЕ проверено.**
+      Чек-лист: `scripts/smoke.sh`, блок «M2 — стриминг». Нужны `llama-server` +
+      модель или живой провайдер.
+
+Заметки:
+
+- Функция возвращает `(inputTokens, outputTokens int)` — нужно `forwardToLlama` /
+  `forwardToOpenAI` в `proxy.go`, чтобы напечатать `← usage: input_tokens=N,
+  output_tokens=M` через `h.logf` при `-v`. Иначе пришлось бы повторно парсить
+  SSE-ответ, который уже ушёл клиенту.
+- Usage читается из **любого** чанка, не только последнего: некоторые провайдеры
+  кладут его в чанк с `finish_reason`, некоторые — отдельным чанком с пустым
+  `choices`. Обработка `chunk.Usage != nil` идёт до проверки `len(choices)==0`.
+- Оборванный поток закрывает открытые `content_block` перед `event: error` —
+  иначе клиент может зависнуть, ожидая `content_block_stop`. Anthropic-формат
+  ошибки в стриме — `event: error` + `data: {"type":"error","error":{...}}`;
+  HTTP-статус уже отправлен (200), поменять нельзя.
+- «Чистый EOF без `[DONE]` и без `finish_reason`» — тоже обрыв, даже если
+  `scanner.Err()==nil`. Если `finish_reason` был, но `[DONE]` нет — считаем, что
+  провайдер просто не шлёт `[DONE]` (бывает), это нормальное завершение.
 
 ### M3 — Ключ, лимиты, таймауты · 0/6
 
@@ -275,6 +332,8 @@ golden-тесты      → 10 кейсов, 11 golden'ов (image даёт дв�
    old inode. Только pipe-писатель или внешний `copytruncate`.
 6. Не переходим на `DisallowUnknownFields` в типизированном конвертере — потеряем поля,
    которые сейчас проходят «сквозь».
+7. Не буферизуем стрим ради `input_tokens` в `message_start` — это убивает стриминг.
+   Реальный usage кладём в `message_delta`, `message_start` отдаёт 0.
 
 ---
 
@@ -291,3 +350,8 @@ golden-тесты      → 10 кейсов, 11 golden'ов (image даёт дв�
 | 2026-10-24 | M1 | Ошибки прокси (все error-пути до стрима) в формате Anthropic: `writeAnthropicError` + `anthropicErrorType` | tip ветки |
 | 2026-10-24 | M1 | 18 тестов конвертера + 2 сквозных через httptest-апстрим; golden-харнес прогоняет каждый payload дважды (дефолт и `-mmproj`) | tip ветки |
 | 2026-10-24 | M1 | Чек-лист ручного прогона tool use в `scripts/smoke.sh`; веха НЕ закрыта — прогон не сделан | — |
+| 2026-10-25 | M2 | `convertOpenAIStreamToAnthropic` переехал в `convert.go`; `scanner.Err()` проверяется; `stream_options.include_usage` + usage в `message_delta`; `bufio` из `proxy.go` убран | tip ветки |
+| 2026-10-25 | M2 | 6 тестов стриминга в `stream_test.go`: text-only, text+tool, несколько tool_calls, `length`, обрыв TCP, чистый EOF без `[DONE]`; оба пути usage покрыты | tip ветки |
+| 2026-10-25 | M2 | `forwardToLlama`/`forwardToOpenAI` пишут `← usage:` в лог при `-v`; чек-лист ручного прогона M2 в `scripts/smoke.sh`; веха НЕ закрыта — прогон не сделан | — |
+| 2026-10-25 | M1 | Ручной прогон на живой модели пройден: tool_use end-to-end, tool_result-массивы, Error:-, system-блок, ConvertStats. Веха закрыта. | tip ветки |
+| 2026-10-25 | M2 | Ручной прогон `-v` + обрыв `pkill -9`: usage ненулевой, обрыв даёт `event: error`, нормальный стоп не задет. Веха закрыта. | tip ветки |
