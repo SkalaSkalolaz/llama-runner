@@ -7,6 +7,7 @@ import (
 )
 
 func TestRun_Version(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	var out, errb bytes.Buffer
 	code := run([]string{"-version"}, &out, &errb, fakeRunner{})
 	if code != 0 {
@@ -18,6 +19,7 @@ func TestRun_Version(t *testing.T) {
 }
 
 func TestRun_Help(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	var out, errb bytes.Buffer
 	code := run([]string{"-h"}, &out, &errb, fakeRunner{})
 	if code != 0 {
@@ -29,6 +31,7 @@ func TestRun_Help(t *testing.T) {
 }
 
 func TestRun_BadPort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	var out, errb bytes.Buffer
 	code := run([]string{"-port", "abc"}, &out, &errb, fakeRunner{})
 	if code != 2 {
@@ -40,6 +43,7 @@ func TestRun_BadPort(t *testing.T) {
 }
 
 func TestRun_UpdateFlag_PassesThrough(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	runner := fakeRunner{}
 	var out, errb bytes.Buffer
@@ -53,6 +57,7 @@ func TestRun_UpdateFlag_PassesThrough(t *testing.T) {
 }
 
 func TestRun_VerboseDoesNotLeakKey(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	// Проверяем два этапа: (a) -key виден только в cfg, (b) в -v-выводе
 	// при валидации/запуске до старта процессов ключа нет.
 	//

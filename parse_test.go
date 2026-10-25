@@ -10,6 +10,7 @@ import (
 )
 
 func TestParseFlags_Defaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	var buf bytes.Buffer
 	cfg, err := parseFlags([]string{}, &buf)
 	if err != nil {
@@ -36,6 +37,7 @@ func TestParseFlags_Defaults(t *testing.T) {
 }
 
 func TestParseFlags_ExplicitChatTemplate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	var buf bytes.Buffer
 	cfg, err := parseFlags([]string{"-chat-template", "/tmp/t.jinja"}, &buf)
 	if err != nil {
@@ -50,6 +52,7 @@ func TestParseFlags_ExplicitChatTemplate(t *testing.T) {
 }
 
 func TestParseFlags_Help(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	var buf bytes.Buffer
 	_, err := parseFlags([]string{"-h"}, &buf)
 	if !errors.Is(err, flag.ErrHelp) {
@@ -61,6 +64,7 @@ func TestParseFlags_Help(t *testing.T) {
 }
 
 func TestParseFlags_UnknownFlag(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	var buf bytes.Buffer
 	_, err := parseFlags([]string{"-nosuchflag"}, &buf)
 	if err == nil || errors.Is(err, flag.ErrHelp) {
@@ -104,21 +108,25 @@ func TestValidateConfig_Table(t *testing.T) {
 }
 
 func TestResolveChatTemplate(t *testing.T) {
+	fallback := "~/GGUF/qwen-fixed-chat-template.jinja"
 	tests := []struct {
 		name  string
 		raw   string
 		model string
+		fb    string
 		want  string
 	}{
-		{"qwen lowercase", "auto", "/m/qwen3.gguf", "~/GGUF/qwen-fixed-chat-template.jinja"},
-		{"Qwen mixed case", "auto", "/m/Qwen3.8-Flash.gguf", "~/GGUF/qwen-fixed-chat-template.jinja"},
-		{"non-qwen", "auto", "/m/llama3.gguf", ""},
-		{"explicit path", "/custom/t.jinja", "/m/qwen.gguf", "/custom/t.jinja"},
-		{"explicit empty", "", "/m/qwen.gguf", ""},
+		{"qwen lowercase", "auto", "/m/qwen3.gguf", fallback, fallback},
+		{"Qwen mixed case", "auto", "/m/Qwen3.8-Flash.gguf", fallback, fallback},
+		{"non-qwen", "auto", "/m/llama3.gguf", fallback, ""},
+		{"explicit path", "/custom/t.jinja", "/m/qwen.gguf", fallback, "/custom/t.jinja"},
+		{"explicit empty", "", "/m/qwen.gguf", fallback, ""},
+		{"custom fallback", "auto", "/m/qwen3.gguf", "/custom/fallback.jinja", "/custom/fallback.jinja"},
+		{"empty fallback", "auto", "/m/qwen3.gguf", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := resolveChatTemplate(tt.raw, tt.model); got != tt.want {
+			if got := resolveChatTemplate(tt.raw, tt.model, tt.fb); got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})

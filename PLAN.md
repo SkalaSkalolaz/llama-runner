@@ -282,15 +282,15 @@
 
 Строго аддитивно: при отсутствии конфиг-файла поведение побайтно прежнее.
 
-- [ ] `-config` (по умолчанию `~/.config/llama-runner/config.json`) со всеми текущими
+- [x] `-config` (по умолчанию `~/.config/llama-runner/config.json`) со всеми текущими
       опциями. Приоритет: **CLI > env > файл > дефолты**.
-- [ ] Именованные профили: `llama-runner -p coder`, `-p fast`.
-- [ ] Вынести зашитые личные пути: `~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf` (`parse.go:26`)
+- [x] Именованные профили: `llama-runner -p coder`, `-p fast`.
+- [x] Вынести зашитые личные пути: `~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf` (`parse.go:26`)
       и `~/GGUF/qwen-fixed-chat-template.jinja` (`parse.go:160`) — в конфиг как
       `modelDefault` и `chatTemplateFallback`. **Автодетект по подстроке `qwen` остаётся
       дефолтом** (красная зона №4).
-- [ ] `llama-runner doctor`: разрешённые пути, версия, что будет запущено, — без запуска.
-- [ ] Обновить `README.md` / `README_RU.md` и `printUsage`.
+- [x] `llama-runner doctor`: разрешённые пути, версия, что будет запущено, — без запуска.
+- [x] Обновить `README.md` / `README_RU.md` и `printUsage`.
 
 **Критерий готовности**
 

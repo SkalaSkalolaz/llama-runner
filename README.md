@@ -48,6 +48,11 @@ go test -race ./...
   `qwen-fixed-chat-template.jinja`), an explicit path, or `""`.
 - **Reasoning depth control:** `-reasoning` and `-reasoning-budget` (only works for models
   that support reasoning).
+- **Config file:** `~/.config/llama-runner/config.json` (or `-config <path>`). Priority:
+  CLI > file > built-in defaults. `-config ""` disables. Secrets (`openaiKey`,
+  `proxyToken`) can be stored in the file, but env / `credentials` / flags are preferred.
+- **Profiles:** `-p coder` — short presets from `profiles: {…}` in the config.
+- **`-doctor`:** print resolved paths, version and final command without launching anything.
 
 ## Main flags
 
@@ -67,6 +72,9 @@ go test -race ./...
 | `-reasoning-budget` | _(not passed)_ | Token budget for reasoning: `-1`/`0`/`N` |
 | `-v` | | Print the command before running it |
 | `-version` | | Print the version |
+| `-config` | `~/.config/llama-runner/config.json` | Path to the config file; `""` — do not read |
+| `-p` | _(not set)_ | Profile from the config file |
+| `-doctor` | | Diagnostics without running |
 
 ## Hybrid mode: llama-server + external OpenAI API
 
@@ -112,6 +120,40 @@ In Claude Code, switch models with `/model`:
 
 # Update llama.cpp (Pascal architecture) and start
 ./llama-runner -update -cuda-arch 61 && ./llama-runner -server -model ~/GGUF/model.gguf
+
+# Profile from the config file   
+./llama-runner -p coder
+
+# Diagnostics without running
+./llama-runner -docto
+```
+## Config File
+
+By default, ~/.config/llama-runner/config.json is read. Value priority:
+CLI > config > built-in defaults. The -config "" flag disables reading the file
+(behavior as before M6).
+```json
+{
+  "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
+  "host": "127.0.0.1",
+  "port": "8080",
+  "jinja": true,
+  "readyTimeout": "180s",
+  "chatTemplate": "auto",
+  "chatTemplateFallback": "~/GGUF/qwen-fixed-chat-template.jinja",
+  "profiles": {
+    "coder": {
+      "model": "~/GGUF/qwen3-coder.gguf",
+      "alias": "qwen3-coder",
+      "c": "98304"
+    },
+    "fast": {
+      "model": "~/GGUF/llama3.2-3b.gguf",
+      "c": "16384",
+      "b": "512"
+    }
+  }
+}
 ```
 
 ## Environment variables passed to Claude Code

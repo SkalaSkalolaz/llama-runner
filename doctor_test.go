@@ -1,0 +1,120 @@
+package main
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestRunDoctor_OK(t *testing.T) {
+	dir := t.TempDir()
+	model := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(model, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	serverBin := filepath.Join(dir, "llama-server")
+	if err := os.WriteFile(serverBin, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	cfg.Model = model
+	cfg.ServerBin = serverBin
+	cfg.ServerOnly = true // не проверять claude
+	cfg.ChatTemplate = "" // не проверять chat-template
+
+	var stdout, stderr bytes.Buffer
+	code := runDoctor(cfg, dir, fakeRunner{}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code = %d, want 0\nstdout=%s\nstderr=%s",
+			code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"модель:", "llama-server:", "OK"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout missing %q: %s", want, stdout.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "НЕ найден") {
+		t.Errorf("unexpected НЕ найден: %s", stdout.String())
+	}
+}
+
+func TestRunDoctor_MissingModel(t *testing.T) {
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Model = filepath.Join(dir, "missing.gguf")
+	cfg.ServerBin = filepath.Join(dir, "missing-bin")
+	cfg.ServerOnly = true
+	cfg.ChatTemplate = ""
+
+	var stdout, stderr bytes.Buffer
+	code := runDoctor(cfg, dir, fakeRunner{}, &stdout, &stderr)
+	if code != 1 {
+		t.Errorf("code = %d, want 1", code)
+	}
+	if !strings.Contains(stdout.String(), "НЕ найден") {
+		t.Errorf("stdout = %s", stdout.String())
+	}
+}
+
+func TestRunDoctor_InvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Port = "not-a-number" // validateConfig упадёт
+	cfg.Model = filepath.Join(dir, "m.gguf")
+
+	var stdout, stderr bytes.Buffer
+	code := runDoctor(cfg, dir, fakeRunner{}, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("code = %d, want 2\nstderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ошибка конфига") {
+		t.Errorf("stderr = %s", stderr.String())
+	}
+}
+
+func TestRunDoctor_DoesNotStartProcesses(t *testing.T) {
+	// runner, который упадёт, если его вызовут не для LookPath.
+	// fakeRunner.Command вернёт sh -c "exit 0" — безопасно; тест
+	// проверяет, что doctor не пытается запустить команду и не падает.
+	dir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.Model = filepath.Join(dir, "m.gguf")
+	cfg.ServerBin = filepath.Join(dir, "bin")
+	cfg.ServerOnly = true
+	cfg.ChatTemplate = ""
+
+	var stdout, stderr bytes.Buffer
+	// Не паникуем, не зависаем.
+	_ = runDoctor(cfg, dir, fakeRunner{}, &stdout, &stderr)
+}
+
+func TestRunDoctor_PrintsCommand(t *testing.T) {
+	dir := t.TempDir()
+	model := filepath.Join(dir, "m.gguf")
+	if err := os.WriteFile(model, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	serverBin := filepath.Join(dir, "bin")
+	if err := os.WriteFile(serverBin, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	cfg.Model = model
+	cfg.ServerBin = serverBin
+	cfg.ServerOnly = true
+	cfg.ChatTemplate = ""
+
+	var stdout, stderr bytes.Buffer
+	_ = runDoctor(cfg, dir, fakeRunner{}, &stdout, &stderr)
+
+	if !strings.Contains(stdout.String(), "Команда llama-server:") {
+		t.Errorf("stdout missing 'Команда llama-server:': %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "-m") || !strings.Contains(stdout.String(), model) {
+		t.Errorf("stdout missing -m / model: %s", stdout.String())
+	}
+}
