@@ -18,6 +18,51 @@ import (
 	"time"
 )
 
+// isTerminalFile сообщает, подключён ли f к терминалу (символьному устройству).
+func isTerminalFile(f *os.File) bool {
+	if f == nil {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// pathContainsSegment сообщает, есть ли seg среди :-разделённых сегментов path.
+func pathContainsSegment(path, seg string) bool {
+	for _, p := range strings.Split(path, ":") {
+		if p == seg {
+			return true
+		}
+	}
+	return false
+}
+
+// openTTY пытается открыть /dev/tty. Возвращает nil, если недоступен
+// (Windows, нет контролирующего терминала, /dev/tty урезан в контейнере).
+func openTTY() *os.File {
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return nil
+	}
+	return tty
+}
+
+// shouldRedirectClaudeToTTY — true, если stdio Claude Code надо перенаправить
+// в /dev/tty: хотя бы один из переданных потоков — не-TTY *os.File (значит,
+// в проде был редирект/пайп). Если передан не *os.File (тесты с bytes.Buffer),
+// возвращаем false, чтобы не открывать реальный терминал из тестов.
+func shouldRedirectClaudeToTTY(stdout, stderr io.Writer) bool {
+	sf, ok1 := stdout.(*os.File)
+	ef, ok2 := stderr.(*os.File)
+	if !ok1 || !ok2 {
+		return false
+	}
+	return !isTerminalFile(sf) || !isTerminalFile(ef)
+}
+
 func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	cfg, err := parseFlags(args, stderr)
 	if err != nil {
@@ -139,21 +184,29 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		if absErr != nil {
 			continue
 		}
+		abs = filepath.Clean(abs)
 		if info, statErr := os.Stat(abs); statErr != nil || !info.IsDir() {
 			continue
 		}
 		oldLP := os.Getenv("LD_LIBRARY_PATH")
-		newLP := abs
-		if oldLP != "" {
-			newLP = abs + ":" + oldLP
-		}
-		cmd.Env = append(cmd.Env, "LD_LIBRARY_PATH="+newLP)
-		if cfg.Verbose {
-			fmt.Fprintf(stdout, "LD_LIBRARY_PATH для llama-server: %s\n", newLP)
+		if pathContainsSegment(oldLP, abs) {
+			// Уже есть в окружении — не дублируем (иначе в логе появляется
+			// ".../lib:/home/.../lib:/usr/local/cuda/lib64:").
+			if cfg.Verbose {
+				fmt.Fprintf(stdout, "LD_LIBRARY_PATH для llama-server: %s (уже содержит %s)\n", oldLP, abs)
+			}
+		} else {
+			newLP := abs
+			if oldLP != "" {
+				newLP = abs + ":" + oldLP
+			}
+			cmd.Env = append(cmd.Env, "LD_LIBRARY_PATH="+newLP)
+			if cfg.Verbose {
+				fmt.Fprintf(stdout, "LD_LIBRARY_PATH для llama-server: %s\n", newLP)
+			}
 		}
 		break
 	}
-
 	// --- Рабочая директория ---
 	if cfg.WorkDir != "" {
 		absDir, dirErr := filepath.Abs(expandHome(cfg.WorkDir, home))
@@ -322,7 +375,6 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	// --- Локальный прокси для переключения между llama-server и OpenAI ---
 	var proxySrv *http.Server
 	if cfg.OpenAIBaseURL != "" && cfg.OpenAIKey != "" && cfg.OpenAIModel != "" {
-		// healthHost уже вычислен выше как адрес, по которому доступен llama-server
 		llamaTargetURL := "http://" + net.JoinHostPort(strings.Trim(healthHost, "[]"), cfg.Port)
 		proxyAddr := cfg.ProxyAddr
 		if proxyAddr == "" {
@@ -332,7 +384,27 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		fmt.Fprintf(stdout, "Запуск прокси на %s (llama → %s, openai → %s)\n",
 			proxyAddr, llamaTargetURL, cfg.OpenAIBaseURL)
 
-		srv, err := StartProxyServer(proxyAddr, llamaTargetURL, cfg)
+		var proxyLogWriter io.Writer
+		if serverLogFile != nil {
+			proxyLogWriter = serverLogFile
+		} else {
+			proxyLogPath := expandHome("~/.cache/llama-runner/proxy.log", home)
+			if mkErr := os.MkdirAll(filepath.Dir(proxyLogPath), 0o700); mkErr == nil {
+				if pf, openErr := os.OpenFile(proxyLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); openErr == nil {
+					proxyLogWriter = pf
+					defer func() { _ = pf.Close() }()
+					if cfg.Verbose {
+						fmt.Fprintf(stdout, "Логи прокси: %s\n", proxyLogPath)
+					}
+				}
+			}
+		}
+		if cfg.Verbose && proxyLogWriter == nil {
+			fmt.Fprintln(stdout,
+				"предупреждение: не удалось открыть лог-файл для [proxy] — логи прокси отключены, чтобы не портить TUI Claude Code")
+		}
+
+		srv, err := StartProxyServer(proxyAddr, llamaTargetURL, cfg, proxyLogWriter)
 		if err != nil {
 			fmt.Fprintf(stderr, "ошибка запуска прокси: %v\n", err)
 			stopChildren()
@@ -412,14 +484,38 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	claudeEnv := buildClaudeEnv(cfg, baseURL, os.Environ())
 	claudeArgs := buildClaudeArgs(cfg, mcpConfigFile)
 
+	// --- stdio Claude Code: изолируем TUI от перенаправленного вывода ---
+	// Claude Code — интерактивный TUI, ему нужен TTY. Если родитель пишет в
+	// пайп/файл (например, `llama-runner -v 2>&1 | tee log`), claude уйдёт в
+	// неинтерактивный --print и упадёт без промпта. В этом случае перенаправляем
+	// stdio claude в /dev/tty, а диагностику оставляем в родительском stdout/stderr.
+	var ccTTY *os.File
+	if shouldRedirectClaudeToTTY(stdout, stderr) {
+		if tty := openTTY(); tty != nil {
+			ccTTY = tty
+			defer func() { _ = ccTTY.Close() }()
+			if cfg.Verbose {
+				fmt.Fprintln(stdout, "Claude Code: stdio перенаправлен в /dev/tty (родительские stdout/stderr — не TTY)")
+			}
+		} else {
+			fmt.Fprintln(stderr, "предупреждение: stdout/stderr не TTY, /dev/tty недоступен — Claude Code может не запуститься интерактивно")
+		}
+	}
+
 	cc := runner.Command(claudePath, claudeArgs...)
 	cc.Env = claudeEnv
 	if cfg.Verbose && len(claudeArgs) > 0 {
 		fmt.Fprintf(stdout, "Claude Code args: %v\n", claudeArgs)
 	}
-	cc.Stdin = os.Stdin
-	cc.Stdout = stdout
-	cc.Stderr = stderr
+	if ccTTY != nil {
+		cc.Stdin = ccTTY
+		cc.Stdout = ccTTY
+		cc.Stderr = ccTTY
+	} else {
+		cc.Stdin = os.Stdin
+		cc.Stdout = stdout
+		cc.Stderr = stderr
+	}
 
 	// --- Рабочая директория claude ---
 	if cfg.ClaudeDir != "" {
@@ -446,8 +542,21 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if cfg.Verbose {
 		fmt.Fprintf(stdout, "Claude Code: %s (cwd=%s)\n", claudePath, cc.Dir)
 		fmt.Fprintf(stdout, "  ANTHROPIC_BASE_URL=%s\n", baseURL)
-		if cfg.Alias != "" {
-			fmt.Fprintf(stdout, "  ANTHROPIC_DEFAULT_SONNET_MODEL=%s\n", cfg.Alias)
+		// Печатаем фактически установленные ANTHROPIC_* из claudeEnv, а не cfg.Alias:
+		// в гибридном режиме все три DEFAULT_* ведут на внешнюю модель, а не на
+		// локальный alias — иначе -v врёт.
+		for _, want := range []string{
+			"ANTHROPIC_DEFAULT_SONNET_MODEL",
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+			"ANTHROPIC_DEFAULT_OPUS_MODEL",
+			"ANTHROPIC_CUSTOM_MODEL_OPTION",
+		} {
+			for _, kv := range claudeEnv {
+				if strings.HasPrefix(kv, want+"=") {
+					fmt.Fprintf(stdout, "  %s\n", kv)
+					break
+				}
+			}
 		}
 		fmt.Fprintln(stdout)
 	}
