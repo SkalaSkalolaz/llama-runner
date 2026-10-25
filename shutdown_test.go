@@ -2,8 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -114,7 +114,7 @@ func TestHandleSignals_EscalatesByTimeout(t *testing.T) {
 	// Через ~200 мс handleSignals отправит SIGTERM, через ещё 200 — SIGKILL.
 	// Процесс игнорирует TERM, значит нужен KILL, а он — на 3-й итерации (~400 мс).
 	if !waitExit(cmd, p, 3*time.Second) {
-		t.Fatal("эскалация не убила процесс за 3с; buf=%q", buf.String())
+		t.Fatalf("эскалация не убила процесс за 3с; buf=%q", buf.String())
 	}
 	if buf.Len() == 0 {
 		t.Error("handleSignals ничего не написал в stdout")
@@ -169,5 +169,3 @@ func TestHandleSignals_DoneStops(t *testing.T) {
 		t.Fatal("handleSignals не завершился по close(done)")
 	}
 }
-
-var _ = atomic.AddInt32 // избежать unused-import при изменениях

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,7 +13,7 @@ import (
 	"time"
 )
 
-var version = "1.5.2"
+var version = "1.5.3"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, realRunner{}))
