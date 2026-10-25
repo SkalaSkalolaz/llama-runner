@@ -48,6 +48,11 @@ go test -race ./...
   `qwen-fixed-chat-template.jinja`), явный путь или `""`.
 - **Управление глубиной размышлений:** `-reasoning` и `-reasoning-budget` (работает только
   для моделей с поддержкой reasoning).
+- **Конфиг-файл:** `~/.config/llama-runner/config.json` (или `-config <path>`). Приоритет:
+  CLI > файл > встроенные дефолты. `-config ""` — не читать. Секреты (`openaiKey`,
+  `proxyToken`) в файле поддерживаются, но рекомендуется env / `credentials` / флаг.
+- **Профили:** `-p coder` — короткие пресеты из `profiles: {…}` в конфиге.
+- **`-doctor`:** показать разрешённые пути, версию и итоговую команду без запуска процессов.
 
 ## Основные флаги
 
@@ -67,6 +72,9 @@ go test -race ./...
 | `-reasoning-budget` | _(не передаётся)_ | Бюджет токенов на размышления: `-1`/`0`/`N` |
 | `-v` | | Показать команду перед запуском |
 | `-version` | | Показать версию |
+| `-config` | `~/.config/llama-runner/config.json` | Путь к конфиг-файлу; `""` — не читать |
+| `-p` | _(не задан)_ | Профиль из конфиг-файла |
+| `-doctor` | | Диагностика без запуска |
 
 ## Гибридный режим: llama-server + внешний OpenAI API
 
@@ -112,6 +120,42 @@ OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, �
 
 # Обновить llama.cpp (архитектура Pascal) и запустить
 ./llama-runner -update -cuda-arch 61 && ./llama-runner -server -model ~/GGUF/model.gguf
+
+# Профиль из конфиг-файла
+./llama-runner -p coder
+
+# Диагностика без запуска
+./llama-runner -doctor
+```
+
+## Конфиг-файл
+
+По умолчанию читается `~/.config/llama-runner/config.json`. Приоритет значений:
+**CLI > конфиг > встроенные дефолты**. Флаг `-config ""` отключает чтение файла
+(поведение как до M6).
+
+```json
+{
+  "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
+  "host": "127.0.0.1",
+  "port": "8080",
+  "jinja": true,
+  "readyTimeout": "180s",
+  "chatTemplate": "auto",
+  "chatTemplateFallback": "~/GGUF/qwen-fixed-chat-template.jinja",
+  "profiles": {
+    "coder": {
+      "model": "~/GGUF/qwen3-coder.gguf",
+      "alias": "qwen3-coder",
+      "c": "98304"
+    },
+    "fast": {
+      "model": "~/GGUF/llama3.2-3b.gguf",
+      "c": "16384",
+      "b": "512"
+    }
+  }
+}
 ```
 
 ## Переменные окружения, передаваемые Claude Code

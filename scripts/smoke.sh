@@ -145,6 +145,18 @@ else
     echo "$m5out" | tail -20 | sed 's/^/       /'
 fi
 
+# M6: конфиг-файл, профили, doctor — отдельным прогоном.
+m6out="$(go test -run 'TestFindFlag|TestLoadConfigFile_|TestParseFlags_(Config|CLIOverrides|Profile|EmptyConfig|DefaultConfigPath|BadReadyTimeout)|TestRunDoctor_' -count=1 -v . 2>&1)"
+m6fail=0
+echo "$m6out" | grep -q '^=== RUN   Test' || m6fail=1
+echo "$m6out" | grep -q '^--- FAIL' && m6fail=1
+if [ "$m6fail" -eq 0 ]; then
+    pass "M6: конфиг-файл, профили, doctor"
+else
+    fail "M6: конфиг/профили/doctor (не найдены или упали)"
+    echo "$m6out" | tail -20 | sed 's/^/       /'
+fi
+
 echo
 echo "== 2. Коды возврата и пути ошибок =="
 
@@ -382,6 +394,23 @@ M5 — сигналы, остановка, cleanup:
       Ctrl-C шлёт SIGINT группе, поэтому дочерние потоки llama-server
       (если есть) тоже умирают. Проверить:
         pgrep -af llama-server   # пусто
+
+M6 — конфиг, профили, doctor:
+
+  [ ] ./llama-runner -doctor — печатает пути, версию, итоговую команду,
+      НЕ запускает llama-server (pgrep -af llama-server пуст после выхода).
+
+  [ ] Создать ~/.config/llama-runner/config.json с {"host": "0.0.0.0"}:
+      ./llama-runner -doctor — видно 0.0.0.0.
+      ./llama-runner -doctor -host 127.0.0.1 — видно 127.0.0.1 (CLI > файл).
+
+  [ ] Профиль:
+      ~/.config/llama-runner/config.json:
+        {"profiles": {"coder": {"alias": "qwen3-coder", "port": "9090"}}}
+      ./llama-runner -doctor -p coder — видно port 9090 и alias qwen3-coder.
+
+  [ ] -config "": ./llama-runner -doctor -config "" — конфиг не читается,
+      используются встроенные дефолты (host 127.0.0.1, port 8080).
 MANUAL
 
 echo
