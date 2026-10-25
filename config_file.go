@@ -233,9 +233,6 @@ func loadConfigFile(path, home string) (*fileConfig, error) {
 	return &fc, nil
 }
 
-// findFlag ищет name в args (значение после -name, --name, -name=val, --name=val).
-// Останавливается на "--" или первом non-flag аргументе. Нужен, чтобы
-// прочитать -config и -p ДО создания FlagSet — они определяют дефолты.
 func findFlag(args []string, name string) (string, bool) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -243,6 +240,9 @@ func findFlag(args []string, name string) (string, bool) {
 			return "", false
 		}
 		if !strings.HasPrefix(a, "-") {
+			// Позиционный аргумент — стандартный flag.Parse остановится
+			// здесь, значит target-флаг после него фактически не будет
+			// разобран. Возвращаем «не найдено».
 			return "", false
 		}
 		trimmed := strings.TrimLeft(a, "-")
@@ -257,6 +257,15 @@ func findFlag(args []string, name string) (string, bool) {
 				return args[i+1], true
 			}
 			return "", true
+		}
+		// Неизвестный флаг. Если следующий токен не похож на флаг —
+		// считаем его значением этого флага и перескакиваем. Это
+		// грубо (bool-флаги вроде -v значения не берут), но -config
+		// и -p — всегда non-bool, а вызывающие ищут именно их.
+		// Случай `-v /path -config /x` разберётся неверно, но тогда
+		// и flag.Parse остановится на /path и не увидит -config вовсе.
+		if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			i++
 		}
 	}
 	return "", false

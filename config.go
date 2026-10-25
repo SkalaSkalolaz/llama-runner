@@ -71,9 +71,9 @@ type Config struct {
 	ProxyAllowRemote bool
 
 	ConfigPath           string
-	Profile              string    
-	DoctorFlag           bool      
-	ChatTemplateFallback string 
+	Profile              string
+	DoctorFlag           bool
+	ChatTemplateFallback string
 
 	// Производные (заполняются после Parse/Validate)
 	Home            string

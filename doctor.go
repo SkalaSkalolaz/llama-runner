@@ -92,14 +92,27 @@ func runDoctor(cfg *Config, home string, runner CommandRunner, stdout, stderr io
 	}
 	fmt.Fprintf(stdout, "  %-15s %s\n", "OpenAI-ключ:", keySrc)
 
+	// Приводим к тому же виду, что реально передаётся в run():
+	// expandHome + filepath.Abs. Иначе doctor печатает ~/... ,
+	// а процесс получает /home/...
+	expandAbs := func(p string) string {
+		if p == "" {
+			return ""
+		}
+		expanded := expandHome(p, home)
+		if abs, err := filepath.Abs(expanded); err == nil {
+			return abs
+		}
+		return expanded
+	}
 	serverArgs := buildServerArgs(cfg, ServerPaths{
-		Model:    expandHome(cfg.Model, home),
-		Mmproj:   expandHome(cfg.Mmproj, home),
-		Draft:    expandHome(cfg.SpecDraftModel, home),
-		Template: templateRaw,
+		Model:    expandAbs(cfg.Model),
+		Mmproj:   expandAbs(cfg.Mmproj),
+		Draft:    expandAbs(cfg.SpecDraftModel),
+		Template: expandAbs(templateRaw),
 	})
 	fmt.Fprintf(stdout, "\nКоманда llama-server:\n  %s %s\n",
-		cfg.ServerBin, strings.Join(serverArgs, " "))
+		expandAbs(cfg.ServerBin), strings.Join(serverArgs, " "))
 
 	return code
 }

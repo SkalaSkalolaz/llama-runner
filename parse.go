@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // parseFlags — публичная обёртка: берёт реальный home.
@@ -32,8 +31,9 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 	// 1. Ранний поиск -config и -p: они определяют источник дефолтов.
 	configPath, configSet := findFlag(args, "config")
 	profileName, _ := findFlag(args, "p")
-
 	// 2. Прочитать конфиг-файл (если не отключён явным -config "").
+	// configExplicit — путь задан явно через -config (не ""), файл обязателен.
+	configExplicit := configSet && configPath != ""
 	var fc *fileConfig
 	if !configSet || configPath != "" {
 		effectivePath := configPath
@@ -45,13 +45,35 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 		if loadErr != nil {
 			return nil, loadErr
 		}
+		// Явно заданный -config, но файла нет — ошибка. Для дефолтного
+		// пути отсутствие файла нормально (у большинства нет конфига).
+		if fc == nil && configExplicit {
+			return nil, fmt.Errorf("конфиг-файл %q не найден", expandHome(effectivePath, home))
+		}
+	}
+
+	// -p задан, но конфиг не загружен (нет файла / -config "") —
+	// профиль применить неоткуда. Молча игнорировать нельзя: doctor
+	// тогда врёт про «профиль: coder», а run() идёт с дефолтами.
+	if profileName != "" && fc == nil {
+		return nil, fmt.Errorf("профиль %q не найден: конфиг-файл отсутствует", profileName)
 	}
 
 	// 3. Собрать Config: встроенные дефолты → корневой файл → профиль.
+
 	cfg := defaultConfig()
 	if fc != nil {
 		if err := applyFileConfig(cfg, *fc); err != nil {
 			return nil, err
+		}
+		// Файл задал значение — это тоже «явно», иначе run() заменит
+		// alias на "local" и validateTemplatePath не будет считать
+		// template явным.
+		if fc.Alias != nil {
+			cfg.AliasSet = true
+		}
+		if fc.ChatTemplate != nil {
+			cfg.ChatTemplateSet = true
 		}
 		if profileName != "" {
 			p, ok := fc.Profiles[profileName]
@@ -60,6 +82,12 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 			}
 			if err := applyFileConfig(cfg, p); err != nil {
 				return nil, err
+			}
+			if p.Alias != nil {
+				cfg.AliasSet = true
+			}
+			if p.ChatTemplate != nil {
+				cfg.ChatTemplateSet = true
 			}
 		}
 	}
