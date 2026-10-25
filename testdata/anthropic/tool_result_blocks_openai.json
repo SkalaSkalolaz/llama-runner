@@ -1,0 +1,54 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": "You are Claude Code, Anthropic's official CLI for Claude.",
+      "role": "system"
+    },
+    {
+      "content": "Прочитай PLAN.md и скажи, сколько там вех",
+      "role": "user"
+    },
+    {
+      "content": "",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"file_path\":\"/home/aleks/Code/TMP/llama-runner/PLAN.md\"}",
+            "name": "Read"
+          },
+          "id": "toolu_01R2kQp7Xn",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "# PLAN.md — план усовершенствования llama-runner\nВсего вех: 8 (M0–M7).",
+      "role": "tool",
+      "tool_call_id": "toolu_01R2kQp7Xn"
+    }
+  ],
+  "model": "llama-server",
+  "temperature": 1,
+  "tools": [
+    {
+      "function": {
+        "description": "Read a file from the local filesystem.",
+        "name": "Read",
+        "parameters": {
+          "properties": {
+            "file_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_path"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}

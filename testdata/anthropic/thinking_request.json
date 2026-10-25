@@ -1,0 +1,35 @@
+{
+  "model": "llama-server",
+  "max_tokens": 8192,
+  "temperature": 1,
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 2048
+  },
+  "system": [
+    {
+      "type": "text",
+      "text": "You are Claude Code, Anthropic's official CLI for Claude."
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "Почему gofmt ругается на config.go?"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "Пользователь спрашивает про gofmt. Файл набран пробелами вместо табов — это и есть причина. Отвечу кратко.",
+          "signature": "Ep4DCnJdLGd1Y3QcgEEIARABGAIqQKx1P0Z3qLmY0YQnZ0lZb6oQ2W1oTnQ2d0o8m1Yl3xqL0m9n2s4v6b8n0p2r4t6v8x0z2A4c6e8g0i2k4m6o8q0s2u4w6y80CA9DQ=="
+        },
+        {
+          "type": "text",
+          "text": "Потому что он набран пробелами вместо табов: gofmt требует табы для отступов."
+        }
+      ]
+    }
+  ]
+}

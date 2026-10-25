@@ -1,0 +1,28 @@
+{
+  "model": "llama-server",
+  "max_tokens": 64,
+  "temperature": 1,
+  "system": [
+    {
+      "type": "text",
+      "text": "You are Claude Code, Anthropic's official CLI for Claude."
+    },
+    {
+      "type": "text",
+      "text": "You are an interactive agent that helps users with software engineering tasks."
+    },
+    {
+      "type": "text",
+      "text": "Working directory: /home/aleks/Code/TMP/llama-runner",
+      "cache_control": {
+        "type": "ephemeral"
+      }
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "Сколько файлов в корне репозитория?"
+    }
+  ]
+}

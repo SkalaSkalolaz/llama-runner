@@ -4,8 +4,9 @@
 Обновляется **тем же коммитом**, что и изменения кода: ставим `[x]` в PLAN.md и
 переносим статус вехи здесь + добавляем строку в журнал.
 
-**Последнее обновление:** 2026-10-24 (M0 закрыта) ·
-**Готовность: 1 из 8 вех завершено (M0 ✅), M1 — следующая**
+**Последнее обновление:** 2026-10-24 (M1: код готов, ждёт ручного прогона) ·
+**Готовность: 1 из 8 вех закрыто (M0 ✅), M1 🟨 — правки в дереве, не закрыт ручной
+прогон tool use на живой модели**
 
 ---
 
@@ -14,8 +15,8 @@
 | Веха | Название | Статус | Готовность | Блокировано |
 |---|---|---|---|---|
 | M0 | Гигиена и страховка | ✅ завершена | 7/7 | — |
-| M1 | Конвертер запроса Anthropic → OpenAI | ⬜ не начата | 0/8 | разблокирована (M0 закрыта) |
-| M2 | Стриминг OpenAI → Anthropic | ⬜ не начата | 0/5 | M1 (`convert.go`) |
+| M1 | Конвертер запроса Anthropic → OpenAI | 🟨 в работе | 2/3 критерия | не закрыта: ручной прогон tool use на живой модели |
+| M2 | Стриминг OpenAI → Anthropic | ⬜ не начата | 0/5 | M1 (`convert.go` — уже есть) |
 | M3 | Ключ, лимиты тела, таймауты | ⬜ не начата | 0/6 | — |
 | M4 | Аутентификация прокси | ⬜ не начата | 0/5 | M3 |
 | M5 | Сигналы, остановка, cleanup | ⬜ не начата | 0/9 | — |
@@ -75,6 +76,29 @@ go test ./...     → ok  github.com/SkalaSkalolaz/llama-runner
 Открытые хвосты M0: push ветки и первый прогон CI (там проверятся шаги `gofmt` и
 `build with version`). Код в дереве, коммит — см. журнал.
 
+## Состояние после правок M1 (2026-10-24, та же ветка `chore/m0-hygiene`)
+
+```
+gofmt -l .        → пусто
+go vet ./...      → чисто
+go test -race ./...→ ok  github.com/SkalaSkalolaz/llama-runner  6.6s
+golden-тесты      → 10 кейсов, 11 golden'ов (image даёт два: дефолт и -mmproj)
+```
+
+Съём дефектов до переписывания (прогон конвертера из HEAD на новых фикстурах):
+
+- `system_blocks` → в OpenAI-запросе **не было ни одного `role=system`**;
+- `tool_result_blocks` → сообщения `role=tool` **не было вовсе** (модель не видела
+  результат `Read`);
+- `tool_result_error` → `role=tool` есть, но без `Error: ` — ошибка читалась как успех;
+- `long_history` → из двух `tool_result` доходил только строковый, массивный терялся;
+- `thinking`, `image` → молча пропадали.
+
+После переписывания все пять случаев закрыты, `plain_text_openai.json` не изменился.
+
+**Что НЕ сделано:** ручной прогон tool use на живой модели (критерий готовности M1).
+Веха остаётся 🟨, пока он не прогнан; чек-лист — в `scripts/smoke.sh`.
+
 ### Что уже хорошо (не трогать без нужды)
 
 - `CommandRunner` (`runner.go`) — инъекция `exec.Command`/`LookPath` для тестов.
@@ -87,11 +111,11 @@ go test ./...     → ok  github.com/SkalaSkalolaz/llama-runner
 
 | # | Дефект | Место | Веха |
 |---|---|---|---|
-| 1 | `tool_result` с массивом `content` теряется → tool use на локальной модели ломается | `proxy.go:261-270` | M1 |
-| 2 | `system` как массив блоков игнорируется → теряется системный промпт | `proxy.go:220` | M1 |
-| 3 | `is_error` в `tool_result` не обрабатывается | `proxy.go:261-270` | M1 |
-| 4 | `thinking`/`image` отбрасываются молча (в т.ч. при `-mmproj`) | `proxy.go:246-271` | M1 |
-| 5 | Ошибки прокси в `text/plain`, не в формате Anthropic | `proxy.go:85-170` | M1 |
+| 1 | `tool_result` с массивом `content` теряется → tool use на локальной модели ломается | `convert.go:toolResultMessage` | M1 — исправлено в коде, ждёт ручного прогона |
+| 2 | `system` как массив блоков игнорируется → теряется системный промпт | `convert.go:systemText` | M1 — исправлено в коде, ждёт ручного прогона |
+| 3 | `is_error` в `tool_result` не обрабатывается | `convert.go:toolResultMessage` | M1 — исправлено в коде, ждёт ручного прогона |
+| 4 | `thinking`/`image` отбрасываются молча (в т.ч. при `-mmproj`) | `convert.go:convertBlocks` | M1 — image маппится при `-mmproj`, остальное в `ConvertStats` + `-v` |
+| 5 | Ошибки прокси в `text/plain`, не в формате Anthropic | `proxy.go:writeAnthropicError` | M1 — исправлено в коде (тесты есть) |
 | 6 | Обрыв апстрима до `[DONE]` финализируется как успешный `message_stop` (`scanner.Err()` не проверен) | `proxy.go:451-556` | M2 |
 | 7 | `usage` всегда 0 в стриме → контекст-учёт в Claude Code врёт | `proxy.go:431,554` | M2 |
 | 8 | `Client.Timeout: 5m` режет длинную генерацию посреди стрима | `proxy.go:29` | M3 |
@@ -129,18 +153,44 @@ go test ./...     → ok  github.com/SkalaSkalolaz/llama-runner
 реальных payload'ах Claude Code (`tool_result_blocks`, `system_blocks`, `tool_result_error`,
 `thinking`, `image`), и только потом правки `proxy.go`.
 
-### M1 — Конвертер запроса · 0/8
+### M1 — Конвертер запроса · 🟨 8/8 задач, 2/3 критерия
 
-- [ ] Реальные payload'ы собраны в `testdata/` (≥5, включая tool_result-массив и system-массив)
-- [ ] `tool_result` с массивом `content` обрабатывается
-- [ ] `is_error` → префикс `Error: `
-- [ ] `system` массивом блоков склеивается в `role=system`
-- [ ] `thinking`/`image`: маппинг либо явный warning (решение задокументировано)
-- [ ] Двухпроходная сборка `messages`, нормальный поток байт-в-байт как раньше
-- [ ] Ошибки в Anthropic-формате (до начала стрима)
-- [ ] `convert.go`, `arguments` остаётся строкой JSON, без `DisallowUnknownFields`
+- [x] Реальные payload'ы собраны в `testdata/` (≥5, включая tool_result-массив и system-массив) — 10 кейсов
+- [x] `tool_result` с массивом `content` обрабатывается (склейка `text` через `\n`, вложенные `image` → `image_url`)
+- [x] `is_error` → префикс `Error: `
+- [x] `system` массивом блоков склеивается в `role=system`
+- [x] `thinking`/`image`: image маппится при `-mmproj`, thinking отбрасывается; всё в `ConvertStats` + warning при `-v`
+- [x] Двухпроходная сборка `messages`, нормальный поток байт-в-байт как раньше (`plain_text` golden не изменился)
+- [x] Ошибки в Anthropic-формате (до начала стрима)
+- [x] `convert.go`, `arguments` остаётся строкой JSON, без `DisallowUnknownFields`
 
-Заметки: ___
+Критерии:
+
+- [x] Golden-тесты зелёные, ранее проходивший кейс (`plain_text`) не изменился
+- [x] `tool_result`-массив и `system`-массив покрыты тестами
+- [ ] **Ручной прогон tool use на живой модели — НЕ сделан.** Чек-лист: `scripts/smoke.sh`,
+      блок «M1 — фиксы конвертера запроса». Нужны `llama-server` + модель + интерактив.
+
+Заметки:
+
+- Новый файл `convert.go`: `ConvertRequest(req, opts) (map, ConvertStats, error)`,
+  `AnthropicToOpenAI` оставлен обёрткой (им пользуется golden-харнес и старые тесты).
+  На типизированные структуры не переходили — остались на `map[string]any`, поэтому
+  «сквозные» поля не теряются и `DisallowUnknownFields` не нужен.
+- Порядок сообщений при двухпроходной сборке: у `assistant` с `tool_use` главное
+  сообщение идёт раньше `role=tool`; у `user` — наоборот, `role=tool` раньше текста
+  (OpenAI требует, чтобы tool-ответ шёл сразу за `assistant.tool_calls`). Оба случая
+  закреплены тестами.
+- Пустой `tool_result` (`content` отсутствует) теперь даёт `role=tool` с пустым
+  `content`, а не пропадает: незакрытый tool_call сервер отвергает весь запрос.
+- `content` у `tool_result` не-строкового/не-массивного типа (число, объект)
+  сериализуется в JSON, а не теряется.
+- Golden-харнес (`golden_test.go`) прогоняет каждый payload дважды: дефолт и
+  `ImagesToOpenAI:true`. Второй golden пишется только для payload'ов с image-блоком,
+  иначе картинка нигде не зафиксирована регрессией.
+- Payload'ы M1 собраны вручную по документированной форме запросов Claude Code,
+  не живым дампом (см. `testdata/anthropic/README.md`). Это открытый хвост вехи:
+  дамп показал бы блоки и поля, которых в выборке нет.
 
 ### M2 — Стриминг · 0/5
 
@@ -236,3 +286,8 @@ go test ./...     → ok  github.com/SkalaSkalolaz/llama-runner
 | 2026-10-24 | M0 | `gofmt -w .` — 14 файлов, отдельным коммитом, логики не трогал | `07533c4` |
 | 2026-10-24 | M0 | Прогон smoke.sh: 11/11 автоматически, `-version` → `v1.5.2-4-g07533c4-dirty` | — |
 | 2026-10-24 | M0 | Ветка `chore/m0-hygiene`: модуль переименован, справка `llama-runner`, CI (gofmt-гейт, `fetch-depth: 0`, ldflags-версия), golden-каркас с fixture `plain_text`, `scripts/smoke.sh`, PLAN/STATE | tip ветки (первый коммит M0 — `07533c4`) |
+| 2026-10-24 | M1 | 10 фикстур в `testdata/anthropic/`; прогон конвертера из HEAD на них зафиксировал дефекты №1–5 документально | — |
+| 2026-10-24 | M1 | `convert.go`: `tool_result` массивом блоков, `is_error` → `Error: `, `system` массивом блоков, `image` → `image_url` при `-mmproj`, `thinking` → `ConvertStats` + warning в `-v`, двухпроходная сборка `messages` | tip ветки |
+| 2026-10-24 | M1 | Ошибки прокси (все error-пути до стрима) в формате Anthropic: `writeAnthropicError` + `anthropicErrorType` | tip ветки |
+| 2026-10-24 | M1 | 18 тестов конвертера + 2 сквозных через httptest-апстрим; golden-харнес прогоняет каждый payload дважды (дефолт и `-mmproj`) | tip ветки |
+| 2026-10-24 | M1 | Чек-лист ручного прогона tool use в `scripts/smoke.sh`; веха НЕ закрыта — прогон не сделан | — |

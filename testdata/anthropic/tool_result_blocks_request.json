@@ -1,0 +1,64 @@
+{
+  "model": "llama-server",
+  "max_tokens": 4096,
+  "temperature": 1,
+  "system": [
+    {
+      "type": "text",
+      "text": "You are Claude Code, Anthropic's official CLI for Claude."
+    }
+  ],
+  "tools": [
+    {
+      "name": "Read",
+      "description": "Read a file from the local filesystem.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string"
+          }
+        },
+        "required": ["file_path"]
+      }
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "Прочитай PLAN.md и скажи, сколько там вех"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01R2kQp7Xn",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/aleks/Code/TMP/llama-runner/PLAN.md"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_01R2kQp7Xn",
+          "content": [
+            {
+              "type": "text",
+              "text": "# PLAN.md — план усовершенствования llama-runner"
+            },
+            {
+              "type": "text",
+              "text": "Всего вех: 8 (M0–M7)."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

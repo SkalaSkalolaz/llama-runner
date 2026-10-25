@@ -1,0 +1,54 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": "You are Claude Code, Anthropic's official CLI for Claude.",
+      "role": "system"
+    },
+    {
+      "content": "Покажи, сколько строк в proxy.go",
+      "role": "user"
+    },
+    {
+      "content": "",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"command\":\"wc -l proxy.go\"}",
+            "name": "Bash"
+          },
+          "id": "toolu_01Bvg9z8HrCw",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "571 proxy.go",
+      "role": "tool",
+      "tool_call_id": "toolu_01Bvg9z8HrCw"
+    }
+  ],
+  "model": "llama-server",
+  "temperature": 1,
+  "tools": [
+    {
+      "function": {
+        "description": "Executes a given bash command and returns its output.",
+        "name": "Bash",
+        "parameters": {
+          "properties": {
+            "command": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "model": "llama-server",
+  "max_tokens": 2048,
+  "temperature": 0.7,
+  "top_p": 0.95,
+  "stop_sequences": ["\n\nHuman:", "\n\nAssistant:"],
+  "stream": true,
+  "metadata": {
+    "user_id": "user_01ABC"
+  },
+  "system": "You are a helpful assistant with tools.",
+  "tools": [
+    {
+      "name": "Bash",
+      "description": "Executes a bash command.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "integer"
+          }
+        },
+        "required": ["command"]
+      }
+    },
+    {
+      "name": "WebSearch",
+      "description": "Search the web.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "allowed_domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["query"]
+      }
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "Найди в сети, что такое GGUF"
+    }
+  ]
+}
