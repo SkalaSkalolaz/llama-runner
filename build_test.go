@@ -60,13 +60,13 @@ func TestBuildClaudeEnv(t *testing.T) {
 		m[parts[0]] = parts[1]
 	}
 	checks := map[string]string{
-		"PATH":                            "/usr/bin",
-		"ANTHROPIC_BASE_URL":              "http://127.0.0.1:8080",
-		"ANTHROPIC_AUTH_TOKEN":            "local-llama",
-		"ANTHROPIC_API_KEY":               "local-llama",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL":  "local",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL":   "local",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL":    "local",
+		"PATH":                           "/usr/bin",
+		"ANTHROPIC_BASE_URL":             "http://127.0.0.1:8080",
+		"ANTHROPIC_AUTH_TOKEN":           "local-llama",
+		"ANTHROPIC_API_KEY":              "local-llama",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL": "local",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "local",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":   "local",
 	}
 	for k, v := range checks {
 		if m[k] != v {

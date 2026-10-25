@@ -11,7 +11,7 @@ import (
 
 func TestAnthropicToOpenAI_Basic(t *testing.T) {
 	in := map[string]any{
-		"model": "local",
+		"model":  "local",
 		"system": "you are helpful",
 		"messages": []any{
 			map[string]any{"role": "user", "content": "hi"},
@@ -143,20 +143,20 @@ func TestBuildClaudeEnv_WithOpenAI(t *testing.T) {
 		p := strings.SplitN(kv, "=", 2)
 		m[p[0]] = p[1]
 	}
-    // Все стандартные алиасы теперь ведут на внешнюю модель.
-    if m["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "gpt-4" {
-        t.Errorf("sonnet = %q, want gpt-4", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
-    }
-    if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "gpt-4" {
-        t.Errorf("opus = %q, want gpt-4", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
-    }
-    if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "gpt-4" {
-        t.Errorf("haiku = %q, want gpt-4", m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
-    }
-    // llama-server добавлен как кастомная опция.
-    if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "llama-server" {
-        t.Errorf("custom option = %q, want llama-server", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
-    }
+	// Все стандартные алиасы теперь ведут на внешнюю модель.
+	if m["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "gpt-4" {
+		t.Errorf("sonnet = %q, want gpt-4", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
+	}
+	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "gpt-4" {
+		t.Errorf("opus = %q, want gpt-4", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+	}
+	if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "gpt-4" {
+		t.Errorf("haiku = %q, want gpt-4", m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
+	}
+	// llama-server добавлен как кастомная опция.
+	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "llama-server" {
+		t.Errorf("custom option = %q, want llama-server", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
+	}
 }
 
 func TestValidateConfig_OpenAIMissingKey(t *testing.T) {
@@ -174,5 +174,6 @@ func TestValidateConfig_OpenAIMissingKey(t *testing.T) {
 
 // хелпер
 type readCloser struct{ *bytes.Buffer }
-func (readCloser) Close() error { return nil }
+
+func (readCloser) Close() error          { return nil }
 func newReadCloser(s string) *readCloser { return &readCloser{bytes.NewBufferString(s)} }

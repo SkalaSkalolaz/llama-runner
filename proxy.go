@@ -33,9 +33,9 @@ func StartProxyServer(proxyAddr, llamaServerURL string, cfg *Config) (*http.Serv
 	mux.HandleFunc("/v1/messages", h.handleMessages)
 	mux.HandleFunc("/v1/models", h.handleModels)
 	mux.HandleFunc("/", h.handleOther)
-    mux.HandleFunc("/v1/messages/count_tokens", h.handleOther)
-    mux.HandleFunc("/v1/models/", h.handleOther)
-    
+	mux.HandleFunc("/v1/messages/count_tokens", h.handleOther)
+	mux.HandleFunc("/v1/models/", h.handleOther)
+
 	ln, err := net.Listen("tcp", proxyAddr)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось занять %s: %w", proxyAddr, err)
@@ -92,18 +92,18 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-    model, _ := req["model"].(string)
-    stream, _ := req["stream"].(bool)
-    
-    // Локальный сервер — только явное имя "llama-server".
-    // Всё остальное (sonnet, haiku, opus, gpt-4, ...) — внешний провайдер.
-    isLocal := strings.EqualFold(strings.TrimSpace(model), localModelName)
-    
-    if isLocal {
-        h.forwardToLlama(w, r, req, stream)
-        return
-    }
-    h.forwardToOpenAI(w, r, req, stream)
+	model, _ := req["model"].(string)
+	stream, _ := req["stream"].(bool)
+
+	// Локальный сервер — только явное имя "llama-server".
+	// Всё остальное (sonnet, haiku, opus, gpt-4, ...) — внешний провайдер.
+	isLocal := strings.EqualFold(strings.TrimSpace(model), localModelName)
+
+	if isLocal {
+		h.forwardToLlama(w, r, req, stream)
+		return
+	}
+	h.forwardToOpenAI(w, r, req, stream)
 }
 
 // ---- Маршрут в llama-server ----
@@ -135,11 +135,11 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 		return
 	}
 
-    if stream {
-        convertOpenAIStreamToAnthropic(w, resp, "llama-server")
-        return
-    }
-    convertOpenAIResponseToAnthropic(w, resp, "llama-server")
+	if stream {
+		convertOpenAIStreamToAnthropic(w, resp, "llama-server")
+		return
+	}
+	convertOpenAIResponseToAnthropic(w, resp, "llama-server")
 }
 
 // ---- Маршрут во внешний OpenAI-совместимый сервис ----
@@ -403,7 +403,6 @@ func convertOpenAIResponseToAnthropic(w http.ResponseWriter, openAIResp *http.Re
 // ============================================================
 // Конвертация стриминга (SSE)
 // ============================================================
-
 
 func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Response, modelName string) {
 	flusher, ok := w.(http.Flusher)
