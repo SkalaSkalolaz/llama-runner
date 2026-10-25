@@ -90,11 +90,17 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 	cfg.Home = home
 
+	resolvedKey, keyErr := resolveOpenAIKey(cfg.OpenAIKey, os.Getenv, home, stderr)
+	if keyErr != nil {
+		fmt.Fprintf(stderr, "ошибка: %v\n", keyErr)
+		return 2
+	}
+	cfg.OpenAIKey = resolvedKey
+
 	if err := validateConfig(cfg); err != nil {
 		fmt.Fprintf(stderr, "ошибка: %v\n", err)
 		return 2
 	}
-
 	if cfg.UpdateFlag {
 		srcAbs := expandHome(cfg.LlamaSrc, home)
 		installAbs := expandHome(cfg.InstallPrefix, home)
