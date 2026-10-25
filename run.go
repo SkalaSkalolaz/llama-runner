@@ -63,6 +63,190 @@ func shouldRedirectClaudeToTTY(stdout, stderr io.Writer) bool {
 	return !isTerminalFile(sf) || !isTerminalFile(ef)
 }
 
+// resolvedPaths — все пути, проверенные на существование.
+type resolvedPaths struct {
+	ServerBin string
+	Model     string
+	Mmproj    string
+	Draft     string
+	Template  string
+}
+
+// resolvePaths проверяет файлы и возвращает пути. Второй результат —
+// exit code, если запуск должен прекратиться (0 — всё ок).
+func resolvePaths(cfg *Config, home string, stdout, stderr io.Writer) (resolvedPaths, int) {
+	var p resolvedPaths
+
+	serverPath, err := filepath.Abs(expandHome(cfg.ServerBin, home))
+	if err != nil {
+		fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь llama-server: %v\n", err)
+		return p, 2
+	}
+	p.ServerBin = serverPath
+
+	modelPath, err := filepath.Abs(expandHome(cfg.Model, home))
+	if err != nil {
+		fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь модели: %v\n", err)
+		return p, 2
+	}
+	p.Model = modelPath
+
+	if _, err := os.Stat(p.ServerBin); err != nil {
+		fmt.Fprintf(stderr, "llama-server не найден по пути %q: %v\n", p.ServerBin, err)
+		return p, 1
+	}
+	if _, err := os.Stat(p.Model); err != nil {
+		fmt.Fprintf(stderr, "модель не найдена по пути %q: %v\n", p.Model, err)
+		return p, 1
+	}
+
+	templateRaw := resolveChatTemplate(cfg.ChatTemplate, p.Model)
+	if cfg.Verbose && cfg.ChatTemplate == "auto" && templateRaw != "" {
+		fmt.Fprintf(stdout, "Автоопределение шаблона: qwen → %s\n", templateRaw)
+	}
+	templatePath, terr := validateTemplatePath(templateRaw, home, cfg.ChatTemplateSet)
+	if terr != nil {
+		fmt.Fprintf(stderr, "ошибка: %v\n", terr)
+		return p, 2
+	}
+	if templateRaw != "" && templatePath == "" && !cfg.ChatTemplateSet {
+		fmt.Fprintf(stderr, "предупреждение: автоматически выбранный шаблон %q недоступен; использую шаблон из GGUF\n", templateRaw)
+	}
+	p.Template = templatePath
+
+	if cfg.Mmproj != "" {
+		mmprojPath, err := filepath.Abs(expandHome(cfg.Mmproj, home))
+		if err != nil {
+			fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь mmproj: %v\n", err)
+			return p, 2
+		}
+		if _, err := os.Stat(mmprojPath); err != nil {
+			fmt.Fprintf(stderr, "mmproj не найден по пути %q: %v\n", mmprojPath, err)
+			return p, 1
+		}
+		p.Mmproj = mmprojPath
+	}
+
+	if cfg.SpecDraftModel != "" {
+		draftPath, err := filepath.Abs(expandHome(cfg.SpecDraftModel, home))
+		if err != nil {
+			fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь spec-draft-model: %v\n", err)
+			return p, 2
+		}
+		if _, err := os.Stat(draftPath); err != nil {
+			fmt.Fprintf(stderr, "spec-draft-model не найден по пути %q: %v\n", draftPath, err)
+			return p, 1
+		}
+		p.Draft = draftPath
+	}
+
+	return p, 0
+}
+
+// shutdown централизует остановку дочерних процессов.
+// Сигналы:
+//   - claude   — прямому процессу (красная зона №1: интерактивный stdin,
+//     не-foreground pgid = SIGTTIN → зависший UI);
+//   - server   — группе (Setpgid:true при запуске);
+//   - mcp      — группе (Setpgid:true).
+//
+// Если server/mcp запущены без Setpgid (например, в старых тестах),
+// fallback — прямой Process.Signal.
+type shutdown struct {
+	mu     sync.Mutex
+	claude *exec.Cmd
+	server *exec.Cmd
+	mcp    *exec.Cmd
+}
+
+func newShutdown() *shutdown { return &shutdown{} }
+
+func (s *shutdown) SetClaude(cmd *exec.Cmd) {
+	s.mu.Lock()
+	s.claude = cmd
+	s.mu.Unlock()
+}
+
+func (s *shutdown) SetServer(cmd *exec.Cmd) {
+	s.mu.Lock()
+	s.server = cmd
+	s.mu.Unlock()
+}
+
+func (s *shutdown) SetMCP(cmd *exec.Cmd) {
+	s.mu.Lock()
+	s.mcp = cmd
+	s.mu.Unlock()
+}
+
+// signal отправляет sig claude напрямую, server/mcp — их группам.
+func (s *shutdown) signal(sig syscall.Signal) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.claude != nil && s.claude.Process != nil {
+		_ = s.claude.Process.Signal(sig)
+	}
+	if s.server != nil && s.server.Process != nil {
+		if s.server.SysProcAttr != nil && s.server.SysProcAttr.Setpgid {
+			_ = syscall.Kill(-s.server.Process.Pid, sig)
+		} else {
+			_ = s.server.Process.Signal(sig)
+		}
+	}
+	if s.mcp != nil && s.mcp.Process != nil {
+		if s.mcp.SysProcAttr != nil && s.mcp.SysProcAttr.Setpgid {
+			_ = syscall.Kill(-s.mcp.Process.Pid, sig)
+		} else {
+			_ = s.mcp.Process.Signal(sig)
+		}
+	}
+}
+
+func (s *shutdown) StopAll()                    { s.signal(syscall.SIGINT) }
+func (s *shutdown) Escalate(sig syscall.Signal) { s.signal(sig) }
+
+// handleSignals ловит Ctrl-C/Term и останавливает процессы с эскалацией:
+// SIGINT (сразу) → SIGTERM (через timeout) → SIGKILL (ещё через timeout).
+// Повторный сигнал ускоряет эскалацию (не теряется — дефект №12).
+// done закрывается при отмене из run() (через defer close(done)).
+func handleSignals(sigCh <-chan os.Signal, done <-chan struct{}, shut *shutdown,
+	stdout io.Writer, timeout time.Duration) {
+
+	var sig os.Signal
+	select {
+	case <-done:
+		return
+	case s, ok := <-sigCh:
+		if !ok {
+			return
+		}
+		sig = s
+	}
+	fmt.Fprintf(stdout, "\nПолучен сигнал %v — останавливаем дочерние процессы...\n", sig)
+	shut.StopAll()
+
+	for _, esc := range []struct {
+		sig  syscall.Signal
+		name string
+	}{
+		{syscall.SIGTERM, "SIGTERM"},
+		{syscall.SIGKILL, "SIGKILL"},
+	} {
+		select {
+		case <-done:
+			return
+		case s, ok := <-sigCh:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(stdout, "\nПовторный сигнал %v — эскалация без ожидания\n", s)
+		case <-time.After(timeout):
+			fmt.Fprintf(stdout, "\nЭскалация: %s\n", esc.name)
+		}
+		shut.Escalate(esc.sig)
+	}
+}
+
 func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	cfg, err := parseFlags(args, stderr)
 	if err != nil {
@@ -121,23 +305,9 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 
 	// --- Пути ---
-	serverPath, err := filepath.Abs(expandHome(cfg.ServerBin, home))
-	if err != nil {
-		fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь llama-server: %v\n", err)
-		return 2
-	}
-	modelPath, err := filepath.Abs(expandHome(cfg.Model, home))
-	if err != nil {
-		fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь модели: %v\n", err)
-		return 2
-	}
-	if _, err := os.Stat(serverPath); err != nil {
-		fmt.Fprintf(stderr, "llama-server не найден по пути %q: %v\n", serverPath, err)
-		return 1
-	}
-	if _, err := os.Stat(modelPath); err != nil {
-		fmt.Fprintf(stderr, "модель не найдена по пути %q: %v\n", modelPath, err)
-		return 1
+	paths, code := resolvePaths(cfg, home, stdout, stderr)
+	if code != 0 {
+		return code
 	}
 
 	// --- Chat-template ---
@@ -181,11 +351,15 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 
 	// --- Сборка args ---
 	serverArgs := buildServerArgs(cfg, ServerPaths{
-		Model: modelPath, Mmproj: mmprojPath,
-		Draft: draftPath, Template: templatePath,
+		Model: paths.Model, Mmproj: paths.Mmproj,
+		Draft: paths.Draft, Template: paths.Template,
 	})
 
-	cmd := runner.Command(serverPath, serverArgs...)
+	cmd := runner.Command(paths.ServerBin, serverArgs...)
+	// Setpgid — только для server и mcp (красная зона №1):
+	// терминал они не читают, группа нужна для группового kill.
+	// Для claude — НЕ ставим (см. shutdown.SetClaude).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// --- LD_LIBRARY_PATH для llama-server ---
 	if cmd.Env == nil {
@@ -297,6 +471,9 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		}
 		if startErr := mcpCmd.Start(); startErr != nil {
 			fmt.Fprintf(stderr, "ошибка запуска mcp-search-server: %v\n", startErr)
+			stopChildren()
+			_ = serverProcess.Wait()
+			stopMcp(mcpCmd)
 			return 1
 		}
 	}
@@ -312,39 +489,30 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 	serverProcess := trackProcess(cmd)
 
-	// --- Менеджер дочерних процессов для сигналов ---
-	var (
-		mu        sync.Mutex
-		claudeCmd *exec.Cmd
-	)
-	setClaudeCmd := func(c *exec.Cmd) {
-		mu.Lock()
-		claudeCmd = c
-		mu.Unlock()
+	// --- Централизованный shutdown ---
+	shut := newShutdown()
+	shut.SetServer(cmd)
+	if mcpCmd != nil {
+		shut.SetMCP(mcpCmd)
 	}
-	stopChildren := func() {
-		mu.Lock()
-		cc := claudeCmd
-		mu.Unlock()
 
-		if cc != nil && cc.Process != nil {
-			_ = cc.Process.Signal(syscall.SIGINT)
+	var claudeProcess *trackedProcess
+	cleanup := func() {
+		shut.StopAll()
+		if claudeProcess != nil {
+			<-claudeProcess.done
 		}
-		if cmd.Process != nil {
-			_ = cmd.Process.Signal(syscall.SIGINT)
-		}
-		if mcpCmd != nil && mcpCmd.Process != nil {
-			_ = mcpCmd.Process.Signal(syscall.SIGINT)
-		}
+		_ = serverProcess.Wait()
 	}
+	defer cleanup()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		fmt.Fprintf(stdout, "\nПолучен сигнал %v — останавливаем дочерние процессы...\n", sig)
-		stopChildren()
-	}()
+	defer signal.Stop(sigCh)
+
+	sigDone := make(chan struct{})
+	defer close(sigDone)
+	go handleSignals(sigCh, sigDone, shut, stdout, 15*time.Second)
 
 	// =================================================================
 	// РЕЖИМ 1: -server — только llama-server
@@ -378,9 +546,6 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	fmt.Fprintf(stdout, "Ожидание готовности сервера (%s), таймаут %v ...\n", healthURL, cfg.ReadyTimeout)
 	if waitErr := waitForServerProcess(healthURL, cfg.ReadyTimeout, serverProcess); waitErr != nil {
 		fmt.Fprintf(stderr, "ошибка: %v\n", waitErr)
-		stopChildren()
-		_ = serverProcess.Wait()
-		stopMcp(mcpCmd)
 		return 1
 	}
 	fmt.Fprintln(stdout, "llama-server готов. Запуск Claude Code...")
@@ -425,9 +590,6 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		srv, err := StartProxyServer(proxyAddr, llamaTargetURL, cfg, proxyLogWriter)
 		if err != nil {
 			fmt.Fprintf(stderr, "ошибка запуска прокси: %v\n", err)
-			stopChildren()
-			_ = serverProcess.Wait()
-			stopMcp(mcpCmd)
 			return 1
 		}
 		proxySrv = srv
@@ -441,9 +603,6 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		proxyHealthURL := "http://" + proxyAddr + "/v1/models"
 		if err := waitForServer(proxyHealthURL, 5*time.Second); err != nil {
 			fmt.Fprintf(stderr, "прокси не поднялся: %v\n", err)
-			stopChildren()
-			_ = serverProcess.Wait()
-			stopMcp(mcpCmd)
 			return 1
 		}
 
@@ -455,9 +614,6 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		mcpHost, mcpPort, splitErr := net.SplitHostPort(cfg.McpAddr)
 		if splitErr != nil {
 			fmt.Fprintf(stderr, "некорректный -mcp-addr %q: %v\n", cfg.McpAddr, splitErr)
-			stopChildren()
-			_ = serverProcess.Wait()
-			stopMcp(mcpCmd)
 			return 2
 		}
 		mcpURL := "http://" + net.JoinHostPort(strings.Trim(mcpHost, "[]"), mcpPort)
@@ -492,9 +648,6 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		claudePath = resolved
 	} else if !filepath.IsAbs(claudePath) {
 		fmt.Fprintf(stderr, "Claude Code не найден (%q): %v\n", cfg.ClaudeBin, lookErr)
-		stopChildren()
-		_ = serverProcess.Wait()
-		stopMcp(mcpCmd)
 		return 1
 	}
 
@@ -540,16 +693,10 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		absDir, dirErr := filepath.Abs(expandHome(cfg.ClaudeDir, home))
 		if dirErr != nil {
 			fmt.Fprintf(stderr, "не удалось определить абсолютный путь claude-dir: %v\n", dirErr)
-			stopChildren()
-			_ = serverProcess.Wait()
-			stopMcp(mcpCmd)
 			return 1
 		}
 		if info, statErr := os.Stat(absDir); statErr != nil || !info.IsDir() {
 			fmt.Fprintf(stderr, "claude-dir %q недоступна: %v\n", absDir, statErr)
-			stopChildren()
-			_ = serverProcess.Wait()
-			stopMcp(mcpCmd)
 			return 1
 		}
 		cc.Dir = absDir
@@ -584,14 +731,12 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 
 	if startErr := cc.Start(); startErr != nil {
 		fmt.Fprintf(stderr, "ошибка запуска Claude Code: %v\n", startErr)
-		stopChildren()
-		_ = serverProcess.Wait()
-		stopMcp(mcpCmd)
 		return 1
 	}
-	setClaudeCmd(cc)
+	shut.SetClaude(cc)
+	claudeProcess = trackProcess(cc)
 
-	ccErr := cc.Wait()
+	ccErr := claudeProcess.Wait()
 	if ccErr != nil {
 		if exitErr, ok := ccErr.(*exec.ExitError); ok {
 			fmt.Fprintf(stdout, "Claude Code завершён с кодом %d. Останавливаем llama-server...\n", exitErr.ExitCode())
@@ -602,13 +747,9 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		fmt.Fprintln(stdout, "Claude Code завершён. Останавливаем llama-server...")
 	}
 
-	if cmd.Process != nil {
-		_ = cmd.Process.Signal(syscall.SIGINT)
-	}
-	_ = serverProcess.Wait()
-	stopMcp(mcpCmd)
 	fmt.Fprintln(stdout, "Готово.")
 	return 0
+
 }
 
 // printUsage печатает подробную справку программы.

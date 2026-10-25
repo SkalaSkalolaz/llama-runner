@@ -38,72 +38,81 @@ func (p *trackedProcess) Wait() error {
 	return p.err
 }
 
-// waitForServerProcess прекращает ожидание готовности, если процесс сервера завершился раньше.
-func waitForServerProcess(url string, timeout time.Duration, process *trackedProcess) error {
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
+// waitForReady опрашивает url раз в секунду до 200 OK или до истечения timeout.
+//
+//	done != nil — прекратить немедленно, если закрыт (процесс умер);
+//	label       — префикс для сообщения об ошибке ("llama-server", "прокси").
+//
+// Ошибки:
+//   - done закрыт → "<label> завершился до готовности";
+//   - timeout    → "<label> не стал готов за <d>: <lastErr>".
+func waitForReady(ctx context.Context, url string, timeout time.Duration, done <-chan struct{}, label string) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	client := &http.Client{Timeout: 3 * time.Second}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	client := &http.Client{Timeout: 3 * time.Second}
+
 	var lastErr error
-	check := func() (bool, error) {
-		resp, err := client.Get(url)
+	check := func() bool {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			lastErr = err
-			return false, nil
+			return false
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			return false
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
-			return true, nil
+			return true
 		}
 		lastErr = fmt.Errorf("статус %d", resp.StatusCode)
-		return false, nil
+		return false
 	}
+
 	for {
-		select {
-		case <-process.done:
-			return fmt.Errorf("llama-server завершился до готовности: %v", process.Wait())
-		default:
+		if done != nil {
+			select {
+			case <-done:
+				return fmt.Errorf("%s завершился до готовности", label)
+			default:
+			}
 		}
-		ready, _ := check()
-		if ready {
+		if check() {
 			return nil
 		}
 		select {
-		case <-process.done:
-			return fmt.Errorf("llama-server завершился до готовности: %v", process.Wait())
-		case <-deadline.C:
+		case <-done:
+			return fmt.Errorf("%s завершился до готовности", label)
+		case <-ctx.Done():
+			if done != nil {
+				select {
+				case <-done:
+					return fmt.Errorf("%s завершился до готовности", label)
+				default:
+				}
+			}
 			if lastErr == nil {
 				lastErr = fmt.Errorf("таймаут")
 			}
-			return fmt.Errorf("сервер не стал готов за %v: %v", timeout, lastErr)
+			return fmt.Errorf("%s не стал готов за %v: %v", label, timeout, lastErr)
 		case <-ticker.C:
 		}
 	}
 }
 
-// waitForServer периодически опрашивает /health, пока сервер не ответит 200 OK.
+// waitForServer — обёртка для совместимости со старыми вызовами и тестами.
 func waitForServer(url string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	client := &http.Client{Timeout: 3 * time.Second}
-	var lastErr error
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return nil
-			}
-			lastErr = fmt.Errorf("статус %d", resp.StatusCode)
-		} else {
-			lastErr = err
-		}
-		time.Sleep(1 * time.Second)
-	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("таймаут")
-	}
-	return fmt.Errorf("сервер не стал готов за %v: %v", timeout, lastErr)
+	return waitForReady(context.Background(), url, timeout, nil, "сервер")
+}
+
+// waitForServerProcess — обёртка для совместимости со старыми тестами.
+func waitForServerProcess(url string, timeout time.Duration, process *trackedProcess) error {
+	return waitForReady(context.Background(), url, timeout, process.done, "llama-server")
 }
 
 // stopMcp корректно останавливает mcp-search-server.
