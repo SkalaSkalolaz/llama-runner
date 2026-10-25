@@ -157,6 +157,18 @@ else
     echo "$m6out" | tail -20 | sed 's/^/       /'
 fi
 
+# M7: ротация логов — отдельным прогоном.
+m7out="$(go test -run 'TestRotatingWriter_' -count=1 -v . 2>&1)"
+m7fail=0
+echo "$m7out" | grep -q '^=== RUN   TestRotatingWriter_' || m7fail=1
+echo "$m7out" | grep -q '^--- FAIL' && m7fail=1
+if [ "$m7fail" -eq 0 ]; then
+    pass "M7: ротация логов"
+else
+    fail "M7: ротация логов (не найдены или упали)"
+    echo "$m7out" | tail -20 | sed 's/^/       /'
+fi
+
 echo
 echo "== 2. Коды возврата и пути ошибок =="
 
@@ -411,6 +423,21 @@ M6 — конфиг, профили, doctor:
 
   [ ] -config "": ./llama-runner -doctor -config "" — конфиг не читается,
       используются встроенные дефолты (host 127.0.0.1, port 8080).
+M7 — ротация логов:
+
+  [ ] ./llama-runner -v -server ... -log-file /tmp/lr.log -log-max-mb 1 -log-keep 3
+      Запустить llama-server, попросить несколько запросов/дать поработать,
+      затем в другом терминале:
+        ls -la /tmp/lr.log*
+      Ожидаемо: /tmp/lr.log (текущий), /tmp/lr.log.1, /tmp/lr.log.2, /tmp/lr.log.3
+      (максимум 3 архива, старые удаляются). Права 0600.
+      pgrep -af llama-server   # пусто после остановки
+
+  [ ] Строки не теряются на границе: /tmp/lr.log* в сумме содержат все
+      строки, которые успел выдать llama-server (нет обрывков без
+      продолжения).
+
+  [ ] -log-max-mb 0: файл растёт без ротации, .N нет.
 MANUAL
 
 echo

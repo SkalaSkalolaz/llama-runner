@@ -75,6 +75,8 @@ go test -race ./...
 | `-config` | `~/.config/llama-runner/config.json` | Path to the config file; `""` — do not read |
 | `-p` | _(not set)_ | Profile from the config file |
 | `-doctor` | | Diagnostics without running |
+| `-log-max-mb` | `50` | Max llama-server log size (MB) before rotation; `0` — disable |
+| `-log-keep` | `5` | How many log archives to keep; `0` — no archives |
 
 ## Hybrid mode: llama-server + external OpenAI API
 
