@@ -310,3 +310,68 @@ func buildClaudeArgs(cfg *Config, mcpConfigPath string) []string {
 	}
 	return args
 }
+
+// credentialsPath — где искать ключ, если ни флаг, ни env не заданы.
+func credentialsPath(home string) string {
+	return filepath.Join(home, ".config", "llama-runner", "credentials")
+}
+
+// resolveOpenAIKey выбирает ключ по приоритету:
+//
+//	флаг -key > LLAMA_RUNNER_OPENAI_KEY > OPENAI_API_KEY >
+//	~/.config/llama-runner/credentials > "".
+//
+// Файл — простой KEY=VALUE (по одной паре на строку), ищется OPENAI_KEY
+// или OPENAI_API_KEY. Права проверяются: если файл шире 0600, ключ всё равно
+// прочитается, но напишется предупреждение в stderr. Нечитаемый/битый файл —
+// не фатально (просто следующий источник), но предупреждение.
+//
+// env и statFile инъектируются для тестов (реальные — os.Getenv,
+// os.Stat/os.ReadFile).
+func resolveOpenAIKey(keyFlag string, env func(string) string, home string, stderr io.Writer) (string, error) {
+	if keyFlag != "" {
+		return keyFlag, nil
+	}
+	for _, name := range []string{"LLAMA_RUNNER_OPENAI_KEY", "OPENAI_API_KEY"} {
+		if v := strings.TrimSpace(env(name)); v != "" {
+			return v, nil
+		}
+	}
+	path := credentialsPath(home)
+	if _, err := os.Stat(path); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(stderr, "предупреждение: не удалось проверить %q: %v\n", path, err)
+		}
+		return "", nil
+	}
+	info, err := os.Stat(path)
+	if err == nil && info.Mode().Perm() != 0o600 {
+		fmt.Fprintf(stderr, "предупреждение: %q имеет права %o, рекомендуется 0600\n",
+			path, info.Mode().Perm())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(stderr, "предупреждение: не удалось прочитать %q: %v\n", path, err)
+		return "", nil
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		if key != "OPENAI_KEY" && key != "OPENAI_API_KEY" {
+			continue
+		}
+		val := strings.TrimSpace(line[eq+1:])
+		val = strings.Trim(val, `"'`)
+		if val != "" {
+			return val, nil
+		}
+	}
+	return "", nil
+}
