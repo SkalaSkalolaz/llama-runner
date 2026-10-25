@@ -39,6 +39,8 @@ func defaultConfig() *Config {
 		ChatTemplate:         "auto",
 		ChatTemplateFallback: "~/GGUF/qwen-fixed-chat-template.jinja",
 		LogFile:              "~/.cache/llama-runner/llama-server.log",
+		LogMaxMB:             50,
+		LogKeep:              5,
 		QuietServer:          true,
 		McpAddr:              "127.0.0.1:8090",
 		ProxyAddr:            "127.0.0.1:8082",
@@ -111,6 +113,8 @@ type fileConfig struct {
 	ChatTemplate         *string `json:"chatTemplate,omitempty"`
 	ChatTemplateFallback *string `json:"chatTemplateFallback,omitempty"`
 	LogFile              *string `json:"logFile,omitempty"`
+	LogMaxMB             *int    `json:"logMaxMB,omitempty"`
+	LogKeep              *int    `json:"logKeep,omitempty"`
 	QuietServer          *bool   `json:"quietServer,omitempty"`
 	McpAddr              *string `json:"mcpAddr,omitempty"`
 	McpConfigOut         *string `json:"mcpConfig,omitempty"`
@@ -189,6 +193,12 @@ func applyFileConfig(cfg *Config, fc fileConfig) error {
 	set(&cfg.ChatTemplate, fc.ChatTemplate)
 	set(&cfg.ChatTemplateFallback, fc.ChatTemplateFallback)
 	set(&cfg.LogFile, fc.LogFile)
+	if fc.LogMaxMB != nil {
+		cfg.LogMaxMB = *fc.LogMaxMB
+	}
+	if fc.LogKeep != nil {
+		cfg.LogKeep = *fc.LogKeep
+	}
 	setB(&cfg.QuietServer, fc.QuietServer)
 	set(&cfg.McpAddr, fc.McpAddr)
 	set(&cfg.McpConfigOut, fc.McpConfigOut)

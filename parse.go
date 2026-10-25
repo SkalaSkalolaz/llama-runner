@@ -148,6 +148,10 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 	fs.StringVar(&cfg.ChatTemplate, "chat-template", cfg.ChatTemplate, "шаблон чата")
 	fs.StringVar(&cfg.LogFile, "log-file", cfg.LogFile, "лог-файл")
 	fs.BoolVar(&cfg.QuietServer, "quiet-server", cfg.QuietServer, "уводить логи в файл")
+	fs.IntVar(&cfg.LogMaxMB, "log-max-mb", cfg.LogMaxMB,
+		"макс. размер лога llama-server в МБ перед ротацией (0 — не ротировать)")
+	fs.IntVar(&cfg.LogKeep, "log-keep", cfg.LogKeep,
+		"сколько архивов лога хранить (0 — без архивов)")
 	fs.StringVar(&cfg.McpAddr, "mcp-addr", cfg.McpAddr, "адрес mcp-search-server")
 	fs.StringVar(&cfg.McpConfigOut, "mcp-config", cfg.McpConfigOut, "куда записать MCP-конфиг")
 	fs.BoolVar(&cfg.McpStrict, "mcp-strict", cfg.McpStrict, "strict-mcp-config")

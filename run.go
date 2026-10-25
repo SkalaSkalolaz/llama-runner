@@ -375,31 +375,48 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 
 	// --- Лог-файл (в режиме Claude Code) ---
+	// serverLogFile — *os.File для обратной совместимости с остальным
+	// кодом (serverLogFile.Name(), -v-вывод); serverLogWriter — то, что
+	// реально передаётся в cmd.Stdout/Stderr. Если ротация выключена
+	// (LogMaxMB==0), serverLogWriter == serverLogFile.
 	var serverLogFile *os.File
+	var serverLogWriter io.Writer
 	if !cfg.ServerOnly && cfg.QuietServer {
 		logPath := expandHome(cfg.LogFile, home)
 		if mkErr := os.MkdirAll(filepath.Dir(logPath), 0o700); mkErr != nil {
 			fmt.Fprintf(stderr, "не удалось создать каталог для логов %q: %v\n", filepath.Dir(logPath), mkErr)
 			return 1
 		}
-		f, openErr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-		if openErr != nil {
-			fmt.Fprintf(stderr, "не удалось открыть лог-файл %q: %v\n", logPath, openErr)
-			return 1
+		if cfg.LogMaxMB > 0 {
+			rw, rwErr := newRotatingWriter(logPath, int64(cfg.LogMaxMB)*1024*1024, cfg.LogKeep, 0o600)
+			if rwErr != nil {
+				fmt.Fprintf(stderr, "не удалось открыть ротируемый лог-файл %q: %v\n", logPath, rwErr)
+				return 1
+			}
+			defer rw.Close()
+			serverLogWriter = rw
+		} else {
+			f, openErr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+			if openErr != nil {
+				fmt.Fprintf(stderr, "не удалось открыть лог-файл %q: %v\n", logPath, openErr)
+				return 1
+			}
+			if chErr := f.Chmod(0o600); chErr != nil {
+				_ = f.Close()
+				fmt.Fprintf(stderr, "не удалось установить права доступа к лог-файлу %q: %v\n", logPath, chErr)
+				return 2
+			}
+			serverLogFile = f
+			serverLogWriter = f
+			defer f.Close()
 		}
-		if chErr := f.Chmod(0o600); chErr != nil {
-			_ = f.Close()
-			fmt.Fprintf(stderr, "не удалось установить права доступа к лог-файлу %q: %v\n", logPath, chErr)
-			return 2
-		}
-		serverLogFile = f
-		defer serverLogFile.Close()
-		cmd.Stdout = f
-		cmd.Stderr = f
+		cmd.Stdout = serverLogWriter
+		cmd.Stderr = serverLogWriter
 	} else {
 		cmd.Stdout = stdout
 		cmd.Stderr = stderr
 	}
+
 	cmd.Stdin = os.Stdin
 
 	if cfg.Verbose {
@@ -423,9 +440,10 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		// Setpgid для mcp — как и для llama-server (красная зона №1:
 		// терминал mcp не читает, группа нужна для группового kill).
 		mcpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		if serverLogFile != nil {
-			mcpCmd.Stdout = serverLogFile
-			mcpCmd.Stderr = serverLogFile
+
+		if serverLogWriter != nil {
+			mcpCmd.Stdout = serverLogWriter
+			mcpCmd.Stderr = serverLogWriter
 		} else {
 			mcpCmd.Stdout = stdout
 			mcpCmd.Stderr = stderr
@@ -535,8 +553,8 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 			proxyAddr, llamaTargetURL, cfg.OpenAIBaseURL)
 
 		var proxyLogWriter io.Writer
-		if serverLogFile != nil {
-			proxyLogWriter = serverLogFile
+		if serverLogWriter != nil {
+			proxyLogWriter = serverLogWriter
 		} else {
 			proxyLogPath := expandHome("~/.cache/llama-runner/proxy.log", home)
 			if mkErr := os.MkdirAll(filepath.Dir(proxyLogPath), 0o700); mkErr == nil {
@@ -783,6 +801,9 @@ Claude Code:
   -ready-timeout dur   таймаут готовности /health (по умолчанию 180s)
   -log-file string     файл логов llama-server (по умолчанию "~/.cache/llama-runner/llama-server.log")
   -quiet-server        уводить логи llama-server в файл (по умолчанию true)
+  -log-max-mb int      макс. размер лога llama-server в МБ перед ротацией
+                       (по умолчанию 50; 0 — не ротировать)
+  -log-keep int        сколько архивов лога хранить (по умолчанию 5; 0 — без архивов)
   -mcp-addr string     адрес mcp-search-server (по умолчанию 127.0.0.1:8090)
   -mcp-config string   путь к MCP-конфигу (по умолчанию временный)
   -mcp-strict          передать --strict-mcp-config

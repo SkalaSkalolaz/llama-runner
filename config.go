@@ -75,6 +75,8 @@ type Config struct {
 	DoctorFlag           bool
 	ChatTemplateFallback string
 
+	LogMaxMB int
+	LogKeep  int
 	// Производные (заполняются после Parse/Validate)
 	Home            string
 	ChatTemplateSet bool // -chat-template задан явно
