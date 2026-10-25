@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -20,8 +21,6 @@ func waitExit(cmd *exec.Cmd, p *trackedProcess, timeout time.Duration) bool {
 }
 
 func TestShutdown_StopAllKillsGroup(t *testing.T) {
-	// Процесс с потомком: sh запускает sleep в фоне. Групповой SIGINT
-	// должен убить и sh, и sleep.
 	cmd := exec.Command("sh", "-c", "sleep 30 & wait")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -43,7 +42,6 @@ func TestShutdown_StopAllKillsGroup(t *testing.T) {
 }
 
 func TestShutdown_StopAllDirectProcess(t *testing.T) {
-	// Без Setpgid — сигнал идёт прямому процессу.
 	cmd := exec.Command("sh", "-c", "sleep 30")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -55,7 +53,7 @@ func TestShutdown_StopAllDirectProcess(t *testing.T) {
 	}()
 
 	shut := newShutdown()
-	shut.SetClaude(cmd) // claude обрабатывается как «прямой процесс»
+	shut.SetClaude(cmd)
 	shut.StopAll()
 
 	if !waitExit(cmd, p, 3*time.Second) {
@@ -64,7 +62,6 @@ func TestShutdown_StopAllDirectProcess(t *testing.T) {
 }
 
 func TestShutdown_EscalateSIGKILL(t *testing.T) {
-	// Процесс игнорирует SIGINT и SIGTERM — только SIGKILL.
 	cmd := exec.Command("sh", "-c", "trap '' INT TERM; while true; do sleep 0.1; done")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -90,8 +87,9 @@ func TestShutdown_EscalateSIGKILL(t *testing.T) {
 }
 
 func TestHandleSignals_EscalatesByTimeout(t *testing.T) {
-	// Первый сигнал → SIGINT, через timeout → SIGTERM.
-	cmd := exec.Command("sh", "-c", "trap '' TERM; while true; do sleep 0.1; done")
+	// sh ловит INT и TERM, умирает только от KILL: так тест реально
+	// проверяет эскалацию по таймауту, а не смерть от первого SIGINT.
+	cmd := exec.Command("sh", "-c", "trap '' INT TERM; while true; do sleep 0.1; done")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -108,22 +106,32 @@ func TestHandleSignals_EscalatesByTimeout(t *testing.T) {
 	sigCh := make(chan os.Signal, 4)
 	done := make(chan struct{})
 	var buf bytes.Buffer
-	go handleSignals(sigCh, done, shut, &buf, 200*time.Millisecond)
+	returned := make(chan struct{})
+	go func() {
+		handleSignals(sigCh, done, shut, &buf, 200*time.Millisecond)
+		close(returned)
+	}()
 
 	sigCh <- syscall.SIGINT
-	// Через ~200 мс handleSignals отправит SIGTERM, через ещё 200 — SIGKILL.
-	// Процесс игнорирует TERM, значит нужен KILL, а он — на 3-й итерации (~400 мс).
+	// Дожидаемся завершения handleSignals ПЕРЕД чтением buf: иначе
+	// buf.Len()/buf.String() гоняются с fmt.Fprintf из goroutine.
+	select {
+	case <-returned:
+	case <-time.After(3 * time.Second):
+		t.Fatal("handleSignals не завершился за 3с")
+	}
 	if !waitExit(cmd, p, 3*time.Second) {
 		t.Fatalf("эскалация не убила процесс за 3с; buf=%q", buf.String())
 	}
-	if buf.Len() == 0 {
-		t.Error("handleSignals ничего не написал в stdout")
+	log := buf.String()
+	if !strings.Contains(log, "Эскалация: SIGTERM") || !strings.Contains(log, "Эскалация: SIGKILL") {
+		t.Errorf("в логе нет эскалации SIGTERM/SIGKILL: %q", log)
 	}
 }
 
 func TestHandleSignals_SecondSignalEscalates(t *testing.T) {
-	// Второй сигнал ускоряет эскалацию: SIGINT, потом сразу SIGTERM (без timeout).
-	cmd := exec.Command("sh", "-c", "trap '' TERM; while true; do sleep 0.1; done")
+	// sh ловит INT и TERM, умирает только от KILL.
+	cmd := exec.Command("sh", "-c", "trap '' INT TERM; while true; do sleep 0.1; done")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -140,15 +148,31 @@ func TestHandleSignals_SecondSignalEscalates(t *testing.T) {
 	sigCh := make(chan os.Signal, 4)
 	done := make(chan struct{})
 	var buf bytes.Buffer
-	go handleSignals(sigCh, done, shut, &buf, 5*time.Second)
+	returned := make(chan struct{})
+	// timeout=1s: без второго сигнала SIGKILL — через 2×1s=2s.
+	// С вторым сигналом (через 50ms) — через 1s+50ms ≈ 1.05s.
+	go func() {
+		handleSignals(sigCh, done, shut, &buf, time.Second)
+		close(returned)
+	}()
 
 	sigCh <- syscall.SIGINT
 	time.Sleep(50 * time.Millisecond)
-	sigCh <- syscall.SIGINT // второй — должен ускорить
-	// Ещё один SIGKILL прилетит через 5с timeout — но процесс должен умереть
-	// от SIGTERM+повторного сигнала быстрее. Ждём 2с.
-	if !waitExit(cmd, p, 2*time.Second) {
-		t.Fatal("второй сигнал не ускорил эскалацию")
+	sigCh <- syscall.SIGINT // ускоряет: SIGTERM сразу, SIGKILL через 1s
+
+	// 1.5s — граница: с ускорением процесс умирает за ~1.05s,
+	// без ускорения — за ~2s и тест упадёт.
+	if !waitExit(cmd, p, 1500*time.Millisecond) {
+		// В buf не лезем: goroutine может ещё писать.
+		t.Fatal("второй сигнал не ускорил эскалацию (процесс жив >1.5s)")
+	}
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleSignals не завершился")
+	}
+	if !strings.Contains(buf.String(), "Повторный сигнал") {
+		t.Errorf("в логе нет ускорения: %q", buf.String())
 	}
 }
 
