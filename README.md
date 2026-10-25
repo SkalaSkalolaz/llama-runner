@@ -1,94 +1,145 @@
 # llama-runner
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](https://go.dev/)
-[![Tests](https://img.shields.io/badge/tests-40%2B-brightgreen.svg)](#development)
-[![Race](https://img.shields.io/badge/race-clean-brightgreen.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-40%2B-brightgreen.svg)](#разработка)
+[![Race](https://img.shields.io/badge/race-clean-brightgreen.svg)](#разработка)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
 [![CI](https://github.com/SkalaSkalolaz/llama-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/SkalaSkalolaz/llama-runner/actions/workflows/ci.yml)
 
-**English** · [Русский](README_RU.md)
+**Русский** · [English](README_RU.md)
 
-A local launcher: starts `llama-server` with your GGUF model and automatically opens
-**Claude Code** attached to that server. When Claude Code exits, the server shuts down.
+Локальный лаунчер: запускает `llama-server` с вашей GGUF-моделью и автоматически открывает
+**Claude Code**, привязанный к этому серверу. При закрытии Claude Code сервер останавливается.
 
-## Quick start
+## Быстрый старт
 
 ```bash
 go build -o llama-runner .
 
-./llama-runner                  # llama-server + Claude Code (default)
-./llama-runner -server          # llama-server only (legacy behaviour)
-./llama-runner -webui-mcp-proxy # + search MCP server and CORS proxy
+./llama-runner                  # llama-server + Claude Code (по умолчанию)
+./llama-runner -server          # только llama-server (старое поведение)
+./llama-runner -webui-mcp-proxy # + поисковый MCP-сервер и прокси CORS
 ```
 
-## Development
+## Что умеет
 
-```bash
-go build ./...
-go vet ./...
-go test -v ./...
-go test -race ./...
-```
+- **Автоматический запуск:** проверяет наличие модели, поднимает сервер, ждёт готовности
+  `/health` и открывает Claude Code.
+- **Гибридный режим:** встроенный прокси маршрутизирует запросы Claude Code между локальным
+  `llama-server` и внешним OpenAI-совместимым API (с конвертацией Anthropic → OpenAI
+  и стримингом обратно). Токен-аутентификация — `-proxy-token`.
+- **MCP-прокси:** `-webui-mcp-proxy` запускает `mcp-search-server`, генерирует временный
+  MCP-конфиг и пробрасывает CORS. С `-mcp-strict` — только этот MCP, без сторонних
+  из `~/.claude.json`.
+- **Обновление llama.cpp:** `-update` выполняет `git pull --ff-only` → `cmake configure/build/install`.
+- **Спекулятивное декодирование:** флаги `-spec-type`, `-spec-draft-model`,
+  `-spec-draft-n-max`, `-spec-draft-ngl`.
+- **Мультимодальность:** `-mmproj` подключает проектор.
+- **Алиас модели:** `-alias` подставляет `--alias` в llama-server и
+  `ANTHROPIC_DEFAULT_*_MODEL` в Claude Code.
+- **Чат-шаблон:** `-chat-template "auto"` (по имени файла, например
+  `qwen-fixed-chat-template.jinja`), явный путь или `""`.
+- **Управление глубиной размышлений:** `-reasoning` и `-reasoning-budget` (работает только
+  для моделей с поддержкой reasoning).
+- **Логи с ротацией:** вывод llama-server уходит в файл (по умолчанию
+  `~/.cache/llama-runner/llama-server.log`) и ротируется по размеру.
+- **Конфиг-файл:** `~/.config/llama-runner/config.json` (или `-config <path>`). Приоритет:
+  CLI > файл > встроенные дефолты. `-config ""` — не читать. Секреты (`openaiKey`,
+  `proxyToken`) в файле поддерживаются, но рекомендуется env / `credentials` / флаг.
+- **Профили:** `-p coder` — короткие пресеты из `profiles: {…}` в конфиге.
+- **`-doctor`:** показать разрешённые пути, версию и итоговую команду без запуска процессов.
+- **Корректная остановка:** Ctrl-C/SIGTERM останавливает claude, сервер и MCP с эскалацией
+  SIGTERM → SIGKILL; повторный сигнал ускоряет эскалацию.
 
-## Features
+## Флаги
 
-- **Automatic startup:** checks that the model exists, brings the server up, waits for
-  `/health` to be ready and opens Claude Code.
-- **MCP proxy:** `-webui-mcp-proxy` starts `mcp-search-server`, generates a temporary MCP
-  config and passes through CORS. With `-mcp-strict` — only this MCP, nothing third-party
-  from `~/.claude.json`.
-- **llama.cpp updates:** `-update` runs `git pull` → `cmake configure/build/install`.
-- **Speculative decoding:** `-spec-type`, `-spec-draft-model`, `-spec-draft-n-max`,
-  `-spec-draft-ngl` flags.
-- **Multimodality:** `-mmproj` attaches a projector.
-- **Model alias:** `-alias` sets `--alias` in llama-server and `ANTHROPIC_DEFAULT_*_MODEL`
-  in Claude Code.
-- **Chat template:** `-chat-template "auto"` (inferred from the file name, e.g.
-  `qwen-fixed-chat-template.jinja`), an explicit path, or `""`.
-- **Reasoning depth control:** `-reasoning` and `-reasoning-budget` (only works for models
-  that support reasoning).
-- **Config file:** `~/.config/llama-runner/config.json` (or `-config <path>`). Priority:
-  CLI > file > built-in defaults. `-config ""` disables. Secrets (`openaiKey`,
-  `proxyToken`) can be stored in the file, but env / `credentials` / flags are preferred.
-- **Profiles:** `-p coder` — short presets from `profiles: {…}` in the config.
-- **`-doctor`:** print resolved paths, version and final command without launching anything.
+### Сервер и llama.cpp
 
-## Main flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-model` | `~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf` | Path to the GGUF file |
-| `-bin` | `~/.local/bin/llama-server` | Path to llama-server |
-| `-host:port` | `127.0.0.1:8080` | Server address and port |
-| `-alias` | `local` | Model alias |
-| `-c, -b, -ub` | `65536/2048/1024` | Context / batch / micro-batch |
-| `-jinja` | `true` | Jinja templates |
-| `-ngl` | _(not passed)_ | Number of layers offloaded to GPU |
+| Флаг | По умолчанию | Что |
+|------|-------------|-----|
+| `-model` | `~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf` | Путь к GGUF |
+| `-bin` | `~/.local/bin/llama-server` | Путь к llama-server |
+| `-host` / `-port` | `127.0.0.1` / `8080` | Адрес и порт сервера |
+| `-alias` | `local` (в режиме Claude Code) | Алиас модели |
+| `-c`, `-b`, `-ub` | `65536` / `2048` / `1024` | Контекст / батч / микро-батч |
 | `-fa` | `auto` | Flash attention |
-| `-parallel` | `1` | Number of parallel slots |
-| `-ready-timeout` | `180s` | Readiness wait timeout |
-| `-reasoning` | _(not passed)_ | Reasoning mode: `on`/`off`/`auto` |
-| `-reasoning-budget` | _(not passed)_ | Token budget for reasoning: `-1`/`0`/`N` |
-| `-v` | | Print the command before running it |
-| `-version` | | Print the version |
-| `-config` | `~/.config/llama-runner/config.json` | Path to the config file; `""` — do not read |
-| `-p` | _(not set)_ | Profile from the config file |
-| `-doctor` | | Diagnostics without running |
-| `-log-max-mb` | `50` | Max llama-server log size (MB) before rotation; `0` — disable |
-| `-log-keep` | `5` | How many log archives to keep; `0` — no archives |
+| `-parallel` | `1` | Кол-во параллельных слотов |
+| `-tools` | `all` | Режим инструментов |
+| `-jinja` | `true` | Jinja-шаблоны |
+| `-chat-template` | `auto` | `auto` / `""` / путь к `.jinja` |
+| `-ngl` | _(не передаётся)_ | Слоёв на GPU |
+| `-mmproj` | _(не передаётся)_ | Мультимодальный проектор |
+| `-temp`, `-top-p` | _(не передаются)_ | Сэмплинг |
+| `-cache-type-k`, `-cache-type-v` | _(не передаются)_ | Типы KV-кэша |
+| `-fit` | _(не передаётся)_ | Режим `--fit` (`on`/`off`) |
+| `-lv` | _(не передаётся)_ | Уровень логов llama.cpp |
+| `-lm-lazy` | `false` | mmap с ленивым режимом |
+| `-reasoning` | _(не передаётся)_ | Режим размышлений: `on`/`off`/`auto` |
+| `-reasoning-budget` | _(не передаётся)_ | Бюджет токенов на размышления: `-1`/`0`/`N` |
+| `-spec-type` | _(не передаётся)_ | Тип spec-декодирования (`draft-mtp`, `draft-dflash`) |
+| `-spec-draft-model` | _(не передаётся)_ | Путь к драфтеру |
+| `-spec-draft-n-max`, `-spec-draft-ngl` | _(не передаются)_ | Параметры драфтера |
+| `-dir` | текущая директория | Рабочая директория llama-server |
 
-## Hybrid mode: llama-server + external OpenAI API
+### Claude Code
 
-You can use a local llama-server and an external OpenAI-compatible service
-(OrcaRouter, OpenRouter, DeepSeek, …) at the same time.
-In Claude Code, switch models with `/model`:
+| Флаг | По умолчанию | Что |
+|------|-------------|-----|
+| `-server` | | Только llama-server, без Claude Code |
+| `-claude-bin` | `claude` | Путь к бинарю Claude Code |
+| `-claude-dir` | текущая директория | Рабочая директория Claude Code |
+| `-ready-timeout` | `180s` | Таймаут ожидания `/health` |
+| `-log-file` | `~/.cache/llama-runner/llama-server.log` | Файл логов llama-server |
+| `-quiet-server` | `true` | Уводить логи llama-server в файл |
+| `-log-max-mb` | `50` | Макс. размер лога в МБ перед ротацией; `0` — не ротировать |
+| `-log-keep` | `5` | Сколько архивов лога хранить; `0` — без архивов (трункейт) |
+| `-webui-mcp-proxy` | `false` | CORS-прокси + `mcp-search-server` |
+| `-mcp-addr` | `127.0.0.1:8090` | Адрес `mcp-search-server` |
+| `-mcp-config` | временный файл | Куда записать MCP-конфиг |
+| `-mcp-strict` | `false` | Передать `--strict-mcp-config` |
 
-- `llama-server` (or picking it from the `/model` menu) → local llama-server
-- **Everything else** (`sonnet`, `haiku`, `opus`, any other name) → external provider
+### Внешний провайдер (гибридный режим)
 
-`llama-server` is also added to the interactive `/model` menu via
-`ANTHROPIC_CUSTOM_MODEL_OPTION` so it can be selected with the arrow keys.
+| Флаг | По умолчанию | Что |
+|------|-------------|-----|
+| `-openai` | | URL OpenAI-совместимого API |
+| `-key` | | API-ключ внешнего провайдера (см. «Получение ключа») |
+| `-model-openai` | | Имя модели у внешнего провайдера |
+| `-proxy-addr` | `127.0.0.1:8082` | Адрес локального маршрутизирующего прокси |
+| `-proxy-token` | _(пусто — без проверки)_ | Токен для входящих запросов прокси |
+| `-proxy-allow-remote` | `false` | Разрешить не-loopback `-proxy-addr` без предупреждения |
+
+### Конфиг, диагностика, обновление
+
+| Флаг | По умолчанию | Что |
+|------|-------------|-----|
+| `-config` | `~/.config/llama-runner/config.json` | Путь к конфиг-файлу; `""` — не читать |
+| `-p` | _(не задан)_ | Профиль из конфиг-файла |
+| `-doctor` | | Диагностика без запуска процессов |
+| `-v` | | Показать команду перед запуском |
+| `-version` | | Показать версию |
+| `-update` | | Обновить llama.cpp (`git pull --ff-only` + сборка + установка) и выйти |
+| `-llama-src` | `~/src/llama.cpp` | Путь к исходникам llama.cpp |
+| `-install-prefix` | `~/.local` | Префикс установки |
+| `-cuda` | `true` | Собирать с CUDA |
+| `-cuda-arch` | `61` | `-DCMAKE_CUDA_ARCHITECTURES` |
+
+## Гибридный режим: llama-server + внешний OpenAI API
+
+Можно одновременно использовать локальный llama-server и внешний
+OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, …).
+Для этого поднимается локальный прокси (по умолчанию `127.0.0.1:8082`,
+флаг `-proxy-addr`), на который переводится `ANTHROPIC_BASE_URL` Claude Code.
+
+Маршрутизация по имени модели в Claude Code (`/model`):
+
+- ровно `llama-server` (в том числе выбор из меню `/model`) → локальный llama-server
+  (запрос конвертируется Anthropic → OpenAI, стрим возвращается обратно);
+- **все остальные** (`sonnet`, `haiku`, `opus`, любое другое имя) → внешний провайдер.
+
+`llama-server` также добавлен в интерактивное меню `/model` через
+`ANTHROPIC_CUSTOM_MODEL_OPTION`, чтобы его можно было выбрать стрелками.
 
 ```bash
 ./llama-runner \
@@ -97,43 +148,44 @@ In Claude Code, switch models with `/model`:
   -model-openai deepseek/deepseek-v4-flash-free
 ```
 
-## Examples
+### Защита прокси
 
-```bash
-# Server + Claude Code in a project directory
-./llama-runner -alias qwen3-coder -claude-dir ~/my-project
+- `-proxy-token <токен>` — прокси проверяет входящие запросы по
+  `Authorization: Bearer` или `x-api-key`; тот же токен передаётся Claude Code
+  в `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`.
+- Если прокси слушает не-loopback адрес без токена, запускается предупреждение
+  (любой в сети сможет использовать ваш платный ключ). Заданный токен или явный
+  `-proxy-allow-remote` убирает его.
 
-# Server only, on a different port
-./llama-runner -server -port 9090
+## Получение ключа внешнего провайдера
 
-# Server + Claude Code with web search
-./llama-runner -webui-mcp-proxy
+Приоритет источников ключа:
 
-# Without extra MCP servers from ~/.claude.json
-./llama-runner -webui-mcp-proxy -mcp-strict
+1. флаг `-key`;
+2. env `LLAMA_RUNNER_OPENAI_KEY`;
+3. env `OPENAI_API_KEY`;
+4. файл `~/.config/llama-runner/credentials` — простой `KEY=VALUE`
+   (ключи `OPENAI_KEY` или `OPENAI_API_KEY`, поддерживаются `#`-комментарии);
+   рекомендуется права `0600` (иначе — предупреждение).
 
-# With LiLiCorr (speculative decoding)
-./llama-runner -server -model ~/models/nemotron-bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
-  -mmproj ~/models/nemotron-bolt/mmproj-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
-  -spec-type draft-dflash -spec-draft-model ~/models/...-LiLiCorr.gguf \
-  -spec-draft-n-max 6 -spec-draft-ngl 999 -ngl 999 \
-  -c 98304 -b 2048 -ub 512 -cache-type-k q8_0 -cache-type-v q8_0 \
-  -temp 1.0 -top-p 0.95 -fa on -jinja -chat-template ""
+Ключ подхватывается только когда внешний провайдер реально запрошен
+(задан хотя бы один из `-openai` / `-key` / `-model-openai`).
 
-# Update llama.cpp (Pascal architecture) and start
-./llama-runner -update -cuda-arch 61 && ./llama-runner -server -model ~/GGUF/model.gguf
+## Конфиг-файл
 
-# Profile from the config file   
-./llama-runner -p coder
+По умолчанию читается `~/.config/llama-runner/config.json`. Приоритет значений:
+**CLI > конфиг > встроенные дефолты**. Флаг `-config ""` отключает чтение файла.
+В файле доступны все настраиваемые параметры (имена близки к флагам:
+`model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`, `jinja`,
+`tools`, `parallel`, `temp`, `topP`, `cacheTypeK/V`, `fit`, `logVerbosity`,
+`reasoning`, `reasoningBudget`, `specType`, `specDraftModel`, `mmproj`,
+`chatTemplate`, `chatTemplateFallback`, `logFile`, `logMaxMB`, `logKeep`,
+`quietServer`, `mcpAddr`, `mcpStrict`, `webuiMcpProxy`, `alias`,
+`claudeBin`, `claudeDir`, `serverOnly`, `readyTimeout` (duration-строка,
+например `"180s"`), `openai`, `openaiKey`, `modelOpenai`, `proxyAddr`,
+`proxyToken`, `proxyAllowRemote`, `llamaSrc`, `installPrefix`, `cuda`,
+`cudaArch`, `dir`, `verbose`, `lmLazy`, `mcpConfig`).
 
-# Diagnostics without running
-./llama-runner -docto
-```
-## Config File
-
-By default, ~/.config/llama-runner/config.json is read. Value priority:
-CLI > config > built-in defaults. The -config "" flag disables reading the file
-(behavior as before M6).
 ```json
 {
   "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
@@ -158,10 +210,86 @@ CLI > config > built-in defaults. The -config "" flag disables reading the file
 }
 ```
 
-## Environment variables passed to Claude Code
+Заметки:
 
-`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY=local-llama`, `ANTHROPIC_AUTH_TOKEN=local-llama`,
-`ANTHROPIC_DEFAULT_*_MODEL` (with `-alias`), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+- отсутствие конфиг-файла по умолчанию-пути — нормально; явно заданный
+  `-config <path>` без файла — ошибка;
+- `-p <имя>` без конфиг-файла или с неизвестным именем — ошибка (не молчит);
+- секреты (`openaiKey`, `proxyToken`) в файле технически поддерживаются, но
+  рекомендуется env или `~/.config/llama-runner/credentials`.
+
+## Логи
+
+- В режиме Claude Code вывод llama-server (и MCP-сервера) пишется в
+  `~/.cache/llama-runner/llama-server.log` (права `0600`), чтобы не засорять TUI.
+- Ротация по размеру: при достижении `-log-max-mb` файл архивируется;
+  архивы `<файл>.1` (самый свежий) … `<файл>.<log-keep>`.
+  `-log-keep 0` — без архивов (просто очистка), `-log-max-mb 0` — ротация выключена.
+- Логи маршрутизирующего прокси — `~/.cache/llama-runner/proxy.log`.
+
+## Примеры
+
+```bash
+# Сервер + Claude Code в папке проекта
+./llama-runner -alias qwen3-coder -claude-dir ~/my-project
+
+# Только сервер на другом порту
+./llama-runner -server -port 9090
+
+# Сервер + Claude Code с поиском
+./llama-runner -webui-mcp-proxy
+
+# Без лишних MCP из ~/.claude.json
+./llama-runner -webui-mcp-proxy -mcp-strict
+
+# Гибридный режим с токеном на прокси
+./llama-runner -openai https://api.orcarouter.ai/v1 \
+  -key $ORCAROUTER_API_KEY -model-openai deepseek/deepseek-v4-flash-free \
+  -proxy-token $(openssl rand -hex 16)
+
+# С LiLiCorr (спекулятивное декодирование)
+./llama-runner -server -model ~/models/nemotron-bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
+  -mmproj ~/models/nemotron-bolt/mmproj-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
+  -spec-type draft-dflash -spec-draft-model ~/models/...-LiLiCorr.gguf \
+  -spec-draft-n-max 6 -spec-draft-ngl 999 -ngl 999 \
+  -c 98304 -b 2048 -ub 512 -cache-type-k q8_0 -cache-type-v q8_0 \
+  -temp 1.0 -top-p 0.95 -fa on -jinja -chat-template ""
+
+# Обновить llama.cpp (архитектура Pascal) и запустить
+./llama-runner -update -cuda-arch 61 && ./llama-runner -server -model ~/GGUF/model.gguf
+
+# Профиль из конфиг-файла
+./llama-runner -p coder
+
+# Диагностика без запуска
+./llama-runner -doctor
+```
+
+## Переменные окружения, передаваемые Claude Code
+
+`ANTHROPIC_BASE_URL` (адрес сервера или прокси),
+`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` — значение `-proxy-token`,
+или `local-llama` если токен не задан,
+`ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL` (в локальном режиме — из `-alias`,
+в гибридном — внешняя модель, а `llama-server` добавляется через
+`ANTHROPIC_CUSTOM_MODEL_OPTION`), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+
+Примечание: если stdout/stderr llama-runner — не TTY (запуск из пайпа,
+`… | tee`), stdio Claude Code перенаправляется в `/dev/tty`, чтобы TUI остался
+интерактивным.
+
+## Разработка
+
+```bash
+go build ./...
+go vet ./...
+gofmt -l .
+go test -v ./...
+go test -race ./...
+```
+
+CI (GitHub Actions): gofmt → build → vet → `go test -race -cover`; версия
+бинаря внедряется через `-ldflags "-X main.version=$(git describe --tags --always --dirty)"`.
 
 ---
 
