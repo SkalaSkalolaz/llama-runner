@@ -272,3 +272,112 @@ func TestParseFlags_BadReadyTimeoutInConfig(t *testing.T) {
 		t.Errorf("err = %v, want упоминание readyTimeout", err)
 	}
 }
+
+func TestParseFlags_ProfileAliasNotClobbered(t *testing.T) {
+	// Профиль задаёт alias — AliasSet должен стать true, иначе run()
+	// заменит alias на "local".
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"profiles": {"coder": {"alias": "qwen3-coder"}}}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg, err := parseFlagsWithHome(
+		[]string{"-config", cfgPath, "-p", "coder"}, &buf, dir)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.Alias != "qwen3-coder" {
+		t.Errorf("Alias = %q, want qwen3-coder", cfg.Alias)
+	}
+	if !cfg.AliasSet {
+		t.Error("AliasSet = false — run() заменит alias на local")
+	}
+}
+
+func TestParseFlags_FileAliasNotClobbered(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"alias": "my-model"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg, err := parseFlagsWithHome([]string{"-config", cfgPath}, &buf, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Alias != "my-model" || !cfg.AliasSet {
+		t.Errorf("Alias = %q, AliasSet = %v; want my-model, true", cfg.Alias, cfg.AliasSet)
+	}
+}
+
+func TestParseFlags_ProfileChatTemplateSet(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"profiles": {"coder": {"chatTemplate": "/custom/t.jinja"}}}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg, err := parseFlagsWithHome(
+		[]string{"-config", cfgPath, "-p", "coder"}, &buf, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ChatTemplate != "/custom/t.jinja" {
+		t.Errorf("ChatTemplate = %q", cfg.ChatTemplate)
+	}
+	if !cfg.ChatTemplateSet {
+		t.Error("ChatTemplateSet = false — validateTemplatePath будет молчать")
+	}
+}
+
+func TestParseFlags_ExplicitConfigMissing(t *testing.T) {
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	if _, err := parseFlagsWithHome(
+		[]string{"-config", filepath.Join(dir, "missing.json")}, &buf, dir); err == nil {
+		t.Fatal("expected error for explicitly missing config")
+	} else if !strings.Contains(err.Error(), "не найден") {
+		t.Errorf("err = %v, want упоминание «не найден»", err)
+	}
+}
+
+func TestParseFlags_ExplicitConfigMissingWithProfile(t *testing.T) {
+	// Ошибка должна быть про конфиг, не про профиль: сначала файл,
+	// потом профиль.
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	if _, err := parseFlagsWithHome(
+		[]string{"-config", filepath.Join(dir, "missing.json"), "-p", "coder"}, &buf, dir); err == nil {
+		t.Fatal("expected error for missing explicit config")
+	} else if !strings.Contains(err.Error(), "конфиг") {
+		t.Errorf("err = %v, want упоминание конфига", err)
+	}
+}
+
+func TestParseFlags_ProfileWithoutConfigFile(t *testing.T) {
+	// -config "" + -p coder: конфиг отключён, профиль неоткуда взять.
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	if _, err := parseFlagsWithHome(
+		[]string{"-config", "", "-p", "coder"}, &buf, dir); err == nil {
+		t.Fatal("expected error for profile without config")
+	} else if !strings.Contains(err.Error(), "профиль") {
+		t.Errorf("err = %v, want упоминание профиля", err)
+	}
+}
+
+func TestParseFlags_ProfileWithDefaultConfigMissing(t *testing.T) {
+	// Дефолтный конфиг не существует, но пользователь просит профиль:
+	// это не ошибка про пути, а ошибка про «нечего применять».
+	dir := t.TempDir() // без .config/llama-runner/config.json
+	var buf bytes.Buffer
+	if _, err := parseFlagsWithHome(
+		[]string{"-p", "coder"}, &buf, dir); err == nil {
+		t.Fatal("expected error for profile when default config missing")
+	} else if !strings.Contains(err.Error(), "профиль") {
+		t.Errorf("err = %v, want упоминание профиля", err)
+	}
+}

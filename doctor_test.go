@@ -118,3 +118,33 @@ func TestRunDoctor_PrintsCommand(t *testing.T) {
 		t.Errorf("stdout missing -m / model: %s", stdout.String())
 	}
 }
+
+func TestRunDoctor_ExpandsTildeInCommand(t *testing.T) {
+	dir := t.TempDir()
+	// Создаём файлы и ссылаемся на них через ~ (home=dir).
+	model := filepath.Join(dir, "m.gguf")
+	serverBin := filepath.Join(dir, "bin")
+	if err := os.WriteFile(model, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(serverBin, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	cfg.Model = "~/m.gguf"
+	cfg.ServerBin = "~/bin"
+	cfg.ServerOnly = true
+	cfg.ChatTemplate = ""
+
+	var stdout, stderr bytes.Buffer
+	_ = runDoctor(cfg, dir, fakeRunner{}, &stdout, &stderr)
+	out := stdout.String()
+
+	if strings.Contains(out, "~/") {
+		t.Errorf("в команде остался нераскрытый ~: %s", out)
+	}
+	if !strings.Contains(out, model) || !strings.Contains(out, serverBin) {
+		t.Errorf("в команде нет абсолютных путей: %s", out)
+	}
+}
