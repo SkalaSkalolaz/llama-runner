@@ -1,16 +1,16 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
-	"context"
-	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -34,9 +34,9 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		cfg.Alias = "local"
 	}
 
-    if cfg.ServerOnly && cfg.OpenAIBaseURL != "" {
-        fmt.Fprintln(stderr, "предупреждение: -openai/-key/-model-openai игнорируются в режиме -server")
-    }
+	if cfg.ServerOnly && cfg.OpenAIBaseURL != "" {
+		fmt.Fprintln(stderr, "предупреждение: -openai/-key/-model-openai игнорируются в режиме -server")
+	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -319,46 +319,46 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 	fmt.Fprintln(stdout, "llama-server готов. Запуск Claude Code...")
 
-    // --- Локальный прокси для переключения между llama-server и OpenAI ---
-    var proxySrv *http.Server
-    if cfg.OpenAIBaseURL != "" && cfg.OpenAIKey != "" && cfg.OpenAIModel != "" {
-        // healthHost уже вычислен выше как адрес, по которому доступен llama-server
-        llamaTargetURL := "http://" + net.JoinHostPort(strings.Trim(healthHost, "[]"), cfg.Port)
-        proxyAddr := cfg.ProxyAddr
-        if proxyAddr == "" {
-            proxyAddr = "127.0.0.1:8082"
-        }
-    
-        fmt.Fprintf(stdout, "Запуск прокси на %s (llama → %s, openai → %s)\n",
-            proxyAddr, llamaTargetURL, cfg.OpenAIBaseURL)
-    
-        srv, err := StartProxyServer(proxyAddr, llamaTargetURL, cfg)
-        if err != nil {
-            fmt.Fprintf(stderr, "ошибка запуска прокси: %v\n", err)
-            stopChildren()
-            _ = serverProcess.Wait()
-            stopMcp(mcpCmd)
-            return 1
-        }
-        proxySrv = srv
-        defer func() {
-            ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-            defer cancel()
-            _ = proxySrv.Shutdown(ctx)
-        }()
-    
-        // Ждём готовности прокси (не sleep, а poll)
-        proxyHealthURL := "http://" + proxyAddr + "/v1/models"
-        if err := waitForServer(proxyHealthURL, 5*time.Second); err != nil {
-            fmt.Fprintf(stderr, "прокси не поднялся: %v\n", err)
-            stopChildren()
-            _ = serverProcess.Wait()
-            stopMcp(mcpCmd)
-            return 1
-        }
-    
-        baseURL = "http://" + proxyAddr
-    }
+	// --- Локальный прокси для переключения между llama-server и OpenAI ---
+	var proxySrv *http.Server
+	if cfg.OpenAIBaseURL != "" && cfg.OpenAIKey != "" && cfg.OpenAIModel != "" {
+		// healthHost уже вычислен выше как адрес, по которому доступен llama-server
+		llamaTargetURL := "http://" + net.JoinHostPort(strings.Trim(healthHost, "[]"), cfg.Port)
+		proxyAddr := cfg.ProxyAddr
+		if proxyAddr == "" {
+			proxyAddr = "127.0.0.1:8082"
+		}
+
+		fmt.Fprintf(stdout, "Запуск прокси на %s (llama → %s, openai → %s)\n",
+			proxyAddr, llamaTargetURL, cfg.OpenAIBaseURL)
+
+		srv, err := StartProxyServer(proxyAddr, llamaTargetURL, cfg)
+		if err != nil {
+			fmt.Fprintf(stderr, "ошибка запуска прокси: %v\n", err)
+			stopChildren()
+			_ = serverProcess.Wait()
+			stopMcp(mcpCmd)
+			return 1
+		}
+		proxySrv = srv
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_ = proxySrv.Shutdown(ctx)
+		}()
+
+		// Ждём готовности прокси (не sleep, а poll)
+		proxyHealthURL := "http://" + proxyAddr + "/v1/models"
+		if err := waitForServer(proxyHealthURL, 5*time.Second); err != nil {
+			fmt.Fprintf(stderr, "прокси не поднялся: %v\n", err)
+			stopChildren()
+			_ = serverProcess.Wait()
+			stopMcp(mcpCmd)
+			return 1
+		}
+
+		baseURL = "http://" + proxyAddr
+	}
 	// --- MCP-конфиг для Claude Code ---
 	var mcpConfigFile string
 	if cfg.McpProxy {

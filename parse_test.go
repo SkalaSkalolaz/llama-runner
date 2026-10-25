@@ -84,11 +84,11 @@ func TestValidateConfig_Table(t *testing.T) {
 		{"port 0", func(c *Config) { c.Port = "0" }, true},
 		{"port 70000", func(c *Config) { c.Port = "70000" }, true},
 		{"zero timeout", func(c *Config) { c.ReadyTimeout = 0 }, true},
-        {"bad reasoning", func(c *Config) { c.Reasoning = "maybe" }, true},
-        {"good reasoning on", func(c *Config) { c.Reasoning = "on" }, false},
-        {"bad reasoning-budget", func(c *Config) { c.ReasoningBudget = "-5" }, true},
-        {"good reasoning-budget -1", func(c *Config) { c.ReasoningBudget = "-1" }, false},
-        {"good reasoning-budget 0", func(c *Config) { c.ReasoningBudget = "0" }, false},
+		{"bad reasoning", func(c *Config) { c.Reasoning = "maybe" }, true},
+		{"good reasoning on", func(c *Config) { c.Reasoning = "on" }, false},
+		{"bad reasoning-budget", func(c *Config) { c.ReasoningBudget = "-5" }, true},
+		{"good reasoning-budget -1", func(c *Config) { c.ReasoningBudget = "-1" }, false},
+		{"good reasoning-budget 0", func(c *Config) { c.ReasoningBudget = "0" }, false},
 		{"mcp proxy bad addr", func(c *Config) { c.McpProxy = true; c.McpAddr = "noseparator" }, true},
 	}
 	for _, tt := range tests {

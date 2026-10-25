@@ -6,6 +6,7 @@ import "os/exec"
 // Ключ для scripts:
 //   - "git -C <path> <subcmd> ..." → "git <subcmd>"
 //   - "cmake <first-arg> ..."      → "cmake <first-arg>"
+//
 // Если ключа нет в map — команда завершается с "exit 0".
 type fakeRunner struct {
 	scripts        map[string]string
