@@ -14,74 +14,133 @@ import (
 	"time"
 )
 
-// parseFlags парсит args в Config. Возвращает flag.ErrHelp при -h.
+// parseFlags — публичная обёртка: берёт реальный home.
 func parseFlags(args []string, stderr io.Writer) (*Config, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("не удалось получить домашний каталог: %w", err)
+	}
+	return parseFlagsWithHome(args, stderr, home)
+}
+
+// parseFlagsWithHome — тестируемая версия с явным home: не зависит от
+// реального ~/.config/llama-runner/config.json.
+//
+// Приоритет: CLI > файл > встроенные дефолты. Env — только для ключа,
+// отдельно в resolveOpenAIKey (M3).
+func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, error) {
+	// 1. Ранний поиск -config и -p: они определяют источник дефолтов.
+	configPath, configSet := findFlag(args, "config")
+	profileName, _ := findFlag(args, "p")
+
+	// 2. Прочитать конфиг-файл (если не отключён явным -config "").
+	var fc *fileConfig
+	if !configSet || configPath != "" {
+		effectivePath := configPath
+		if !configSet {
+			effectivePath = defaultConfigPath(home)
+		}
+		var loadErr error
+		fc, loadErr = loadConfigFile(effectivePath, home)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+	}
+
+	// 3. Собрать Config: встроенные дефолты → корневой файл → профиль.
+	cfg := defaultConfig()
+	if fc != nil {
+		if err := applyFileConfig(cfg, *fc); err != nil {
+			return nil, err
+		}
+		if profileName != "" {
+			p, ok := fc.Profiles[profileName]
+			if !ok {
+				return nil, fmt.Errorf("профиль %q не найден в конфиге", profileName)
+			}
+			if err := applyFileConfig(cfg, p); err != nil {
+				return nil, err
+			}
+		}
+	}
+	cfg.ConfigPath = configPath
+	cfg.Profile = profileName
+
+	// 4. Флаги. Значения cfg уже содержат файл-или-дефолт;
+	//    flag.StringVar(ptr, name, default, ...) — default = текущее значение,
+	//    CLI переопределяет его, если флаг задан.
 	fs := flag.NewFlagSet("llama-runner", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { printUsage(stderr) }
 
-	cfg := &Config{}
-	fs.StringVar(&cfg.WorkDir, "dir", "", "рабочая директория...")
-	fs.StringVar(&cfg.Host, "host", "127.0.0.1", "адрес...")
-	fs.StringVar(&cfg.Port, "port", "8080", "порт...")
-	fs.StringVar(&cfg.Model, "model", "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf", "путь к GGUF...")
-	fs.StringVar(&cfg.ServerBin, "bin", "~/.local/bin/llama-server", "путь к llama-server...")
-	fs.StringVar(&cfg.CtxSize, "c", "65536", "размер контекста (-c)")
-	fs.StringVar(&cfg.BatchSize, "b", "2048", "размер батча (-b)")
-	fs.StringVar(&cfg.UbatchSize, "ub", "1024", "размер микро-батча (-ub)")
-	fs.StringVar(&cfg.FlashAttn, "fa", "auto", "flash attention (-fa)")
-	fs.StringVar(&cfg.Parallel, "parallel", "1", "число параллельных слотов")
-	fs.StringVar(&cfg.Tools, "tools", "all", "режим инструментов")
-	fs.BoolVar(&cfg.Jinja, "jinja", true, "включить Jinja-шаблоны")
-	fs.BoolVar(&cfg.McpProxy, "webui-mcp-proxy", false, "включить CORS-прокси")
-	fs.BoolVar(&cfg.LazyMmap, "lm-lazy", false, "mmap с ленивым режимом")
-	fs.BoolVar(&cfg.Verbose, "v", false, "печатать команду")
+	fs.StringVar(&cfg.WorkDir, "dir", cfg.WorkDir, "рабочая директория...")
+	fs.StringVar(&cfg.Host, "host", cfg.Host, "адрес...")
+	fs.StringVar(&cfg.Port, "port", cfg.Port, "порт...")
+	fs.StringVar(&cfg.Model, "model", cfg.Model, "путь к GGUF...")
+	fs.StringVar(&cfg.ServerBin, "bin", cfg.ServerBin, "путь к llama-server...")
+	fs.StringVar(&cfg.CtxSize, "c", cfg.CtxSize, "размер контекста (-c)")
+	fs.StringVar(&cfg.BatchSize, "b", cfg.BatchSize, "размер батча (-b)")
+	fs.StringVar(&cfg.UbatchSize, "ub", cfg.UbatchSize, "размер микро-батча (-ub)")
+	fs.StringVar(&cfg.FlashAttn, "fa", cfg.FlashAttn, "flash attention (-fa)")
+	fs.StringVar(&cfg.Parallel, "parallel", cfg.Parallel, "число параллельных слотов")
+	fs.StringVar(&cfg.Tools, "tools", cfg.Tools, "режим инструментов")
+	fs.BoolVar(&cfg.Jinja, "jinja", cfg.Jinja, "включить Jinja-шаблоны")
+	fs.BoolVar(&cfg.McpProxy, "webui-mcp-proxy", cfg.McpProxy, "включить CORS-прокси")
+	fs.BoolVar(&cfg.LazyMmap, "lm-lazy", cfg.LazyMmap, "mmap с ленивым режимом")
+	fs.BoolVar(&cfg.Verbose, "v", cfg.Verbose, "печатать команду")
 
-	fs.StringVar(&cfg.NGL, "ngl", "", "число слоёв на GPU")
-	fs.StringVar(&cfg.Mmproj, "mmproj", "", "путь к mmproj")
-	fs.StringVar(&cfg.Temp, "temp", "", "температура")
-	fs.StringVar(&cfg.TopP, "top-p", "", "top-p")
-	fs.StringVar(&cfg.CacheTypeK, "cache-type-k", "", "тип K-кэша")
-	fs.StringVar(&cfg.CacheTypeV, "cache-type-v", "", "тип V-кэша")
-	fs.StringVar(&cfg.FitMode, "fit", "", "режим --fit")
-	fs.StringVar(&cfg.LogVerbosity, "lv", "", "уровень логов (-lv)")
-	fs.StringVar(&cfg.Reasoning, "reasoning", "",
+	fs.StringVar(&cfg.NGL, "ngl", cfg.NGL, "число слоёв на GPU")
+	fs.StringVar(&cfg.Mmproj, "mmproj", cfg.Mmproj, "путь к mmproj")
+	fs.StringVar(&cfg.Temp, "temp", cfg.Temp, "температура")
+	fs.StringVar(&cfg.TopP, "top-p", cfg.TopP, "top-p")
+	fs.StringVar(&cfg.CacheTypeK, "cache-type-k", cfg.CacheTypeK, "тип K-кэша")
+	fs.StringVar(&cfg.CacheTypeV, "cache-type-v", cfg.CacheTypeV, "тип V-кэша")
+	fs.StringVar(&cfg.FitMode, "fit", cfg.FitMode, "режим --fit")
+	fs.StringVar(&cfg.LogVerbosity, "lv", cfg.LogVerbosity, "уровень логов (-lv)")
+	fs.StringVar(&cfg.Reasoning, "reasoning", cfg.Reasoning,
 		"режим размышлений: on|off|auto (пусто — значение llama-server по умолчанию)")
-	fs.StringVar(&cfg.ReasoningBudget, "reasoning-budget", "",
+	fs.StringVar(&cfg.ReasoningBudget, "reasoning-budget", cfg.ReasoningBudget,
 		"бюджет токенов на размышления: -1 (без лимита), 0 (отключить), N (положительное число)")
-	fs.StringVar(&cfg.SpecType, "spec-type", "", "тип spec-декодирования")
-	fs.StringVar(&cfg.SpecDraftModel, "spec-draft-model", "", "путь к драфтеру")
-	fs.StringVar(&cfg.SpecDraftNMax, "spec-draft-n-max", "", "n-max драфтера")
-	fs.StringVar(&cfg.SpecDraftNGL, "spec-draft-ngl", "", "ngl драфтера")
+	fs.StringVar(&cfg.SpecType, "spec-type", cfg.SpecType, "тип spec-декодирования")
+	fs.StringVar(&cfg.SpecDraftModel, "spec-draft-model", cfg.SpecDraftModel, "путь к драфтеру")
+	fs.StringVar(&cfg.SpecDraftNMax, "spec-draft-n-max", cfg.SpecDraftNMax, "n-max драфтера")
+	fs.StringVar(&cfg.SpecDraftNGL, "spec-draft-ngl", cfg.SpecDraftNGL, "ngl драфтера")
 
 	fs.BoolVar(&cfg.UpdateFlag, "update", false, "обновить llama.cpp")
-	fs.StringVar(&cfg.LlamaSrc, "llama-src", "~/src/llama.cpp", "путь к исходникам")
-	fs.StringVar(&cfg.InstallPrefix, "install-prefix", "~/.local", "префикс установки")
-	fs.BoolVar(&cfg.WithCuda, "cuda", true, "собирать с CUDA")
-	fs.StringVar(&cfg.CudaArch, "cuda-arch", "61", "архитектура CUDA")
+	fs.StringVar(&cfg.LlamaSrc, "llama-src", cfg.LlamaSrc, "путь к исходникам")
+	fs.StringVar(&cfg.InstallPrefix, "install-prefix", cfg.InstallPrefix, "префикс установки")
+	fs.BoolVar(&cfg.WithCuda, "cuda", cfg.WithCuda, "собирать с CUDA")
+	fs.StringVar(&cfg.CudaArch, "cuda-arch", cfg.CudaArch, "архитектура CUDA")
 
 	fs.BoolVar(&cfg.ServerOnly, "server", false, "только llama-server")
-	fs.StringVar(&cfg.ClaudeBin, "claude-bin", "claude", "путь к claude")
-	fs.StringVar(&cfg.ClaudeDir, "claude-dir", "", "рабочая директория claude")
-	fs.StringVar(&cfg.Alias, "alias", "", "алиас модели")
-	fs.DurationVar(&cfg.ReadyTimeout, "ready-timeout", 180*time.Second, "таймаут готовности")
-	fs.StringVar(&cfg.ChatTemplate, "chat-template", "auto", "шаблон чата")
-	fs.StringVar(&cfg.LogFile, "log-file", "~/.cache/llama-runner/llama-server.log", "лог-файл")
-	fs.BoolVar(&cfg.QuietServer, "quiet-server", true, "уводить логи в файл")
-	fs.StringVar(&cfg.McpAddr, "mcp-addr", "127.0.0.1:8090", "адрес mcp-search-server")
-	fs.StringVar(&cfg.McpConfigOut, "mcp-config", "", "куда записать MCP-конфиг")
-	fs.BoolVar(&cfg.McpStrict, "mcp-strict", false, "strict-mcp-config")
+	fs.StringVar(&cfg.ClaudeBin, "claude-bin", cfg.ClaudeBin, "путь к claude")
+	fs.StringVar(&cfg.ClaudeDir, "claude-dir", cfg.ClaudeDir, "рабочая директория claude")
+	fs.StringVar(&cfg.Alias, "alias", cfg.Alias, "алиас модели")
+	fs.DurationVar(&cfg.ReadyTimeout, "ready-timeout", cfg.ReadyTimeout, "таймаут готовности")
+	fs.StringVar(&cfg.ChatTemplate, "chat-template", cfg.ChatTemplate, "шаблон чата")
+	fs.StringVar(&cfg.LogFile, "log-file", cfg.LogFile, "лог-файл")
+	fs.BoolVar(&cfg.QuietServer, "quiet-server", cfg.QuietServer, "уводить логи в файл")
+	fs.StringVar(&cfg.McpAddr, "mcp-addr", cfg.McpAddr, "адрес mcp-search-server")
+	fs.StringVar(&cfg.McpConfigOut, "mcp-config", cfg.McpConfigOut, "куда записать MCP-конфиг")
+	fs.BoolVar(&cfg.McpStrict, "mcp-strict", cfg.McpStrict, "strict-mcp-config")
 
 	fs.BoolVar(&cfg.VersionFlag, "version", false, "показать версию")
 
-	fs.StringVar(&cfg.OpenAIBaseURL, "openai", "", "URL OpenAI-совместимого API")
-	fs.StringVar(&cfg.OpenAIKey, "key", "", "API-ключ для внешнего провайдера")
-	fs.StringVar(&cfg.OpenAIModel, "model-openai", "", "Название модели у внешнего провайдера")
-	fs.StringVar(&cfg.ProxyAddr, "proxy-addr", "127.0.0.1:8082", "адрес локального прокси (гибридный режим)")
-	fs.StringVar(&cfg.ProxyToken, "proxy-token", "",
+	fs.StringVar(&cfg.OpenAIBaseURL, "openai", cfg.OpenAIBaseURL, "URL OpenAI-совместимого API")
+	fs.StringVar(&cfg.OpenAIKey, "key", cfg.OpenAIKey, "API-ключ для внешнего провайдера")
+	fs.StringVar(&cfg.OpenAIModel, "model-openai", cfg.OpenAIModel, "Название модели у внешнего провайдера")
+	fs.StringVar(&cfg.ProxyAddr, "proxy-addr", cfg.ProxyAddr, "адрес локального прокси (гибридный режим)")
+	fs.StringVar(&cfg.ProxyToken, "proxy-token", cfg.ProxyToken,
 		"токен для аутентификации входящих запросов прокси (пусто — без проверки)")
-	fs.BoolVar(&cfg.ProxyAllowRemote, "proxy-allow-remote", false,
+	fs.BoolVar(&cfg.ProxyAllowRemote, "proxy-allow-remote", cfg.ProxyAllowRemote,
 		"разрешить не-loopback -proxy-addr без предупреждения")
+
+	// M6: конфиг, профиль, doctor.
+	fs.StringVar(&cfg.ConfigPath, "config", cfg.ConfigPath,
+		"путь к конфиг-файлу (\"\" — не читать)")
+	fs.StringVar(&cfg.Profile, "p", cfg.Profile, "профиль из конфиг-файла")
+	fs.BoolVar(&cfg.DoctorFlag, "doctor", false,
+		"показать разрешённые пути и версию, не запуская процессы")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -157,12 +216,15 @@ func validateConfig(cfg *Config) error {
 }
 
 // resolveChatTemplate выбирает итоговый путь шаблона (может быть "").
-func resolveChatTemplate(raw, modelPath string) string {
+// fallback — путь для auto-режима; вынесен в конфиг (M6), чтобы не был
+// зашит в код. Автодетект по подстроке `qwen` остаётся дефолтом
+// (красная зона №4 не нарушена).
+func resolveChatTemplate(raw, modelPath, fallback string) string {
 	if raw != "auto" {
 		return raw
 	}
 	if strings.Contains(strings.ToLower(filepath.Base(modelPath)), "qwen") {
-		return "~/GGUF/qwen-fixed-chat-template.jinja"
+		return fallback
 	}
 	return ""
 }
