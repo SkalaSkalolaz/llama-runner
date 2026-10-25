@@ -1,33 +1,34 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
 
 const localModelName = "llama-server"
 
-// proxyHandler маршрутизирует запросы Anthropic API между llama-server и внешним OpenAI.
 type proxyHandler struct {
 	llamaServerURL string
 	cfg            *Config
 	client         *http.Client
+	logWriter      io.Writer
 }
 
 // StartProxyServer поднимает локальный прокси и возвращает *http.Server для Shutdown.
-func StartProxyServer(proxyAddr, llamaServerURL string, cfg *Config) (*http.Server, error) {
+// logWriter — приёмник [proxy]-строк при -v; обычно os.Stderr (пайп/редирект)
+// или открытый лог-файл llama-server (интерактивный режим). nil — логи выключены.
+func StartProxyServer(proxyAddr, llamaServerURL string, cfg *Config, logWriter io.Writer) (*http.Server, error) {
 	h := &proxyHandler{
 		llamaServerURL: strings.TrimRight(llamaServerURL, "/"),
 		cfg:            cfg,
 		client:         &http.Client{Timeout: 5 * time.Minute},
+		logWriter:      logWriter,
 	}
 
 	mux := http.NewServeMux()
@@ -117,6 +118,9 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 		return
 	}
 	openAIReq["stream"] = stream
+	if stream {
+		openAIReq["stream_options"] = map[string]any{"include_usage": true}
+	}
 
 	target := h.llamaServerURL + "/v1/chat/completions"
 	body, _ := json.Marshal(openAIReq)
@@ -136,9 +140,9 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 			"llama-server upstream: "+string(b))
 		return
 	}
-
 	if stream {
-		convertOpenAIStreamToAnthropic(w, resp, "llama-server")
+		in, out := convertOpenAIStreamToAnthropic(w, resp, "llama-server")
+		h.logf("← usage: input_tokens=%d, output_tokens=%d", in, out)
 		return
 	}
 	convertOpenAIResponseToAnthropic(w, resp, "llama-server")
@@ -153,7 +157,9 @@ func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 	openAIReq["stream"] = stream
-
+	if stream {
+		openAIReq["stream_options"] = map[string]any{"include_usage": true}
+	}
 	target := strings.TrimRight(h.cfg.OpenAIBaseURL, "/") + "/chat/completions"
 	body, _ := json.Marshal(openAIReq)
 	proxyReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, target, bytes.NewReader(body))
@@ -173,9 +179,9 @@ func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, r
 			"openai upstream: "+string(b))
 		return
 	}
-
 	if stream {
-		convertOpenAIStreamToAnthropic(w, resp, h.cfg.OpenAIModel)
+		in, out := convertOpenAIStreamToAnthropic(w, resp, h.cfg.OpenAIModel)
+		h.logf("← usage: input_tokens=%d, output_tokens=%d", in, out)
 		return
 	}
 	convertOpenAIResponseToAnthropic(w, resp, h.cfg.OpenAIModel)
@@ -291,157 +297,6 @@ func convertOpenAIResponseToAnthropic(w http.ResponseWriter, openAIResp *http.Re
 // Конвертация стриминга (SSE)
 // ============================================================
 
-func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Response, modelName string) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeAnthropicError(w, http.StatusInternalServerError, "api_error", "streaming unsupported")
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher.Flush()
-
-	writeSSE := func(event string, data any) {
-		b, _ := json.Marshal(data)
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
-		flusher.Flush()
-	}
-
-	writeSSE("message_start", map[string]any{
-		"type": "message_start",
-		"message": map[string]any{
-			"id": "msg_proxy", "type": "message", "role": "assistant",
-			"model": modelName, "content": []any{},
-			"stop_reason": nil, "stop_sequence": nil,
-			"usage": map[string]any{"input_tokens": 0, "output_tokens": 0},
-		},
-	})
-
-	// Индекс текущего content-блока (text или tool_use)
-	blockIndex := 0
-	textBlockOpen := false
-
-	// Состояние tool_calls: OpenAI присылает их кусками (index → {id, name, args})
-	type toolState struct {
-		id        string
-		name      string
-		argsAccum string
-		blockIdx  int
-	}
-	tools := map[int]*toolState{}
-	toolOrder := []int{}
-
-	stopReason := "end_turn"
-
-	scanner := bufio.NewScanner(openAIResp.Body)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		payload := strings.TrimPrefix(line, "data: ")
-		if payload == "[DONE]" {
-			break
-		}
-
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content   string `json:"content"`
-					ToolCalls []struct {
-						Index    int    `json:"index"`
-						ID       string `json:"id"`
-						Type     string `json:"type"`
-						Function struct {
-							Name      string `json:"name"`
-							Arguments string `json:"arguments"`
-						} `json:"function"`
-					} `json:"tool_calls"`
-				} `json:"delta"`
-				FinishReason string `json:"finish_reason"`
-			} `json:"choices"`
-		}
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			continue
-		}
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-		choice := chunk.Choices[0]
-
-		// --- Текстовые дельты ---
-		if choice.Delta.Content != "" {
-			if !textBlockOpen {
-				writeSSE("content_block_start", map[string]any{
-					"type": "content_block_start", "index": blockIndex,
-					"content_block": map[string]any{"type": "text", "text": ""},
-				})
-				textBlockOpen = true
-			}
-			writeSSE("content_block_delta", map[string]any{
-				"type": "content_block_delta", "index": blockIndex,
-				"delta": map[string]any{"type": "text_delta", "text": choice.Delta.Content},
-			})
-		}
-
-		// --- tool_calls дельты ---
-		for _, tc := range choice.Delta.ToolCalls {
-			st, exists := tools[tc.Index]
-			if !exists {
-				// Закрываем text-блок, если открыт
-				if textBlockOpen {
-					writeSSE("content_block_stop", map[string]any{"type": "content_block_stop", "index": blockIndex})
-					blockIndex++
-					textBlockOpen = false
-				}
-				st = &toolState{id: tc.ID, name: tc.Function.Name, blockIdx: blockIndex}
-				tools[tc.Index] = st
-				toolOrder = append(toolOrder, tc.Index)
-				blockIndex++
-
-				writeSSE("content_block_start", map[string]any{
-					"type": "content_block_start", "index": st.blockIdx,
-					"content_block": map[string]any{
-						"type": "tool_use", "id": st.id, "name": st.name, "input": map[string]any{},
-					},
-				})
-			}
-			if tc.Function.Arguments != "" {
-				st.argsAccum += tc.Function.Arguments
-				writeSSE("content_block_delta", map[string]any{
-					"type": "content_block_delta", "index": st.blockIdx,
-					"delta": map[string]any{
-						"type": "input_json_delta", "partial_json": tc.Function.Arguments,
-					},
-				})
-			}
-		}
-
-		if choice.FinishReason == "tool_calls" {
-			stopReason = "tool_use"
-		} else if choice.FinishReason == "length" {
-			stopReason = "max_tokens"
-		}
-	}
-
-	// Закрываем последний открытый блок
-	if textBlockOpen {
-		writeSSE("content_block_stop", map[string]any{"type": "content_block_stop", "index": blockIndex})
-	}
-	for _, idx := range toolOrder {
-		writeSSE("content_block_stop", map[string]any{"type": "content_block_stop", "index": tools[idx].blockIdx})
-	}
-
-	writeSSE("message_delta", map[string]any{
-		"type":  "message_delta",
-		"delta": map[string]any{"stop_reason": stopReason, "stop_sequence": nil},
-		"usage": map[string]any{"output_tokens": 0},
-	})
-	writeSSE("message_stop", map[string]any{"type": "message_stop"})
-}
-
 // ============================================================
 // Утилиты
 // ============================================================
@@ -488,15 +343,16 @@ func anthropicErrorType(status int) string {
 	return "api_error"
 }
 
-// logf — вывод прокси только при -v.
+// logf — вывод прокси только при -v. Пишет в h.logWriter, чтобы в
+// интерактивном режиме не засорять TUI Claude Code: в TTY при -quiet-server
+// логи уходят в тот же файл, что и у llama-server, в пайпе — в stderr.
 func (h *proxyHandler) logf(format string, args ...any) {
-	if h.cfg != nil && h.cfg.Verbose {
-		fmt.Fprintf(os.Stderr, "[proxy] "+format+"\n", args...)
+	if h.cfg == nil || !h.cfg.Verbose || h.logWriter == nil {
+		return
 	}
+	fmt.Fprintf(h.logWriter, "[proxy] "+format+"\n", args...)
 }
 
-// convert конвертирует запрос и при -v сообщает, что не дошло до модели
-// (thinking/image/неизвестные блоки). image маппится только с vision-проектором.
 func (h *proxyHandler) convert(req map[string]any) (map[string]any, error) {
 	opts := ConvertOptions{ImagesToOpenAI: h.cfg != nil && h.cfg.Mmproj != ""}
 	out, st, err := ConvertRequest(req, opts)
@@ -504,8 +360,11 @@ func (h *proxyHandler) convert(req map[string]any) (map[string]any, error) {
 		return out, err
 	}
 	h.logf("→ апстрим: %s", requestSummary(out))
+	for _, line := range toolMessagesPreview(out) {
+		h.logf("%s", line)
+	}
 	if st.Dropped() > 0 {
 		h.logf("отброшено блоков: %s (thinking не имеет аналога в OpenAI, image требует -mmproj)", st.Summary())
 	}
-	return out, nil
+	return out, err
 }
