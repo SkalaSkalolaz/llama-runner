@@ -88,14 +88,21 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		fmt.Fprintf(stderr, "не удалось получить домашний каталог: %v\n", err)
 		return 1
 	}
+
 	cfg.Home = home
 
-	resolvedKey, keyErr := resolveOpenAIKey(cfg.OpenAIKey, os.Getenv, home, stderr)
-	if keyErr != nil {
-		fmt.Fprintf(stderr, "ошибка: %v\n", keyErr)
-		return 2
+	// Ключ внешнего провайдера подхватываем, ТОЛЬКО если внешний провайдер
+	// реально запрошен. Иначе разработчик с OPENAI_API_KEY в окружении
+	// получил бы «-openai обязателен при использовании -key» на локальном
+	// запуске (в т.ч. на `-update`), хотя OpenAI вообще не нужен.
+	if cfg.OpenAIBaseURL != "" || cfg.OpenAIModel != "" || cfg.OpenAIKey != "" {
+		resolvedKey, keyErr := resolveOpenAIKey(cfg.OpenAIKey, os.Getenv, home, stderr)
+		if keyErr != nil {
+			fmt.Fprintf(stderr, "ошибка: %v\n", keyErr)
+			return 2
+		}
+		cfg.OpenAIKey = resolvedKey
 	}
-	cfg.OpenAIKey = resolvedKey
 
 	if err := validateConfig(cfg); err != nil {
 		fmt.Fprintf(stderr, "ошибка: %v\n", err)
