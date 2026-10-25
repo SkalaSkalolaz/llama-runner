@@ -1,0 +1,19 @@
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": "You are Claude Code, Anthropic's official CLI for Claude.",
+      "role": "system"
+    },
+    {
+      "content": "Почему gofmt ругается на config.go?",
+      "role": "user"
+    },
+    {
+      "content": "Потому что он набран пробелами вместо табов: gofmt требует табы для отступов.",
+      "role": "assistant"
+    }
+  ],
+  "model": "llama-server",
+  "temperature": 1
+}

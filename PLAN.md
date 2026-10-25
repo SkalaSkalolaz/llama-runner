@@ -112,38 +112,69 @@
 Порядок внутри вехи обязателен: **сначала падающие тесты на реальных payload'ах,
 потом переписывание.**
 
-- [ ] Собрать 5–10 реальных Anthropic payload'ов из логов Claude Code в `testdata/`:
+- [x] Собрать 5–10 реальных Anthropic payload'ов из логов Claude Code в `testdata/`:
       чистый текст, tool_use, `tool_result` со **строкой**, `tool_result` с **массивом
       блоков**, `system` массивом блоков (с `cache_control`), `thinking`, `image`,
       смешанный. Зафиксировать ожидаемый OpenAI payload (golden).
-- [ ] **`tool_result` с массивом `content`** (`proxy.go:261-270`): обрабатывать
+      *10 кейсов лежат в `testdata/anthropic/`. Оговорка: собраны вручную по
+      документированной форме запросов Claude Code, живым дампом не снимались
+      (в окружении разработки не было прогона Claude Code через прокси) — см.
+      «Происхождение payload'ов» в `testdata/anthropic/README.md`. При появлении
+      дампа класть рядом и перечитывать diff, не перезаписывая.*
+- [x] **`tool_result` с массивом `content`** (`proxy.go:261-270`): обрабатывать
       `string` и `[]any` (склейка `text`-блоков; вложенные `image` — см. ниже).
       Сейчас блок отбрасывается целиком → модель не видит результат инструмента.
-- [ ] **`is_error`** в `tool_result`: при `true` префикс `Error: ` в `content`
+      *`convert.go:toolResultMessage`; вложенные `image` → `image_url` при `-mmproj`.
+      Тесты: `TestConvertRequest_ToolResultBlocks`, `TestProxy_EndToEnd_ToolResultReachesUpstream`.*
+- [x] **`is_error`** в `tool_result`: при `true` префикс `Error: ` в `content`
       OpenAI `role=tool` сообщения.
-- [ ] **`system` как массив блоков** (`proxy.go:220`): склеить все `text`-блоки в один
+      *Тесты: `TestConvertRequest_ToolResultIsError`, `TestConvertRequest_ToolResultErrorBlocks`.*
+- [x] **`system` как массив блоков** (`proxy.go:220`): склеить все `text`-блоки в один
       `role=system`. Сейчас теряется весь системный промпт.
-- [ ] **`thinking` / `image`**: не молчать. Либо маппить (`image` → OpenAI
+      *`convert.go:systemText`, склейка через `\n`, `cache_control` отбрасывается.
+      Тест: `TestConvertRequest_SystemBlocks` + golden `system_blocks`.*
+- [x] **`thinking` / `image`**: не молчать. Либо маппить (`image` → OpenAI
       `image_url` data-URL, если задан `-mmproj`), либо явный warning в `-v` + счётчик
       отброшенных блоков. Решение зафиксировать в комментарии у функции.
-- [ ] Двухпроходная сборка `messages` (сначала `assistant.tool_calls`, затем `tool`-ответы)
+      *Решение: `image` маппится на data-URL при `-mmproj` (`ConvertOptions.ImagesToOpenAI`),
+      иначе отбрасывается; `thinking`/`redacted_thinking` отбрасываются всегда (аналога
+      в chat/completions нет, подпись невоспроизводима). Всё считается в `ConvertStats`,
+      при `-v` прокси печатает `[proxy] отброшено блоков: …`. Решение расписано в
+      шапке `convert.go`.*
+- [x] Двухпроходная сборка `messages` (сначала `assistant.tool_calls`, затем `tool`-ответы)
       — ради устойчивости к невалидным входам. Нормальный поток должен дать **байт-в-байт
       тот же** результат, что сейчас (проверяется golden-тестами).
-- [ ] Ошибки прокси в формате Anthropic: `{"type":"error","error":{"type":...,"message":...}}`
+      *`convert.go:convertBlocks`. Проверено: `testdata/anthropic/plain_text_openai.json`
+      после переписывания не изменился (`git diff` пустой), порядок нормального потока —
+      `TestConvertRequest_NormalFlowOrder`, смешанный вход — `MixedMessageAssistantFirst`
+      и `UserTextWithToolResultKeepsToolFirst`.*
+- [x] Ошибки прокси в формате Anthropic: `{"type":"error","error":{"type":...,"message":...}}`
       вместо `http.Error` (`proxy.go:85, 92, 115, 127, 134, 150, 163, 170`).
       Только для error-путей до начала стрима.
-- [ ] Вынести конвертацию в `convert.go`; при переходе на типизированные структуры:
+      *`writeAnthropicError` + `anthropicErrorType` (статус → тип Anthropic).
+      Заменены все 8 перечисленных путей плюс 404 в `handleOther`, ошибка декодирования
+      и «streaming unsupported». Тесты: `TestWriteAnthropicError_Format`,
+      `TestHandleMessages_InvalidJSONIsAnthropicError`, `TestProxy_UpstreamErrorIsAnthropicFormat`.*
+- [x] Вынести конвертацию в `convert.go`; при переходе на типизированные структуры:
       `arguments` у `tool_calls` **обязательно остаётся строкой с JSON** (сейчас это
       обеспечивает `mustJSON`, `proxy.go:569`), `DisallowUnknownFields` **не** включать,
       все сейчас копируемые поля (`max_tokens`, `temperature`, `top_p`,
       `stop_sequences`→`stop`, `tools`) покрыть тестами.
+      *Конвертация переехала в `convert.go` (`AnthropicToOpenAI` сохранён как обёртка —
+      им пользуется golden-харнес). На типизированные структуры НЕ переходили: остались
+      на `map[string]any`, так что риск потерять «сквозные» поля отсутствует. Тесты:
+      `TestConvertRequest_ArgumentsStaysJSONString`, `TestConvertRequest_Parameters`,
+      `TestConvertRequest_Tools`, `TestConvertRequest_UnknownFieldsDoNotBreak`.*
 
 **Критерий готовности**
 
-- [ ] Все golden-тесты зелёные; ни один ранее проходивший кейс не изменился.
-- [ ] `tool_result`-массив и `system`-массив покрыты тестами.
+- [x] Все golden-тесты зелёные; ни один ранее проходивший кейс не изменился.
+      *11 golden'ов (10 кейсов + `image_mmproj`), `plain_text` побайтно прежний.*
+- [x] `tool_result`-массив и `system`-массив покрыты тестами.
 - [ ] Ручной прогон: tool use на локальной модели доходит до результата инструмента
-      (проверяется в smoke).
+      (проверяется в smoke). **Не выполнено** — нужен живой `llama-server` с моделью и
+      интерактивный `claude`. Чек-лист добавлен в `scripts/smoke.sh` (блок «M1 — фиксы
+      конвертера запроса»). До этого прогона веха M1 считается **в работе**, а не закрытой.
 
 ---
 

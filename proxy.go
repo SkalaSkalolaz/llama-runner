@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -82,14 +83,14 @@ func (h *proxyHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
 	defer r.Body.Close()
 
 	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", "invalid JSON: "+err.Error())
 		return
 	}
 	model, _ := req["model"].(string)
@@ -110,9 +111,9 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, req map[string]any, stream bool) {
 	// llama-server понимает только OpenAI API. Конвертируем Anthropic → OpenAI.
-	openAIReq, err := AnthropicToOpenAI(req)
+	openAIReq, err := h.convert(req)
 	if err != nil {
-		http.Error(w, "convert: "+err.Error(), http.StatusInternalServerError)
+		writeAnthropicError(w, http.StatusInternalServerError, "api_error", "convert: "+err.Error())
 		return
 	}
 	openAIReq["stream"] = stream
@@ -124,14 +125,15 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 
 	resp, err := h.client.Do(proxyReq)
 	if err != nil {
-		http.Error(w, "llama-server: "+err.Error(), http.StatusBadGateway)
+		writeAnthropicError(w, http.StatusBadGateway, "api_error", "llama-server: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		http.Error(w, "llama-server upstream: "+string(b), resp.StatusCode)
+		writeAnthropicError(w, resp.StatusCode, anthropicErrorType(resp.StatusCode),
+			"llama-server upstream: "+string(b))
 		return
 	}
 
@@ -145,9 +147,9 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 // ---- Маршрут во внешний OpenAI-совместимый сервис ----
 
 func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, req map[string]any, stream bool) {
-	openAIReq, err := AnthropicToOpenAI(req)
+	openAIReq, err := h.convert(req)
 	if err != nil {
-		http.Error(w, "convert: "+err.Error(), http.StatusInternalServerError)
+		writeAnthropicError(w, http.StatusInternalServerError, "api_error", "convert: "+err.Error())
 		return
 	}
 	openAIReq["stream"] = stream
@@ -160,14 +162,15 @@ func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, r
 
 	resp, err := h.client.Do(proxyReq)
 	if err != nil {
-		http.Error(w, "openai: "+err.Error(), http.StatusBadGateway)
+		writeAnthropicError(w, http.StatusBadGateway, "api_error", "openai: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		http.Error(w, "openai upstream: "+string(b), resp.StatusCode)
+		writeAnthropicError(w, resp.StatusCode, anthropicErrorType(resp.StatusCode),
+			"openai upstream: "+string(b))
 		return
 	}
 
@@ -203,126 +206,10 @@ func (h *proxyHandler) handleOther(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Error(w, "not implemented: "+r.URL.Path, http.StatusNotFound)
+	writeAnthropicError(w, http.StatusNotFound, "not_found_error", "not implemented: "+r.URL.Path)
 }
 
-// ============================================================
-// Конвертация Anthropic → OpenAI (запрос)
-// ============================================================
-
-func AnthropicToOpenAI(anthropic map[string]any) (map[string]any, error) {
-	openAI := map[string]any{
-		"model": anthropic["model"],
-	}
-
-	// system → первое сообщение role=system
-	var messages []map[string]any
-	if sys, ok := anthropic["system"].(string); ok && sys != "" {
-		messages = append(messages, map[string]any{"role": "system", "content": sys})
-	}
-
-	// messages: content может быть строкой или массивом блоков
-	if inMsgs, ok := anthropic["messages"].([]any); ok {
-		for _, m := range inMsgs {
-			msg, ok := m.(map[string]any)
-			if !ok {
-				continue
-			}
-			role, _ := msg["role"].(string)
-			content, _ := msg["content"]
-
-			switch v := content.(type) {
-			case string:
-				messages = append(messages, map[string]any{"role": role, "content": v})
-			case []any:
-				// Собираем текст из блоков, non-text блоки (tools) преобразуем в tool_calls
-				var textParts []string
-				var toolCalls []map[string]any
-				for _, b := range v {
-					block, ok := b.(map[string]any)
-					if !ok {
-						continue
-					}
-					btype, _ := block["type"].(string)
-					switch btype {
-					case "text":
-						if t, ok := block["text"].(string); ok {
-							textParts = append(textParts, t)
-						}
-					case "tool_use":
-						toolCalls = append(toolCalls, map[string]any{
-							"id":   block["id"],
-							"type": "function",
-							"function": map[string]any{
-								"name":      block["name"],
-								"arguments": mustJSON(block["input"]),
-							},
-						})
-					case "tool_result":
-						// tool_result в Anthropic идёт отдельным user-сообщением; для OpenAI это role=tool
-						toolContent := block["content"]
-						if s, ok := toolContent.(string); ok {
-							messages = append(messages, map[string]any{
-								"role":         "tool",
-								"tool_call_id": block["tool_use_id"],
-								"content":      s,
-							})
-						}
-					}
-				}
-				if len(toolCalls) > 0 {
-					messages = append(messages, map[string]any{
-						"role":       "assistant",
-						"content":    strings.Join(textParts, ""),
-						"tool_calls": toolCalls,
-					})
-				} else if len(textParts) > 0 {
-					messages = append(messages, map[string]any{
-						"role":    role,
-						"content": strings.Join(textParts, ""),
-					})
-				}
-			}
-		}
-	}
-	openAI["messages"] = messages
-
-	// Параметры
-	if v, ok := anthropic["max_tokens"]; ok {
-		openAI["max_tokens"] = v
-	}
-	if v, ok := anthropic["temperature"]; ok {
-		openAI["temperature"] = v
-	}
-	if v, ok := anthropic["top_p"]; ok {
-		openAI["top_p"] = v
-	}
-	if v, ok := anthropic["stop_sequences"]; ok {
-		openAI["stop"] = v
-	}
-
-	// tools: Anthropic {name, description, input_schema} → OpenAI {type:function, function:{...}}
-	if tools, ok := anthropic["tools"].([]any); ok && len(tools) > 0 {
-		var openAITools []map[string]any
-		for _, t := range tools {
-			tool, ok := t.(map[string]any)
-			if !ok {
-				continue
-			}
-			openAITools = append(openAITools, map[string]any{
-				"type": "function",
-				"function": map[string]any{
-					"name":        tool["name"],
-					"description": tool["description"],
-					"parameters":  tool["input_schema"],
-				},
-			})
-		}
-		openAI["tools"] = openAITools
-	}
-
-	return openAI, nil
-}
+// Конвертация запроса Anthropic → OpenAI — в convert.go (веха M1).
 
 // ============================================================
 // Конвертация OpenAI → Anthropic (ответ, non-streaming)
@@ -350,7 +237,7 @@ func convertOpenAIResponseToAnthropic(w http.ResponseWriter, openAIResp *http.Re
 		} `json:"usage"`
 	}
 	if err := json.NewDecoder(openAIResp.Body).Decode(&oai); err != nil {
-		http.Error(w, "decode: "+err.Error(), http.StatusBadGateway)
+		writeAnthropicError(w, http.StatusBadGateway, "api_error", "decode: "+err.Error())
 		return
 	}
 
@@ -407,7 +294,7 @@ func convertOpenAIResponseToAnthropic(w http.ResponseWriter, openAIResp *http.Re
 func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Response, modelName string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		writeAnthropicError(w, http.StatusInternalServerError, "api_error", "streaming unsupported")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -565,7 +452,60 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func mustJSON(v any) string {
-	b, _ := json.Marshal(v)
-	return string(b)
+// writeAnthropicError — ошибка в формате Anthropic Messages API:
+//
+//	{"type":"error","error":{"type":"...","message":"..."}}
+//
+// http.Error отдаёт text/plain, который Claude Code показывает как «API Error»
+// без разбора. Применять только для error-путей ДО начала стрима: когда заголовки
+// и первый SSE-event отправлены, остаётся только `event: error` (см. M2).
+func writeAnthropicError(w http.ResponseWriter, status int, errType, message string) {
+	writeJSON(w, status, map[string]any{
+		"type": "error",
+		"error": map[string]any{
+			"type":    errType,
+			"message": message,
+		},
+	})
+}
+
+// anthropicErrorType — тип ошибки Anthropic по HTTP-статусу апстрима.
+func anthropicErrorType(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "invalid_request_error"
+	case http.StatusUnauthorized:
+		return "authentication_error"
+	case http.StatusForbidden:
+		return "permission_error"
+	case http.StatusNotFound:
+		return "not_found_error"
+	case http.StatusRequestEntityTooLarge:
+		return "request_too_large"
+	case http.StatusTooManyRequests:
+		return "rate_limit_error"
+	}
+	return "api_error"
+}
+
+// logf — вывод прокси только при -v.
+func (h *proxyHandler) logf(format string, args ...any) {
+	if h.cfg != nil && h.cfg.Verbose {
+		fmt.Fprintf(os.Stderr, "[proxy] "+format+"\n", args...)
+	}
+}
+
+// convert конвертирует запрос и при -v сообщает, что не дошло до модели
+// (thinking/image/неизвестные блоки). image маппится только с vision-проектором.
+func (h *proxyHandler) convert(req map[string]any) (map[string]any, error) {
+	opts := ConvertOptions{ImagesToOpenAI: h.cfg != nil && h.cfg.Mmproj != ""}
+	out, st, err := ConvertRequest(req, opts)
+	if err != nil {
+		return out, err
+	}
+	h.logf("→ апстрим: %s", requestSummary(out))
+	if st.Dropped() > 0 {
+		h.logf("отброшено блоков: %s (thinking не имеет аналога в OpenAI, image требует -mmproj)", st.Summary())
+	}
+	return out, nil
 }

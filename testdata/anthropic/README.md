@@ -30,20 +30,37 @@ go test -run TestGoldenAnthropicToOpenAI           # проверить
 3. Сохранить каждое тело как `<имя>_request.json`, хак убрать, прогнать `-update`,
    **вручную прочитать diff** и только потом коммитить.
 
-## Обязательные кейсы (заполняются в M1)
+## Обязательные кейсы
 
 | Имя файла | Что проверяет | Статус |
 |---|---|---|
 | `plain_text` | строковый `content`, `system` строкой, `max_tokens`, `temperature` | есть (M0) |
-| `system_blocks` | `system` массивом блоков с `cache_control` — сейчас теряется | ждать M1 |
-| `tool_use` | `assistant` с `text` + `tool_use` → `tool_calls` (`arguments` — строка JSON) | ждать M1 |
-| `tool_result_string` | `tool_result` со строковым `content` | ждать M1 |
-| `tool_result_blocks` | `tool_result` с массивом блоков — **сейчас теряется целиком** | ждать M1 |
-| `tool_result_error` | `is_error: true` — сейчас флаг игнорируется | ждать M1 |
-| `thinking` | `thinking`-блоки — сейчас отбрасываются молча | ждать M1 |
-| `image` | `image`-блоки при `-mmproj` — сейчас отбрасываются молча | ждать M1 |
-| `tools_defs` | `tools` → `function`-схемы | ждать M1 |
-| `long_history` | длинная история, смешанные роли | ждать M1 |
+| `system_blocks` | `system` массивом блоков с `cache_control` → один `role=system` | есть (M1) |
+| `tool_use` | `assistant` с `text` + `tool_use` → `tool_calls` (`arguments` — строка JSON) | есть (M1) |
+| `tool_result_string` | `tool_result` со строковым `content` | есть (M1) |
+| `tool_result_blocks` | `tool_result` с массивом блоков (склейка `text`-блоков) | есть (M1) |
+| `tool_result_error` | `is_error: true` → префикс `Error: ` | есть (M1) |
+| `thinking` | `thinking`-блоки отбрасываются, но попадают в `ConvertStats` | есть (M1) |
+| `image` | `image`-блоки: без `-mmproj` отбрасываются, с `-mmproj` → `image_url` | есть (M1) |
+| `tools_defs` | `tools` → `function`-схемы, `stop_sequences` → `stop` | есть (M1) |
+| `long_history` | длинная история, смешанные роли, два `tool_result` подряд | есть (M1) |
+
+`image` даёт два golden'а: `image_openai.json` (дефолт, картинка отброшена) и
+`image_mmproj_openai.json` (`ConvertOptions{ImagesToOpenAI: true}` — data-URL).
+Второй golden харнес создаёт сам для любого payload'а, в котором есть image-блок.
+
+### Происхождение payload'ов (важно)
+
+Все кейсы M1 собраны **вручную** по документированной форме запросов Claude Code
+(`system` массивом блоков с `cache_control`, `tools` с `input_schema`,
+`tool_use`/`tool_result`, `thinking` с `signature`), а не сняты живым дампом:
+в окружении разработки не было прогона Claude Code через прокси с записью тел.
+
+Форма и последовательность ролей от этого не страдают (golden-тесты ровно их и
+проверяют), но живые payload'ы могут содержать блоки и поля, которых здесь нет.
+Когда появится возможность снять дамп (см. «Как получить реальные payload'ы») —
+класть их рядом под теми же именами и перечитывать diff golden'ов, а не
+переписывать существующие.
 
 ## Важно
 

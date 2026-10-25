@@ -24,6 +24,11 @@ var updateGolden = flag.Bool("update", false, "перегенерировать 
 //	<имя>_request.json — вход (Anthropic Messages API)
 //	<имя>_openai.json  — ожидаемый выход (OpenAI chat/completions)
 //
+// Каждый payload прогоняется дважды: с дефолтными опциями и с
+// ConvertOptions{ImagesToOpenAI: true} (режим `-mmproj`). Второй golden
+// (<имя>_mmproj_openai.json) создаётся только для payload'ов с image-блоками —
+// для остальных выход совпадает, и дублировать его смысла нет.
+//
 // Если golden отсутствует, тест пропускается, а не падает: каркас не должен
 // ломать CI до наполнения выборки (см. testdata/anthropic/README.md).
 func TestGoldenAnthropicToOpenAI(t *testing.T) {
@@ -47,32 +52,51 @@ func TestGoldenAnthropicToOpenAI(t *testing.T) {
 				t.Fatalf("невалидный JSON в %s: %v", reqPath, err)
 			}
 
-			got, err := AnthropicToOpenAI(anthropicReq)
+			got, st, err := ConvertRequest(anthropicReq, ConvertOptions{})
 			if err != nil {
-				t.Fatalf("AnthropicToOpenAI: %v", err)
+				t.Fatalf("ConvertRequest: %v", err)
 			}
-			canonical, err := json.MarshalIndent(got, "", "  ")
-			if err != nil {
-				t.Fatal(err)
-			}
-			canonical = append(canonical, '\n')
+			checkGolden(t, reqPath, name, "_openai.json", got)
 
-			goldenPath := filepath.Join(filepath.Dir(reqPath), name+"_openai.json")
-			if *updateGolden {
-				if err := os.WriteFile(goldenPath, canonical, 0o644); err != nil {
-					t.Fatal(err)
+			// Тот же payload с vision-проектором: image-блоки обязаны маппиться.
+			if st.DroppedImages > 0 {
+				withMmproj, st2, err := ConvertRequest(anthropicReq, ConvertOptions{ImagesToOpenAI: true})
+				if err != nil {
+					t.Fatalf("ConvertRequest(-mmproj): %v", err)
 				}
-				t.Logf("golden обновлён: %s", goldenPath)
-				return
-			}
-
-			want, err := os.ReadFile(goldenPath)
-			if err != nil {
-				t.Skipf("golden %s отсутствует — создайте: go test -run TestGoldenAnthropicToOpenAI -update", goldenPath)
-			}
-			if string(want) != string(canonical) {
-				t.Errorf("конвертация %s изменилась:\n--- want ---\n%s\n--- got ---\n%s", name, want, canonical)
+				if st2.DroppedImages != 0 {
+					t.Errorf("-mmproj: image-блоков отброшено %d, want 0", st2.DroppedImages)
+				}
+				checkGolden(t, reqPath, name, "_mmproj_openai.json", withMmproj)
 			}
 		})
+	}
+}
+
+// checkGolden сравнивает результат конвертации с golden-файлом (или пишет его при -update).
+func checkGolden(t *testing.T, reqPath, name, suffix string, got map[string]any) {
+	t.Helper()
+
+	canonical, err := json.MarshalIndent(got, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical = append(canonical, '\n')
+
+	goldenPath := filepath.Join(filepath.Dir(reqPath), name+suffix)
+	if *updateGolden {
+		if err := os.WriteFile(goldenPath, canonical, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("golden обновлён: %s", goldenPath)
+		return
+	}
+
+	want, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Skipf("golden %s отсутствует — создайте: go test -run TestGoldenAnthropicToOpenAI -update", goldenPath)
+	}
+	if string(want) != string(canonical) {
+		t.Errorf("конвертация %s изменилась:\n--- want ---\n%s\n--- got ---\n%s", name, want, canonical)
 	}
 }

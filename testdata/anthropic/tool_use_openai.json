@@ -1,0 +1,73 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": "You are Claude Code, Anthropic's official CLI for Claude.",
+      "role": "system"
+    },
+    {
+      "content": "Покажи, сколько строк в proxy.go",
+      "role": "user"
+    },
+    {
+      "content": "Посчитаю строки.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"command\":\"wc -l proxy.go\",\"description\":\"Count lines in proxy.go\"}",
+            "name": "Bash"
+          },
+          "id": "toolu_01Bvg9z8HrCw",
+          "type": "function"
+        }
+      ]
+    }
+  ],
+  "model": "llama-server",
+  "temperature": 1,
+  "tools": [
+    {
+      "function": {
+        "description": "Executes a given bash command and returns its output.",
+        "name": "Bash",
+        "parameters": {
+          "properties": {
+            "command": {
+              "description": "The command to execute",
+              "type": "string"
+            },
+            "description": {
+              "description": "Clear, concise description of what this command does",
+              "type": "string"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Read a file from the local filesystem.",
+        "name": "Read",
+        "parameters": {
+          "properties": {
+            "file_path": {
+              "description": "Absolute path to the file to read",
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_path"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}

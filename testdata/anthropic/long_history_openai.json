@@ -1,0 +1,93 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": "You are Claude Code, Anthropic's official CLI for Claude.\nWorking directory: /home/aleks/Code/TMP/llama-runner\nPlatform: linux",
+      "role": "system"
+    },
+    {
+      "content": "Проверь, что тесты зелёные, и посмотри, что в go.mod",
+      "role": "user"
+    },
+    {
+      "content": "Запускаю тесты и читаю go.mod.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"command\":\"go test ./...\"}",
+            "name": "Bash"
+          },
+          "id": "toolu_01Aaa111",
+          "type": "function"
+        },
+        {
+          "function": {
+            "arguments": "{\"file_path\":\"/home/aleks/Code/TMP/llama-runner/go.mod\"}",
+            "name": "Read"
+          },
+          "id": "toolu_01Bbb222",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "ok  github.com/SkalaSkalolaz/llama-runner  1.203s",
+      "role": "tool",
+      "tool_call_id": "toolu_01Aaa111"
+    },
+    {
+      "content": "module github.com/SkalaSkalolaz/llama-runner\ngo 1.26.8",
+      "role": "tool",
+      "tool_call_id": "toolu_01Bbb222"
+    },
+    {
+      "content": "Тесты зелёные, модуль называется github.com/SkalaSkalolaz/llama-runner.",
+      "role": "assistant"
+    },
+    {
+      "content": "А версия Go в CI совпадает с локальной?",
+      "role": "user"
+    }
+  ],
+  "model": "llama-server",
+  "temperature": 1,
+  "tools": [
+    {
+      "function": {
+        "description": "Executes a bash command.",
+        "name": "Bash",
+        "parameters": {
+          "properties": {
+            "command": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Read a file.",
+        "name": "Read",
+        "parameters": {
+          "properties": {
+            "file_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_path"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}
