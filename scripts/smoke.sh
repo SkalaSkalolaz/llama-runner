@@ -133,6 +133,18 @@ else
     echo "$authout" | tail -20 | sed 's/^/       /'
 fi
 
+# M5: сигналы, остановка, cleanup — отдельным прогоном.
+m5out="$(go test -run 'TestShutdown_|TestHandleSignals_|TestWaitForReady|TestWaitForServer_' -count=1 -v . 2>&1)"
+m5fail=0
+echo "$m5out" | grep -q '^=== RUN   Test' || m5fail=1
+echo "$m5out" | grep -q '^--- FAIL' && m5fail=1
+if [ "$m5fail" -eq 0 ]; then
+    pass "M5: сигналы и cleanup"
+else
+    fail "M5: сигналы и cleanup (не найдены или упали)"
+    echo "$m5out" | tail -20 | sed 's/^/       /'
+fi
+
 echo
 echo "== 2. Коды возврата и пути ошибок =="
 
@@ -345,6 +357,31 @@ M4 — аутентификация прокси:
       Предупреждение в stderr, запуск идёт (не hard-fail).
 
   [ ] -proxy-allow-remote снимает предупреждение.
+
+M5 — сигналы, остановка, cleanup:
+
+  [ ] Одиночный Ctrl-C во время работы Claude Code. Ожидаемо:
+      llama-server и mcp завершаются, sirot нет:
+        pgrep -af 'llama-server|mcp-search-server'
+      должно быть пусто.
+
+  [ ] Двойной Ctrl-C подряд. Ожидаемо: второй сигнал ускоряет эскалацию,
+      появляется "Повторный сигнал ... — эскалация без ожидания",
+      процессы завершаются за секунды, а не через 15+15.
+
+  [ ] Тройной Ctrl-C. Ожидаемо: SIGINT → SIGTERM → SIGKILL, все мертвы
+      мгновенно. Ctrl-C больше не «залипает» — дефект №12 закрыт.
+
+  [ ] Висящий claude. Если получается подсунуть claude, который не реагирует
+      на SIGINT (например, временно заменить -claude-bin на sh -c 'trap "" INT; sleep 60'):
+        ./llama-runner -server-only-off -claude-bin /tmp/stubborn.sh ...
+      Ctrl-C → SIGINT не помогает, через 15 с → SIGTERM, ещё через 15 → SIGKILL.
+      В -v видно "Эскалация: SIGTERM" и "Эскалация: SIGKILL".
+
+  [ ] Групповой kill llama-server. llama-server запущен с Setpgid;
+      Ctrl-C шлёт SIGINT группе, поэтому дочерние потоки llama-server
+      (если есть) тоже умирают. Проверить:
+        pgrep -af llama-server   # пусто
 MANUAL
 
 echo

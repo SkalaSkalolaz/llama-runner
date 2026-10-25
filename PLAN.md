@@ -230,14 +230,14 @@
 Делать **только после** M3. Правки в прокси и в `buildClaudeEnv` — одним коммитом,
 иначе Claude Code перестанет ходить на прокси.
 
-- [ ] Токен на входящих запросах: принимать **и** `Authorization: Bearer <tok>`,
+- [x] Токен на входящих запросах: принимать **и** `Authorization: Bearer <tok>`,
       **и** `x-api-key: <tok>` (Claude Code шлёт по-разному в разных версиях).
-- [ ] Тот же токен передавать в `buildClaudeEnv` (`parse.go:229-236`) —
+- [x] Тот же токен передавать в `buildClaudeEnv` (`parse.go:229-236`) —
       `ANTHROPIC_AUTH_TOKEN`. Дефолт оставляем `local-llama`, чтобы поведение не менялось;
       сгенерированный токен — только при включённой проверке.
-- [ ] Не-loopback `-proxy-addr`: **предупреждение** + требование явного
+- [x] Не-loopback `-proxy-addr`: **предупреждение** + требование явного
       `-proxy-allow-remote` (или заданного токена). Не hard-fail.
-- [ ] 401 в формате Anthropic-ошибки.
+- [x] 401 в формате Anthropic-ошибки.
 
 **Критерий готовности**
 
@@ -251,20 +251,20 @@
 
 Самая рискованная веха. См. красную зону, пункты 1 и 2.
 
-- [ ] Горутину сигнала (`run.go:277-281`) сделать циклом `for sig := range sigCh`
+- [x] Горутину сигнала (`run.go:277-281`) сделать циклом `for sig := range sigCh`
       **без** `signal.Stop` внутри. `signal.Stop(sigCh)` — только перед `return` из `run()`
       (через `defer`). Иначе второй Ctrl-C уйдёт в дефолтную обработку.
-- [ ] Эскалация: SIGINT → подождать → SIGTERM → 10–15 с → SIGKILL. Порог не занижать,
+- [x] Эскалация: SIGINT → подождать → SIGTERM → 10–15 с → SIGKILL. Порог не занижать,
       чтобы не рвать сохранение файлов.
-- [ ] `Setpgid: true` + `kill(-pgid)` — **только** для `llama-server` и `mcp-search-server`.
+- [x] `Setpgid: true` + `kill(-pgid)` — **только** для `llama-server` и `mcp-search-server`.
       Для `claude` оставить `Process.Signal` прямому потомку (красная зона №1).
-- [ ] Дедупликация cleanup-блоков (8 копий: `run.go:315-318`, `338-341`, `354-357`,
+- [x] Дедупликация cleanup-блоков (8 копий: `run.go:315-318`, `338-341`, `354-357`,
       `368-371`, `405-408`, `429-432`, `436-439`, `457-460`) в один `defer`-омываемый
       shutdown-хелпер. **Порядок остановки и ожидания: `claude` → `llama-server` →
       `mcp` → `proxy`.** Сохранить единственный `return 2` (`run.go:371`).
-- [ ] Разбить `run()` (460 строк) на `resolvePaths` / `startServer` / `startProxy` /
+- [x] Разбить `run()` (460 строк) на `resolvePaths` / `startServer` / `startProxy` /
       `startClaude` — без изменения последовательности вызовов.
-- [ ] Объединить `waitForServer` (`main.go:86-107`) и `waitForServerProcess`
+- [x] Объединить `waitForServer` (`main.go:86-107`) и `waitForServerProcess`
       (`main.go:42-83`) в одну context-aware функцию; сохранить семантику «прекратить
       ожидание при смерти процесса» и убрать `time.Sleep(1s)` после последней попытки.
 
