@@ -310,45 +310,6 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		return code
 	}
 
-	// --- Chat-template ---
-	templateRaw := resolveChatTemplate(cfg.ChatTemplate, modelPath)
-	if cfg.Verbose && cfg.ChatTemplate == "auto" && templateRaw != "" {
-		fmt.Fprintf(stdout, "Автоопределение шаблона: qwen → %s\n", templateRaw)
-	}
-	templatePath, err := validateTemplatePath(templateRaw, home, cfg.ChatTemplateSet)
-	if err != nil {
-		fmt.Fprintf(stderr, "ошибка: %v\n", err)
-		return 2
-	}
-	if templateRaw != "" && templatePath == "" && !cfg.ChatTemplateSet {
-		fmt.Fprintf(stderr, "предупреждение: автоматически выбранный шаблон %q недоступен; использую шаблон из GGUF\n", templateRaw)
-	}
-
-	// --- Mmproj / Draft ---
-	var mmprojPath, draftPath string
-	if cfg.Mmproj != "" {
-		mmprojPath, err = filepath.Abs(expandHome(cfg.Mmproj, home))
-		if err != nil {
-			fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь mmproj: %v\n", err)
-			return 2
-		}
-		if _, err := os.Stat(mmprojPath); err != nil {
-			fmt.Fprintf(stderr, "mmproj не найден по пути %q: %v\n", mmprojPath, err)
-			return 1
-		}
-	}
-	if cfg.SpecDraftModel != "" {
-		draftPath, err = filepath.Abs(expandHome(cfg.SpecDraftModel, home))
-		if err != nil {
-			fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь spec-draft-model: %v\n", err)
-			return 2
-		}
-		if _, err := os.Stat(draftPath); err != nil {
-			fmt.Fprintf(stderr, "spec-draft-model не найден по пути %q: %v\n", draftPath, err)
-			return 1
-		}
-	}
-
 	// --- Сборка args ---
 	serverArgs := buildServerArgs(cfg, ServerPaths{
 		Model: paths.Model, Mmproj: paths.Mmproj,
@@ -366,7 +327,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		cmd.Env = os.Environ()
 	}
 	for _, sub := range []string{"lib", "lib64"} {
-		cand := filepath.Join(filepath.Dir(serverPath), "..", sub)
+		cand := filepath.Join(filepath.Dir(paths.ServerBin), "..", sub)
 		abs, absErr := filepath.Abs(cand)
 		if absErr != nil {
 			continue
@@ -440,7 +401,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 
 	if cfg.Verbose {
 		fmt.Fprintf(stdout, "Рабочая директория: %s\n", cmd.Dir)
-		fmt.Fprintf(stdout, "Команда: %s %s\n\n", serverPath, strings.Join(serverArgs, " "))
+		fmt.Fprintf(stdout, "Команда: %s %s\n\n", paths.ServerBin, strings.Join(serverArgs, " "))
 		if serverLogFile != nil {
 			fmt.Fprintf(stdout, "Логи llama-server: %s\n", serverLogFile.Name())
 		}
@@ -456,6 +417,9 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if cfg.McpProxy {
 		mcpCmd = runner.Command("mcp-search-server", "--addr", cfg.McpAddr)
 		mcpCmd.Env = append(os.Environ(), "SEARCH_ENABLED=true")
+		// Setpgid для mcp — как и для llama-server (красная зона №1:
+		// терминал mcp не читает, группа нужна для группового kill).
+		mcpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		if serverLogFile != nil {
 			mcpCmd.Stdout = serverLogFile
 			mcpCmd.Stderr = serverLogFile
@@ -471,11 +435,11 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		}
 		if startErr := mcpCmd.Start(); startErr != nil {
 			fmt.Fprintf(stderr, "ошибка запуска mcp-search-server: %v\n", startErr)
-			stopChildren()
-			_ = serverProcess.Wait()
-			stopMcp(mcpCmd)
+			// mcpCmd.Process == nil (Start не удался), server ещё не запущен,
+			// nothing to stop.
 			return 1
 		}
+		defer stopMcp(mcpCmd)
 	}
 
 	// --- Запуск llama-server ---
