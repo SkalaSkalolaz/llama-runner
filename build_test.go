@@ -135,3 +135,35 @@ func TestBuildServerArgs_ReasoningOmitted(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildClaudeEnv_ProxyToken(t *testing.T) {
+	cfg := &Config{Alias: "local", ProxyToken: "secret"}
+	env := buildClaudeEnv(cfg, "http://proxy", nil)
+	m := map[string]string{}
+	for _, kv := range env {
+		p := strings.SplitN(kv, "=", 2)
+		m[p[0]] = p[1]
+	}
+	if m["ANTHROPIC_AUTH_TOKEN"] != "secret" {
+		t.Errorf("ANTHROPIC_AUTH_TOKEN = %q, want secret", m["ANTHROPIC_AUTH_TOKEN"])
+	}
+	if m["ANTHROPIC_API_KEY"] != "secret" {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want secret", m["ANTHROPIC_API_KEY"])
+	}
+}
+
+func TestBuildClaudeEnv_NoProxyToken_KeepsDefault(t *testing.T) {
+	cfg := &Config{Alias: "local"}
+	env := buildClaudeEnv(cfg, "http://proxy", nil)
+	m := map[string]string{}
+	for _, kv := range env {
+		p := strings.SplitN(kv, "=", 2)
+		m[p[0]] = p[1]
+	}
+	if m["ANTHROPIC_AUTH_TOKEN"] != "local-llama" {
+		t.Errorf("ANTHROPIC_AUTH_TOKEN = %q, want local-llama (backward compat)", m["ANTHROPIC_AUTH_TOKEN"])
+	}
+	if m["ANTHROPIC_API_KEY"] != "local-llama" {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want local-llama", m["ANTHROPIC_API_KEY"])
+	}
+}
