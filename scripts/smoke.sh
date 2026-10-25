@@ -109,6 +109,18 @@ else
 	exit 1
 fi
 
+# Ключ и лимиты M3 — отдельным прогоном, чтобы падение было видно.
+keyout="$(go test -run 'TestResolveOpenAIKey_|TestNewProxyClient_|TestHandleMessages_TooLarge|TestRun_VerboseDoesNotLeakKey' -count=1 -v . 2>&1)"
+keyfail=0
+echo "$keyout" | grep -q '^=== RUN   Test' || keyfail=1
+echo "$keyout" | grep -q '^--- FAIL' && keyfail=1
+if [ "$keyfail" -eq 0 ]; then
+	pass "M3: ключ, лимиты тела, таймауты"
+else
+	fail "M3: ключ/лимиты/таймауты"
+	echo "$keyout" | tail -20 | sed 's/^/       /'
+fi
+
 echo
 echo "== 2. Коды возврата и пути ошибок =="
 
@@ -262,6 +274,34 @@ M2 — стриминг OpenAI → Anthropic. Usage и обрыв апстрим
   [ ] Нормальный стоп не задет. Обычный короткий диалог («скажи привет»)
       завершается штатно, без event: error в ответе. В логе — та же
       строка "← usage: ...", но message_delta с stop_reason=end_turn.
+
+M3 — ключ из env, лимит тела, длинный стрим:
+
+  [ ] Ключ из env (без -key). В отдельном терминале:
+        export LLAMA_RUNNER_OPENAI_KEY=sk-...
+        ./llama-runner -v -openai https://api.example.com/v1 \
+          -model-openai deepseek/deepseek-v4-flash
+      Должно стартовать; в выводе -v ключа нет. То же с
+        OPENAI_API_KEY=sk-...
+      и с файлом ~/.config/llama-runner/credentials (0600):
+        OPENAI_KEY=sk-...
+      При правах 0644 — предупреждение в stderr, но запуск идёт.
+
+  [ ] Слишком большое тело. Отправить в прокси запрос с телом > 100 МБ
+      (например, curl с гигантским JSON или base64-картинкой):
+        curl -sS -o /dev/null -w '%{http_code}\n' \
+          -X POST http://127.0.0.1:8082/v1/messages \
+          -H 'Content-Type: application/json' \
+          --data-binary @/path/to/huge.json
+      Ожидаемо: 413 и JSON {"type":"error","error":{"type":"request_too_large",...}}.
+
+  [ ] Длинный стрим > 5 минут. Запустить ./llama-runner -v ... и попросить
+      модель очень длинный ответ («напиши 200 строк про X»). Стрим не
+      обрывается на 5:00. До M3 Client.Timeout=5m резал его посреди ответа.
+
+  [ ] Зависший апстрим отсекается. Если возможно — подсунуть upstream,
+      который принимает TCP и молчит. Ответ должен прийти через ~30 с
+      (ResponseHeaderTimeout), не через 5 минут.
 MANUAL
 
 echo

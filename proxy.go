@@ -13,6 +13,10 @@ import (
 
 const localModelName = "llama-server"
 
+// maxRequestBodyBytes — лимит тела запроса. Реальные payload'ы Claude Code
+// < 10 МБ; 100 МБ — с большим запасом (image base64, длинная история).
+const maxRequestBodyBytes int64 = 100 * 1024 * 1024
+
 type proxyHandler struct {
 	llamaServerURL string
 	cfg            *Config
@@ -27,10 +31,9 @@ func StartProxyServer(proxyAddr, llamaServerURL string, cfg *Config, logWriter i
 	h := &proxyHandler{
 		llamaServerURL: strings.TrimRight(llamaServerURL, "/"),
 		cfg:            cfg,
-		client:         &http.Client{Timeout: 5 * time.Minute},
+		client:         newProxyClient(),
 		logWriter:      logWriter,
 	}
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/messages", h.handleMessages)
 	mux.HandleFunc("/v1/models", h.handleModels)
@@ -47,6 +50,22 @@ func StartProxyServer(proxyAddr, llamaServerURL string, cfg *Config, logWriter i
 		_ = srv.Serve(ln) // http.ErrServerClosed при Shutdown — нормально
 	}()
 	return srv, nil
+}
+
+// newProxyClient — http.Client для запросов к апстриму.
+//
+// Client.Timeout = 0: иначе 5-минутный лимит режет длинную генерацию
+// посреди стрима (дефект №8). Защита от зависшего соединения — на уровне
+// Transport.ResponseHeaderTimeout: 30s (заголовки ждём не дольше 30 с,
+// тело стрима — сколько нужно). Отмена — по r.Context() в
+// forwardToLlama/forwardToOpenAI, там NewRequestWithContext.
+//
+// Транспорт — копия http.DefaultTransport с одним изменённым полем:
+// сохраняем проксирование из env, HTTP/2, keep-alive.
+func newProxyClient() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = 30 * time.Second
+	return &http.Client{Timeout: 0, Transport: t}
 }
 
 // ---- /v1/models ----
@@ -82,8 +101,15 @@ func (h *proxyHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 // ---- /v1/messages ----
 
 func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeAnthropicError(w, http.StatusRequestEntityTooLarge,
+				"request_too_large", fmt.Sprintf("тело запроса больше %d байт", maxErr.Limit))
+			return
+		}
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -191,6 +217,7 @@ func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, r
 
 func (h *proxyHandler) handleOther(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/count_tokens") {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 		body, _ := io.ReadAll(r.Body)
 		var req map[string]any
 		_ = json.Unmarshal(body, &req)
