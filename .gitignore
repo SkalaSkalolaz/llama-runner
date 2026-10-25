@@ -15,6 +15,7 @@
 
 # Build artifacts
 /llama-runner
+/llama-runner-smoke
 *.exe
 *.test
 *.out

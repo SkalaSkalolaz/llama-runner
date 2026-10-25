@@ -1,0 +1,19 @@
+{
+  "max_tokens": 100,
+  "messages": [
+    {
+      "content": "You are a helpful assistant.",
+      "role": "system"
+    },
+    {
+      "content": "Привет",
+      "role": "user"
+    }
+  ],
+  "model": "llama-server",
+  "stop": [
+    "\n\n"
+  ],
+  "temperature": 0.7,
+  "top_p": 0.95
+}
