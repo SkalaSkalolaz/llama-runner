@@ -100,7 +100,7 @@ func resolvePaths(cfg *Config, home string, stdout, stderr io.Writer) (resolvedP
 		return p, 1
 	}
 
-	templateRaw := resolveChatTemplate(cfg.ChatTemplate, p.Model)
+	templateRaw := resolveChatTemplate(cfg.ChatTemplate, p.Model, cfg.ChatTemplateFallback)
 	if cfg.Verbose && cfg.ChatTemplate == "auto" && templateRaw != "" {
 		fmt.Fprintf(stdout, "Автоопределение шаблона: qwen → %s\n", templateRaw)
 	}
@@ -291,6 +291,9 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if err := validateConfig(cfg); err != nil {
 		fmt.Fprintf(stderr, "ошибка: %v\n", err)
 		return 2
+	}
+	if cfg.DoctorFlag {
+		return runDoctor(cfg, home, runner, stdout, stderr)
 	}
 	if cfg.UpdateFlag {
 		srcAbs := expandHome(cfg.LlamaSrc, home)
@@ -791,6 +794,12 @@ Claude Code:
   -proxy-token string  токен для проверки входящих запросов прокси (пусто — без проверки)
   -proxy-allow-remote  разрешить не-loopback -proxy-addr без предупреждения
 
+Конфиг:
+  -config string       путь к конфиг-файлу (по умолчанию
+                       "~/.config/llama-runner/config.json"; "" — не читать)
+  -p string            профиль из конфиг-файла (profiles: {имя: {...}})
+  -doctor              показать разрешённые пути и версию, не запуская процессы
+
 Обновление llama.cpp:
   -update
         обновить llama.cpp: git pull --ff-only, cmake configure/build/install,
@@ -813,6 +822,12 @@ Claude Code:
 
   # MCP-поиск + Claude Code
   llama-runner -webui-mcp-proxy
+
+  # Профиль из конфиг-файла
+  llama-runner -p coder
+
+  # Диагностика без запуска процессов
+  llama-runner -doctor
 
   # Обновить llama.cpp
   llama-runner -update -cuda-arch 61

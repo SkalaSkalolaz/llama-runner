@@ -69,6 +69,12 @@ type Config struct {
 	ProxyAddr        string
 	ProxyToken       string
 	ProxyAllowRemote bool
+
+	ConfigPath           string
+	Profile              string    
+	DoctorFlag           bool      
+	ChatTemplateFallback string 
+
 	// Производные (заполняются после Parse/Validate)
 	Home            string
 	ChatTemplateSet bool // -chat-template задан явно
