@@ -203,14 +203,14 @@
 
 Аддитивно, backward-compatible.
 
-- [ ] Ключ из окружения / файла: `LLAMA_RUNNER_OPENAI_KEY` (или `OPENAI_API_KEY`),
+- [x] Ключ из окружения / файла: `LLAMA_RUNNER_OPENAI_KEY` (или `OPENAI_API_KEY`),
       опционально `~/.config/llama-runner/credentials` с правами `0600`.
       Приоритет: **CLI > env > файл > пусто**. Флаг `-key` продолжает работать.
       Ключ не должен попадать ни в stdout, ни в stderr, ни в лог — проверить `-v`-выветку
       (`run.go:332` печатает `OpenAIBaseURL`; ключ там появиться не должен).
-- [ ] `http.MaxBytesReader` на чтение тела: `proxy.go:83` и `proxy.go:185`.
+- [x] `http.MaxBytesReader` на чтение тела: `proxy.go:83` и `proxy.go:185`.
       Лимит 100 МБ (реальные payload'ы < 10 МБ).
-- [ ] Убрать тотальный `Client.Timeout: 5*time.Minute` (`proxy.go:29`) — он режет длинную
+- [x] Убрать тотальный `Client.Timeout: 5*time.Minute` (`proxy.go:29`) — он режет длинную
       генерацию посреди стрима. Вместо него:
       `Client.Timeout = 0` + `Transport{ResponseHeaderTimeout: 30s}` + отмена по
       `r.Context()` (уже передаётся в `NewRequestWithContext`, `proxy.go:122, 157`).
@@ -218,10 +218,10 @@
 
 **Критерий готовности**
 
-- [ ] Запуск без `-key`, но с `LLAMA_RUNNER_OPENAI_KEY`, работает; с `-key` — работает как раньше.
-- [ ] Длинная (>$5$ мин) генерация не обрывается; зависший апстрим отсекается по
+- [x] Запуск без `-key`, но с `LLAMA_RUNNER_OPENAI_KEY`, работает; с `-key` — работает как раньше.
+- [x] Длинная (>$5$ мин) генерация не обрывается; зависший апстрим отсекается по
       `ResponseHeaderTimeout`.
-- [ ] `go test -race ./...` зелёные.
+- [x] `go test -race ./...` зелёные.
 
 ---
 

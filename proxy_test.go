@@ -177,3 +177,54 @@ type readCloser struct{ *bytes.Buffer }
 
 func (readCloser) Close() error          { return nil }
 func newReadCloser(s string) *readCloser { return &readCloser{bytes.NewBufferString(s)} }
+
+func TestNewProxyClient_Timeout(t *testing.T) {
+	c := newProxyClient()
+	if c.Timeout != 0 {
+		t.Errorf("Timeout = %v, want 0 (иначе 5 минут режут длинную генерацию)", c.Timeout)
+	}
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport = %T, want *http.Transport", c.Transport)
+	}
+	if tr.ResponseHeaderTimeout != 30*time.Second {
+		t.Errorf("ResponseHeaderTimeout = %v, want 30s", tr.ResponseHeaderTimeout)
+	}
+}
+
+func TestHandleMessages_TooLarge(t *testing.T) {
+	// Огромное тело: 100 МБ + 1 байт.
+	// Собираем не целиком в памяти, а через io.LimitReader от "бесконечного" читателя.
+	h := &proxyHandler{cfg: &Config{}}
+	w := httptest.NewRecorder()
+
+	huge := io.LimitReader(infiniteReader(' '), maxRequestBodyBytes+1)
+	r := httptest.NewRequest(http.MethodPost, "/v1/messages", huge)
+	h.handleMessages(w, r)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("code = %d, want 413", w.Code)
+	}
+	var got struct {
+		Type  string `json:"type"`
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if got.Type != "error" || got.Error.Type != "request_too_large" {
+		t.Errorf("body = %+v", got)
+	}
+}
+
+// infiniteReader отдаёт n байт c, не памятуя их.
+type infiniteReader byte
+
+func (r infiniteReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(r)
+	}
+	return len(p), nil
+}
