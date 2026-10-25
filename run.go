@@ -394,6 +394,11 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 			proxyAddr = "127.0.0.1:8082"
 		}
 
+		if shouldWarnProxyExposure(proxyAddr, cfg) {
+			fmt.Fprintf(stderr, "предупреждение: прокси слушает не-loopback адрес %s без аутентификации — "+
+				"любой в сети может использовать ваш платный ключ. Задайте -proxy-token (и тот же токен "+
+				"в Claude Code) или явный -proxy-allow-remote.\n", proxyAddr)
+		}
 		fmt.Fprintf(stdout, "Запуск прокси на %s (llama → %s, openai → %s)\n",
 			proxyAddr, llamaTargetURL, cfg.OpenAIBaseURL)
 
@@ -555,6 +560,9 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if cfg.Verbose {
 		fmt.Fprintf(stdout, "Claude Code: %s (cwd=%s)\n", claudePath, cc.Dir)
 		fmt.Fprintf(stdout, "  ANTHROPIC_BASE_URL=%s\n", baseURL)
+		if cfg.ProxyToken != "" {
+			fmt.Fprintln(stdout, "  ANTHROPIC_AUTH_TOKEN=<configured via -proxy-token, hidden>")
+		}
 		// Печатаем фактически установленные ANTHROPIC_* из claudeEnv, а не cfg.Alias:
 		// в гибридном режиме все три DEFAULT_* ведут на внешнюю модель, а не на
 		// локальный alias — иначе -v врёт.
@@ -675,6 +683,8 @@ Claude Code:
   -key string          API-ключ внешнего провайдера
   -model-openai str    имя модели у внешнего провайдера
   -proxy-addr string   адрес локального прокси (по умолчанию 127.0.0.1:8082)
+  -proxy-token string  токен для проверки входящих запросов прокси (пусто — без проверки)
+  -proxy-allow-remote  разрешить не-loopback -proxy-addr без предупреждения
 
 Обновление llama.cpp:
   -update

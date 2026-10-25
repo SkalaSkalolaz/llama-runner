@@ -78,6 +78,10 @@ func parseFlags(args []string, stderr io.Writer) (*Config, error) {
 	fs.StringVar(&cfg.OpenAIKey, "key", "", "API-ключ для внешнего провайдера")
 	fs.StringVar(&cfg.OpenAIModel, "model-openai", "", "Название модели у внешнего провайдера")
 	fs.StringVar(&cfg.ProxyAddr, "proxy-addr", "127.0.0.1:8082", "адрес локального прокси (гибридный режим)")
+	fs.StringVar(&cfg.ProxyToken, "proxy-token", "",
+		"токен для аутентификации входящих запросов прокси (пусто — без проверки)")
+	fs.BoolVar(&cfg.ProxyAllowRemote, "proxy-allow-remote", false,
+		"разрешить не-loopback -proxy-addr без предупреждения")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -267,13 +271,21 @@ func buildServerArgs(cfg *Config, paths ServerPaths) []string {
 // buildClaudeEnv собирает env для Claude Code (не мутирует baseEnv).
 func buildClaudeEnv(cfg *Config, baseURL string, baseEnv []string) []string {
 	env := append([]string{}, baseEnv...)
+
+	// Токен для прокси: -proxy-token, если задан, иначе историческое
+	// local-llama. Кладём в оба поля — разные версии Claude Code шлют
+	// разное: Authorization: Bearer (AUTH_TOKEN) или x-api-key (API_KEY).
+	// Прокси принимает оба варианта.
+	authToken := "local-llama"
+	if cfg.ProxyToken != "" {
+		authToken = cfg.ProxyToken
+	}
 	env = append(env,
 		"ANTHROPIC_BASE_URL="+baseURL,
-		"ANTHROPIC_AUTH_TOKEN=local-llama",
-		"ANTHROPIC_API_KEY=local-llama",
+		"ANTHROPIC_AUTH_TOKEN="+authToken,
+		"ANTHROPIC_API_KEY="+authToken,
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 	)
-
 	// Имя локальной модели: cfg.Alias (уже "local" по умолчанию из run())
 	localModel := cfg.Alias
 	if localModel == "" {

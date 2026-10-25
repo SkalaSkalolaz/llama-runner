@@ -121,6 +121,18 @@ else
 	echo "$keyout" | tail -20 | sed 's/^/       /'
 fi
 
+# M4: аутентификация прокси — отдельным прогоном.
+authout="$(go test -run 'TestProxyAuthMiddleware_|TestProxy_AuthRequired_|TestShouldWarnProxyExposure|TestRequestToken|TestIsLoopbackHost|TestBuildClaudeEnv_(ProxyToken|NoProxyToken)' -count=1 -v . 2>&1)"
+authfail=0
+echo "$authout" | grep -q '^=== RUN   Test' || authfail=1
+echo "$authout" | grep -q '^--- FAIL' && authfail=1
+if [ "$authfail" -eq 0 ]; then
+    pass "M4: аутентификация прокси"
+else
+    fail "M4: аутентификация прокси (не найдены или упали)"
+    echo "$authout" | tail -20 | sed 's/^/       /'
+fi
+
 echo
 echo "== 2. Коды возврата и пути ошибок =="
 
@@ -302,6 +314,37 @@ M3 — ключ из env, лимит тела, длинный стрим:
   [ ] Зависший апстрим отсекается. Если возможно — подсунуть upstream,
       который принимает TCP и молчит. Ответ должен прийти через ~30 с
       (ResponseHeaderTimeout), не через 5 минут.
+
+M4 — аутентификация прокси:
+
+  [ ] Обычный запуск без -proxy-token: Claude Code ходит на прокси как
+      раньше (ANTHROPIC_AUTH_TOKEN=local-llama, прокси токен не проверяет).
+
+  [ ] С -proxy-token:
+        ./llama-runner -v -proxy-token mysecret -openai ... -key ... -model-openai ...
+      В -v-выводе строка "ANTHROPIC_AUTH_TOKEN=<configured via -proxy-token, hidden>".
+      Claude Code работает (запросы проходят).
+
+  [ ] Запрос без токена получает 401 в Anthropic-формате:
+        curl -sS -o /dev/null -w '%{http_code}\n' \
+          -X POST http://127.0.0.1:8082/v1/messages \
+          -H 'Content-Type: application/json' \
+          -d '{"model":"llama-server","messages":[{"role":"user","content":"hi"}]}'
+      Ожидаемо: 401, JSON {"type":"error","error":{"type":"authentication_error",...}}.
+
+  [ ] С тем же токеном — 200:
+        curl -sS -o /dev/null -w '%{http_code}\n' \
+          -X POST http://127.0.0.1:8082/v1/messages \
+          -H 'Authorization: Bearer mysecret' \
+          -H 'Content-Type: application/json' \
+          -d '{"model":"llama-server","messages":[{"role":"user","content":"hi"}]}'
+      И то же с x-api-key: mysecret — тоже 200.
+
+  [ ] Не-loopback без токена и без -proxy-allow-remote:
+        ./llama-runner -proxy-addr 0.0.0.0:8082 -openai ... -key ... -model-openai ...
+      Предупреждение в stderr, запуск идёт (не hard-fail).
+
+  [ ] -proxy-allow-remote снимает предупреждение.
 MANUAL
 
 echo

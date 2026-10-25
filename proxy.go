@@ -35,22 +35,85 @@ func StartProxyServer(proxyAddr, llamaServerURL string, cfg *Config, logWriter i
 		client:         newProxyClient(),
 		logWriter:      logWriter,
 	}
+
+	mux := newProxyMux(h)
+
+	ln, err := net.Listen("tcp", proxyAddr)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось занять %s: %w", proxyAddr, err)
+	}
+	srv := &http.Server{Handler: h.authMiddleware(mux)}
+	go func() {
+		_ = srv.Serve(ln) // http.ErrServerClosed при Shutdown — нормально
+	}()
+	return srv, nil
+}
+
+// newProxyMux собирает маршруты прокси. Вынесено из StartProxyServer
+// для end-to-end-тестов: httptest.NewServer(h.authMiddleware(newProxyMux(h)))
+// проверяет ту же схему, что и боевой запуск.
+func newProxyMux(h *proxyHandler) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/messages", h.handleMessages)
 	mux.HandleFunc("/v1/models", h.handleModels)
 	mux.HandleFunc("/", h.handleOther)
 	mux.HandleFunc("/v1/messages/count_tokens", h.handleOther)
 	mux.HandleFunc("/v1/models/", h.handleOther)
+	return mux
+}
 
-	ln, err := net.Listen("tcp", proxyAddr)
-	if err != nil {
-		return nil, fmt.Errorf("не удалось занять %s: %w", proxyAddr, err)
+// authMiddleware проверяет токен, если -proxy-token задан. Пустой токен —
+// проверка отключена (backward-compat: дефолтный запуск работает как раньше).
+func (h *proxyHandler) authMiddleware(next http.Handler) http.Handler {
+	if h.cfg == nil || h.cfg.ProxyToken == "" {
+		return next
 	}
-	srv := &http.Server{Handler: mux}
-	go func() {
-		_ = srv.Serve(ln) // http.ErrServerClosed при Shutdown — нормально
-	}()
-	return srv, nil
+	want := h.cfg.ProxyToken
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestToken(r) != want {
+			h.logf("auth rejected: %s %s (token mismatch or missing)", r.Method, r.URL.Path)
+			writeAnthropicError(w, http.StatusUnauthorized,
+				"authentication_error", "invalid or missing API token")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requestToken извлекает токен из заголовков запроса. Разные версии
+// Claude Code шлют либо Authorization: Bearer, либо x-api-key.
+func requestToken(r *http.Request) string {
+	if a := r.Header.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
+		return strings.TrimPrefix(a, "Bearer ")
+	}
+	if k := r.Header.Get("x-api-key"); k != "" {
+		return k
+	}
+	return ""
+}
+
+// isLoopbackHost — true, если адрес слушателя loopback (127.0.0.1, ::1,
+// localhost). Нужно для предупреждения «прокси открыт в сеть».
+func isLoopbackHost(hostport string) bool {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil || host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// shouldWarnProxyExposure — true, если прокси слушает не-loopback адрес,
+// аутентификация выключена и явного разрешения нет. Только предупреждение,
+// не hard-fail (красная зона №3).
+func shouldWarnProxyExposure(proxyAddr string, cfg *Config) bool {
+	if cfg == nil || isLoopbackHost(proxyAddr) {
+		return false
+	}
+	return cfg.ProxyToken == "" && !cfg.ProxyAllowRemote
 }
 
 // newProxyClient — http.Client для запросов к апстриму.

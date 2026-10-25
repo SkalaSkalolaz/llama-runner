@@ -65,9 +65,10 @@ type Config struct {
 	OpenAIKey     string
 	OpenAIModel   string
 
-	VersionFlag bool
-	ProxyAddr   string
-
+	VersionFlag      bool
+	ProxyAddr        string
+	ProxyToken       string
+	ProxyAllowRemote bool
 	// Производные (заполняются после Parse/Validate)
 	Home            string
 	ChatTemplateSet bool // -chat-template задан явно
