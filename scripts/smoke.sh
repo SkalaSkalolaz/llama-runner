@@ -86,6 +86,20 @@ else
 	go test -race ./... 2>&1 | tail -20 | sed 's/^/       /'
 fi
 
+# Стриминговые тесты M2 — отдельным прогоном, чтобы их отсутствие/падение было видно.
+# go test -run с несовпадающим шаблоном возвращает 0 («no tests to run»),
+# поэтому проверяем по -v, что хотя бы один TestConvertStream_* реально запустился.
+streamout="$(go test -run 'TestConvertStream_' -count=1 -v . 2>&1)"
+streamfail=0
+echo "$streamout" | grep -q '^=== RUN   TestConvertStream_' || streamfail=1
+echo "$streamout" | grep -q '^--- FAIL' && streamfail=1
+if [ "$streamfail" -eq 0 ]; then
+	pass "стриминговые тесты M2 (TestConvertStream_*)"
+else
+	fail "стриминговые тесты M2 (не найдены или упали)"
+	echo "$streamout" | tail -20 | sed 's/^/       /'
+fi
+
 if go build -ldflags "-X main.version=$(git describe --tags --always --dirty 2>/dev/null)" -o "$BIN" .; then
 	pass "сборка с -ldflags -X main.version"
 else
@@ -185,21 +199,69 @@ cat <<'MANUAL'
   [ ] Ctrl-C во время работы Claude Code   — остановка без висящих процессов
   [ ] Длинная генерация > 5 минут          — стрим не обрывается (актуально после M3)
 
-M1 — фиксы конвертера запроса (прогонять с -v, лог заводить в файл):
+M1 — фиксы конвертера запроса. Диагностика при -v больше не засоряет TUI:
 
-    ./llama-runner -v 2>&1 | tee /tmp/llama-runner-m1.log
+  Вариант 1 (интерактивно, рекомендован): ./-v без пайпа — TUI Claude Code в
+  терминале, [proxy]-строки в лог-файле llama-server (default
+  ~/.cache/llama-runner/llama-server.log):
 
-  [ ] Попросить модель вызвать инструмент (например «посчитай строки в proxy.go
-      через Bash»). В логе на втором запросе должна появиться строка
-      "[proxy] → апстрим: … tool-ответов=1 …" — до M1 tool_result с массивом
-      блоков терялся и было бы tool-ответов=0.
-  [ ] Уронить инструмент (например «выполни команды, которой нет»): в content
-      сообщения role=tool есть префикс "Error: ".
+      ./llama-runner -v -openai ... -model-openai ... -key ... -webui-mcp-proxy
+
+      # проверить в логе:
+      grep '\[proxy\]' ~/.cache/llama-runner/llama-server.log | tail -20
+
+  Вариант 2 (с пайпом): TUI уходит в /dev/tty, диагностика — в tee-файл.
+  ВАЖНО: [proxy]-строки при этом НЕ идут в tee (иначе tee печатает их в тот
+  же TTY, что рисует Claude Code, и TUI ломается). Они всегда пишутся в лог
+  llama-server:
+
+      ./llama-runner -v ... 2>&1 | tee /tmp/llama-runner-m1.log
+      grep '\[proxy\]' ~/.cache/llama-runner/llama-server.log | tail -20
+
+      # в tee-логе в начале должна быть строка:
+      #   "Claude Code: stdio перенаправлен в /dev/tty (родительские stdout/stderr — не TTY)"
+
+  [ ] Попросить модель вызвать инструмент («посчитай строки в proxy.go через
+      Bash»). В логе на втором запросе — строка
+      "[proxy] → апстрим: … tool-ответов=1 …" и за ней
+      "[proxy] tool[N] tool_call_id=toolu_… content=\"571 proxy.go\"".
+      До M1 tool_result с массивом блоков терялся и было бы tool-ответов=0.
+  [ ] Уронить инструмент («выполни команду, которой нет»): в логе строка
+      "content=\"Error: bash: … not found\"" — префикс Error: виден в логе,
+      даже если сама модель пересказала ошибку пользователю без него.
   [ ] Первое сообщение запроса role=system содержит системный промпт Claude Code,
       а не пустой список. До M1 system массивом блоков терялся.
   [ ] Строки "[proxy] отброшено блоков: ..." в обычном текстовом диалоге нет;
       thinking появляется только когда модель реально размышляет; image не
       появляется при запуске с -mmproj.
+
+M2 — стриминг OpenAI → Anthropic. Usage и обрыв апстрима:
+
+  Все проверки — в лог-файле llama-server (тот же, что в M1):
+      LOG=~/.cache/llama-runner/llama-server.log
+
+  [ ] Ненулевой usage. Запустить ./llama-runner -v ... и попросить модель
+      что-то длинное («напиши 20 строк про X»). После завершения ответа:
+
+          grep '← usage' "$LOG" | tail -3
+
+      Ожидаемо: "[proxy] ← usage: input_tokens=<N>, output_tokens=<M>"
+      с N>0 и M>0. До M2 usage всегда был 0, и контекст-учёт в Claude Code
+      (индикатор заполнения контекста) врал.
+
+  [ ] Обрыв посреди стрима. Запустить длинную генерацию, затем
+      во втором терминале:
+
+          pkill -9 -f 'llama-server.*--port'
+
+      Ожидаемо: Claude Code показывает ошибку («API Error» /
+      «Stream interrupted» / аналог), НЕ притворяется, что генерация
+      завершилась успешно. До M2 обрыв приводил к фиктивному message_stop,
+      и модель «как будто» закончила отвечать на середине фразы.
+
+  [ ] Нормальный стоп не задет. Обычный короткий диалог («скажи привет»)
+      завершается штатно, без event: error в ответе. В логе — та же
+      строка "← usage: ...", но message_delta с stop_reason=end_turn.
 MANUAL
 
 echo
