@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+// updateLlamaCPP updates and installs llama.cpp. Runs git pull (if upstream exists),
+// cmake configure, build, install.
 func updateLlamaCPP(runner CommandRunner, srcPath, installPrefix, cudaArch string,
 	withCuda, verbose bool, stdout io.Writer) error {
 
@@ -25,7 +27,7 @@ func updateLlamaCPP(runner CommandRunner, srcPath, installPrefix, cudaArch strin
 		return fmt.Errorf("путь %q не является каталогом", srcPath)
 	}
 
-	// Проверка upstream — тихо, без шума в stderr.
+	// Upstream check — quiet, no noise in stderr.
 	upstreamCheck := runner.Command("git", "-C", srcPath,
 		"rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
 	upstreamCheck.Stdout = io.Discard

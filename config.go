@@ -3,7 +3,7 @@ package main
 import "time"
 
 type Config struct {
-	// Базовые
+	// Base
 	WorkDir    string
 	Host       string
 	Port       string
@@ -20,7 +20,7 @@ type Config struct {
 	LazyMmap   bool
 	Verbose    bool
 
-	// Доп. llama.cpp
+	// Extra llama.cpp
 	NGL          string
 	Mmproj       string
 	Temp         string
@@ -30,7 +30,7 @@ type Config struct {
 	FitMode      string
 	LogVerbosity string
 
-	// Управление глубиной "размышлений" (reasoning) llama-server
+	// Reasoning depth control for llama-server
 	Reasoning       string
 	ReasoningBudget string
 
@@ -60,7 +60,7 @@ type Config struct {
 	McpConfigOut string
 	McpStrict    bool
 
-	// Внешний OpenAI-совместимый провайдер
+	// External OpenAI-compatible provider
 	OpenAIBaseURL string
 	OpenAIKey     string
 	OpenAIModel   string
@@ -77,8 +77,8 @@ type Config struct {
 
 	LogMaxMB int
 	LogKeep  int
-	// Производные (заполняются после Parse/Validate)
+	// Derived (filled after Parse/Validate)
 	Home            string
-	ChatTemplateSet bool // -chat-template задан явно
-	AliasSet        bool // -alias задан явно
+	ChatTemplateSet bool // -chat-template set explicitly
+	AliasSet        bool // -alias set explicitly
 }

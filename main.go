@@ -19,7 +19,7 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, realRunner{}))
 }
 
-// trackedProcess централизует Wait: для каждого дочернего процесса Wait вызывается ровно один раз.
+// trackedProcess wraps exec.Cmd.Wait so each child process is waited on exactly once.
 type trackedProcess struct {
 	done chan struct{}
 	err  error
@@ -39,14 +39,14 @@ func (p *trackedProcess) Wait() error {
 	return p.err
 }
 
-// waitForReady опрашивает url раз в секунду до 200 OK или до истечения timeout.
+// waitForReady polls url once per second until 200 OK or timeout expires.
 //
-//	done != nil — прекратить немедленно, если закрыт (процесс умер);
-//	label       — префикс для сообщения об ошибке ("llama-server", "прокси").
+//	done != nil — stop immediately if closed (process died);
+//	label       — prefix for error message ("llama-server", "proxy").
 //
-// Ошибки:
-//   - done закрыт → "<label> завершился до готовности";
-//   - timeout    → "<label> не стал готов за <d>: <lastErr>".
+// Errors:
+//   - done closed → "<label> finished before ready";
+//   - timeout    → "<label> didn't become ready in <d>: <lastErr>".
 func waitForReady(ctx context.Context, url string, timeout time.Duration, done <-chan struct{}, label string) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -106,17 +106,17 @@ func waitForReady(ctx context.Context, url string, timeout time.Duration, done <
 	}
 }
 
-// waitForServer — обёртка для совместимости со старыми вызовами и тестами.
+// waitForServer — wrapper for compatibility with old calls and tests.
 func waitForServer(url string, timeout time.Duration) error {
 	return waitForReady(context.Background(), url, timeout, nil, "сервер")
 }
 
-// waitForServerProcess — обёртка для совместимости со старыми тестами.
+// waitForServerProcess — wrapper for compatibility with old tests.
 func waitForServerProcess(url string, timeout time.Duration, process *trackedProcess) error {
 	return waitForReady(context.Background(), url, timeout, process.done, "llama-server")
 }
 
-// stopMcp корректно останавливает mcp-search-server.
+// stopMcp correctly stops mcp-search-server.
 func stopMcp(mcpCmd *exec.Cmd) {
 	if mcpCmd == nil || mcpCmd.Process == nil {
 		return
@@ -202,7 +202,7 @@ func writeMCPConfig(path, httpURL string) (string, error) {
 	return path, nil
 }
 
-// expandHome заменяет ведущий "~" на домашний каталог пользователя.
+// expandHome replaces a leading "~" with the user's home directory.
 func expandHome(path, home string) string {
 	if path == "~" {
 		return home

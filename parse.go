@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// parseFlags — публичная обёртка: берёт реальный home.
+// parseFlags public wrapper: resolves the real home directory.
 func parseFlags(args []string, stderr io.Writer) (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -22,17 +22,17 @@ func parseFlags(args []string, stderr io.Writer) (*Config, error) {
 	return parseFlagsWithHome(args, stderr, home)
 }
 
-// parseFlagsWithHome — тестируемая версия с явным home: не зависит от
-// реального ~/.config/llama-runner/config.json.
+// parseFlagsWithHome testable version with explicit home: not dependent on
+// the real ~/.config/llama-runner/config.json.
 //
-// Приоритет: CLI > файл > встроенные дефолты. Env — только для ключа,
-// отдельно в resolveOpenAIKey (M3).
+// Priority: CLI > file > built-in defaults. Env is used only for the key,
+// separately in resolveOpenAIKey (M3).
 func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, error) {
-	// 1. Ранний поиск -config и -p: они определяют источник дефолтов.
+	// 1. Early search for -config and -p: they define the defaults source.
 	configPath, configSet := findFlag(args, "config")
 	profileName, _ := findFlag(args, "p")
-	// 2. Прочитать конфиг-файл (если не отключён явным -config "").
-	// configExplicit — путь задан явно через -config (не ""), файл обязателен.
+	// 2. Read config file (if not explicitly disabled with -config "").
+	// configExplicit — path set explicitly via -config (not ""), file is required.
 	configExplicit := configSet && configPath != ""
 	var fc *fileConfig
 	if !configSet || configPath != "" {
@@ -45,30 +45,30 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 		if loadErr != nil {
 			return nil, loadErr
 		}
-		// Явно заданный -config, но файла нет — ошибка. Для дефолтного
-		// пути отсутствие файла нормально (у большинства нет конфига).
+		// Explicit -config but no file — error. For the default
+		// path, a missing file is normal (most users have no config).
 		if fc == nil && configExplicit {
 			return nil, fmt.Errorf("конфиг-файл %q не найден", expandHome(effectivePath, home))
 		}
 	}
 
-	// -p задан, но конфиг не загружен (нет файла / -config "") —
-	// профиль применить неоткуда. Молча игнорировать нельзя: doctor
-	// тогда врёт про «профиль: coder», а run() идёт с дефолтами.
+	// -p set but config not loaded (no file / -config "") —
+	// nothing to apply the profile from. Cannot ignore silently: doctor
+	// would then lie about "profile: coder", and run() uses defaults.
 	if profileName != "" && fc == nil {
 		return nil, fmt.Errorf("профиль %q не найден: конфиг-файл отсутствует", profileName)
 	}
 
-	// 3. Собрать Config: встроенные дефолты → корневой файл → профиль.
+	// 3. Assemble Config: built-in defaults → root file → profile.
 
 	cfg := defaultConfig()
 	if fc != nil {
 		if err := applyFileConfig(cfg, *fc); err != nil {
 			return nil, err
 		}
-		// Файл задал значение — это тоже «явно», иначе run() заменит
-		// alias на "local" и validateTemplatePath не будет считать
-		// template явным.
+		// File set a value — this is also "explicit", otherwise run() replaces
+		// alias with "local" and validateTemplatePath won't count
+		// template as explicit.
 		if fc.Alias != nil {
 			cfg.AliasSet = true
 		}
@@ -94,9 +94,9 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 	cfg.ConfigPath = configPath
 	cfg.Profile = profileName
 
-	// 4. Флаги. Значения cfg уже содержат файл-или-дефолт;
-	//    flag.StringVar(ptr, name, default, ...) — default = текущее значение,
-	//    CLI переопределяет его, если флаг задан.
+	// 4. Flags. cfg values already contain file-or-default;
+	//    flag.StringVar(ptr, name, default, ...) — default = current value,
+	//    CLI overrides it if the flag is set.
 	fs := flag.NewFlagSet("llama-runner", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { printUsage(stderr) }
@@ -167,7 +167,7 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 	fs.BoolVar(&cfg.ProxyAllowRemote, "proxy-allow-remote", cfg.ProxyAllowRemote,
 		"разрешить не-loopback -proxy-addr без предупреждения")
 
-	// M6: конфиг, профиль, doctor.
+	// M6: config, profile, doctor.
 	fs.StringVar(&cfg.ConfigPath, "config", cfg.ConfigPath,
 		"путь к конфиг-файлу (\"\" — не читать)")
 	fs.StringVar(&cfg.Profile, "p", cfg.Profile, "профиль из конфиг-файла")
@@ -188,7 +188,7 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 	return cfg, nil
 }
 
-// validateConfig проверяет параметры до запуска процессов.
+// validateConfig validates parameters before starting processes.
 func validateConfig(cfg *Config) error {
 	if cfg.ReadyTimeout <= 0 {
 		return fmt.Errorf("-ready-timeout должен быть больше нуля")
@@ -209,22 +209,19 @@ func validateConfig(cfg *Config) error {
 		}
 	}
 
-	// Валидация reasoning-флагов
 	if cfg.Reasoning != "" {
 		switch cfg.Reasoning {
 		case "on", "off", "auto":
-			// ok
 		default:
-			return fmt.Errorf("некорректный -reasoning %q: ожидается on, off или auto", cfg.Reasoning)
+			return fmt.Errorf("invalid -reasoning %q: expect on, off or auto", cfg.Reasoning)
 		}
 	}
 	if cfg.ReasoningBudget != "" {
 		n, err := strconv.Atoi(cfg.ReasoningBudget)
 		if err != nil || n < -1 {
-			return fmt.Errorf("некорректный -reasoning-budget %q: ожидается -1, 0 или положительное число", cfg.ReasoningBudget)
+			return fmt.Errorf("invalid -reasoning-budget %q: expect -1, 0 or a positive number", cfg.ReasoningBudget)
 		}
 	}
-	// Проверка согласованности OpenAI-параметров
 	if cfg.OpenAIBaseURL != "" || cfg.OpenAIKey != "" || cfg.OpenAIModel != "" {
 		if cfg.OpenAIBaseURL == "" {
 			return fmt.Errorf("-openai обязателен при использовании -key или -model-openai")
@@ -247,10 +244,9 @@ func validateConfig(cfg *Config) error {
 	return nil
 }
 
-// resolveChatTemplate выбирает итоговый путь шаблона (может быть "").
-// fallback — путь для auto-режима; вынесен в конфиг (M6), чтобы не был
-// зашит в код. Автодетект по подстроке `qwen` остаётся дефолтом
-// (красная зона №4 не нарушена).
+// resolveChatTemplate selects the final template path (may be "").
+// fallback is the auto-mode path, extracted to config (M6), so it is not
+// hardcoded. Auto-detect by `qwen` substring stays the default.
 func resolveChatTemplate(raw, modelPath, fallback string) string {
 	if raw != "auto" {
 		return raw
@@ -261,8 +257,8 @@ func resolveChatTemplate(raw, modelPath, fallback string) string {
 	return ""
 }
 
-// validateTemplatePath проверяет, что путь — обычный файл.
-// explicit==true и файла нет → ошибка; иначе ("" , nil).
+// validateTemplatePath checks that path is a regular file.
+// explicit==true and file missing → error; otherwise ("" , nil).
 func validateTemplatePath(raw, home string, explicit bool) (string, error) {
 	if raw == "" {
 		return "", nil
@@ -288,7 +284,7 @@ type ServerPaths struct {
 	Template string
 }
 
-// buildServerArgs — чистая функция. Все пути уже проверены.
+// buildServerArgs builds args for llama-server. All paths are already verified.
 func buildServerArgs(cfg *Config, paths ServerPaths) []string {
 	args := []string{
 		"-m", paths.Model,
@@ -362,14 +358,14 @@ func buildServerArgs(cfg *Config, paths ServerPaths) []string {
 	return args
 }
 
-// buildClaudeEnv собирает env для Claude Code (не мутирует baseEnv).
+// buildClaudeEnv assembles env for Claude Code (does not mutate baseEnv).
 func buildClaudeEnv(cfg *Config, baseURL string, baseEnv []string) []string {
 	env := append([]string{}, baseEnv...)
 
-	// Токен для прокси: -proxy-token, если задан, иначе историческое
-	// local-llama. Кладём в оба поля — разные версии Claude Code шлют
-	// разное: Authorization: Bearer (AUTH_TOKEN) или x-api-key (API_KEY).
-	// Прокси принимает оба варианта.
+	// Proxy token: -proxy-token if set, otherwise historical
+	// local-llama. We put it in both fields — different versions of Claude Code send
+	// different ones: Authorization: Bearer (AUTH_TOKEN) or x-api-key (API_KEY).
+	// The proxy accepts both variants.
 	authToken := "local-llama"
 	if cfg.ProxyToken != "" {
 		authToken = cfg.ProxyToken
@@ -380,18 +376,18 @@ func buildClaudeEnv(cfg *Config, baseURL string, baseEnv []string) []string {
 		"ANTHROPIC_API_KEY="+authToken,
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 	)
-	// Имя локальной модели: cfg.Alias (уже "local" по умолчанию из run())
+	// Local model name: cfg.Alias (already "local" by default from run())
 	localModel := cfg.Alias
 	if localModel == "" {
 		localModel = "local"
 	}
 	if cfg.OpenAIBaseURL != "" && cfg.OpenAIModel != "" {
-		// В гибридном режиме все стандартные алиасы ведут на внешний провайдер.
+		// In hybrid mode all standard aliases point to the external provider.
 		env = append(env,
 			"ANTHROPIC_DEFAULT_SONNET_MODEL="+cfg.OpenAIModel,
 			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+cfg.OpenAIModel,
 			"ANTHROPIC_DEFAULT_OPUS_MODEL="+cfg.OpenAIModel,
-			// llama-server добавлен как единственная кастомная опция в меню /model.
+			// llama-server added as the sole custom option in the /model menu.
 			"ANTHROPIC_CUSTOM_MODEL_OPTION=llama-server",
 			"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=llama-server (local)",
 			"ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION=Route to local llama-server",
@@ -406,7 +402,7 @@ func buildClaudeEnv(cfg *Config, baseURL string, baseEnv []string) []string {
 	return env
 }
 
-// buildClaudeArgs — аргументы для claude.
+// buildClaudeArgs returns arguments for claude.
 func buildClaudeArgs(cfg *Config, mcpConfigPath string) []string {
 	args := []string{}
 	if mcpConfigPath != "" {
@@ -418,22 +414,22 @@ func buildClaudeArgs(cfg *Config, mcpConfigPath string) []string {
 	return args
 }
 
-// credentialsPath — где искать ключ, если ни флаг, ни env не заданы.
+// credentialsPath returns where to look for the key if neither flag nor env is set.
 func credentialsPath(home string) string {
 	return filepath.Join(home, ".config", "llama-runner", "credentials")
 }
 
-// resolveOpenAIKey выбирает ключ по приоритету:
+// resolveOpenAIKey selects the key by priority:
 //
-//	флаг -key > LLAMA_RUNNER_OPENAI_KEY > OPENAI_API_KEY >
+//	flag -key > LLAMA_RUNNER_OPENAI_KEY > OPENAI_API_KEY >
 //	~/.config/llama-runner/credentials > "".
 //
-// Файл — простой KEY=VALUE (по одной паре на строку), ищется OPENAI_KEY
-// или OPENAI_API_KEY. Права проверяются: если файл шире 0600, ключ всё равно
-// прочитается, но напишется предупреждение в stderr. Нечитаемый/битый файл —
-// не фатально (просто следующий источник), но предупреждение.
+// The file is a simple KEY=VALUE (one pair per line); searches OPENAI_KEY
+// or OPENAI_API_KEY. Permissions are checked: if the file is wider than 0600,
+// the key is still read but a warning is written to stderr. Unreadable/broken file —
+// not fatal (just the next source), but a warning.
 //
-// env и statFile инъектируются для тестов (реальные — os.Getenv,
+// env and statFile are injected for tests (real: os.Getenv,
 // os.Stat/os.ReadFile).
 func resolveOpenAIKey(keyFlag string, env func(string) string, home string, stderr io.Writer) (string, error) {
 	if keyFlag != "" {

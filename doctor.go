@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// runDoctor печатает диагностику без запуска дочерних процессов.
-// Возвращает exit code: 0 — всё ок, 1 — проблемы с путями, 2 — невалидный конфиг.
+// runDoctor prints diagnostics without spawning child processes.
+// Returns exit code: 0 — all ok, 1 — path problems, 2 — invalid config.
 func runDoctor(cfg *Config, home string, runner CommandRunner, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "llama-runner doctor\n")
 	fmt.Fprintf(stdout, "  версия:         %s\n", version)
@@ -92,9 +92,9 @@ func runDoctor(cfg *Config, home string, runner CommandRunner, stdout, stderr io
 	}
 	fmt.Fprintf(stdout, "  %-15s %s\n", "OpenAI-ключ:", keySrc)
 
-	// Приводим к тому же виду, что реально передаётся в run():
-	// expandHome + filepath.Abs. Иначе doctor печатает ~/... ,
-	// а процесс получает /home/...
+	// Normalize to the same form as actually passed to run():
+	// expandHome + filepath.Abs. Otherwise doctor prints ~/... ,
+	// but the process gets /home/...
 	expandAbs := func(p string) string {
 		if p == "" {
 			return ""

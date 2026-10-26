@@ -6,16 +6,16 @@ import (
 	"sync"
 )
 
-// rotatingWriter — io.Writer, который пишет в файл и ротирует его по
-// достижении maxSize. Архивы: <path>.1 — самый свежий, <path>.<keep> —
-// самый старый. keep==0 — без архивов (трункейтим). maxSize==0 — ротация
-// отключена (поведение как до M7: O_APPEND без ротации).
+// rotatingWriter is an io.Writer that writes to a file and rotates it when
+// maxSize is reached. Archives: <path>.1 — newest, <path>.<keep> — oldest.
+// keep==0 — no archives (truncate). maxSize==0 — rotation disabled
+// (pre-M7 behavior: O_APPEND without rotation).
 //
-// Почему не переименование открытого *os.File в родителе (красная зона №5):
-// llama-server держит fd, переименование не переключит его на новый inode.
-// Поэтому cmd.Stdout/Stderr дочернего процесса указывают на этот writer
-// (не *os.File), os/exec создаёт pipe, а родитель пишет в файл сам —
-// дочерний процесс о ротации ничего не знает.
+// Why not rename the open *os.File in the parent (red zone #5):
+// llama-server holds the fd, rename won't switch it to a new inode.
+// So cmd.Stdout/Stderr of the child process point to this writer
+// (not *os.File), os/exec creates a pipe, and the parent writes to the file itself —
+// the child process knows nothing about rotation.
 type rotatingWriter struct {
 	path    string
 	maxSize int64 // в байтах; 0 — не ротировать
@@ -27,8 +27,8 @@ type rotatingWriter struct {
 	size int64
 }
 
-// newRotatingWriter открывает path (O_CREATE|O_WRONLY|O_APPEND, perm) и
-// устанавливает perm через Chmod (аналог M5-кода, который явно выставлял 0600).
+// newRotatingWriter opens path (O_CREATE|O_WRONLY|O_APPEND, perm) and
+// sets perm via Chmod (M5-code analogue that explicitly set 0600).
 func newRotatingWriter(path string, maxSize int64, keep int, perm os.FileMode) (*rotatingWriter, error) {
 	w := &rotatingWriter{path: path, maxSize: maxSize, keep: keep, perm: perm}
 	if err := w.openLocked(); err != nil {
@@ -56,9 +56,9 @@ func (w *rotatingWriter) openLocked() error {
 	return nil
 }
 
-// Write — io.Writer. Ротирует ПОСЛЕ записи, если размер достиг лимита.
-// Текущая запись всегда попадает целиком в текущий файл (нет потери
-// данных на границе).
+// Write implements io.Writer. Rotates AFTER write if size reached the limit.
+// The current write always fits entirely in the current file (no data loss
+// at the boundary).
 func (w *rotatingWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -68,17 +68,14 @@ func (w *rotatingWriter) Write(p []byte) (int, error) {
 	n, err := w.file.Write(p)
 	w.size += int64(n)
 	if w.maxSize > 0 && w.size >= w.maxSize {
-		// Ошибку ротации не возвращаем: данные уже записаны, следующий
-		// Write попробует ещё раз. Так лог не теряется из-за transient
-		// ошибки rename.
 		_ = w.rotateLocked()
 	}
 	return n, err
 }
 
-// rotateLocked вызывается под w.mu. Закрывает текущий файл, сдвигает
-// архивы .1..<keep>, открывает новый. Идемпотентна к отсутствующим
-// архивам — Rename по несуществующему просто no-op.
+// rotateLocked called under w.mu. Closes the current file, shifts
+// archives .1..<keep>, opens a new one. Idempotent to missing
+// archives — Rename of a non-existent file is a no-op.
 func (w *rotatingWriter) rotateLocked() error {
 	if err := w.file.Close(); err != nil {
 		return err
@@ -86,7 +83,7 @@ func (w *rotatingWriter) rotateLocked() error {
 	w.file = nil
 
 	if w.keep > 0 {
-		// Удаляем самый старый .<keep>, чтобы после сдвига освободить имя.
+		// Remove the oldest .<keep>, then shift to free the name.
 		_ = os.Remove(fmt.Sprintf("%s.%d", w.path, w.keep))
 		for i := w.keep - 1; i >= 1; i-- {
 			_ = os.Rename(
@@ -96,14 +93,14 @@ func (w *rotatingWriter) rotateLocked() error {
 		}
 		_ = os.Rename(w.path, w.path+".1")
 	} else {
-		// keep==0 — без архивов, просто трункейтим.
+		// keep==0 — no archives, just truncate.
 		_ = os.Remove(w.path)
 	}
 
 	return w.openLocked()
 }
 
-// Close закрывает файл. Идемпотентен.
+// Close closes the file. Idempotent.
 func (w *rotatingWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()

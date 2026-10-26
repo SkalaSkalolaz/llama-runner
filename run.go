@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-// isTerminalFile сообщает, подключён ли f к терминалу (символьному устройству).
+// isTerminalFile reports whether f is connected to a terminal (character device).
 func isTerminalFile(f *os.File) bool {
 	if f == nil {
 		return false
@@ -30,7 +30,7 @@ func isTerminalFile(f *os.File) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// pathContainsSegment сообщает, есть ли seg среди :-разделённых сегментов path.
+// pathContainsSegment reports whether seg is among the :--separated path segments.
 func pathContainsSegment(path, seg string) bool {
 	for _, p := range strings.Split(path, ":") {
 		if p == seg {
@@ -40,8 +40,8 @@ func pathContainsSegment(path, seg string) bool {
 	return false
 }
 
-// openTTY пытается открыть /dev/tty. Возвращает nil, если недоступен
-// (Windows, нет контролирующего терминала, /dev/tty урезан в контейнере).
+// openTTY tries to open /dev/tty. Returns nil if unavailable
+// (Windows, no controlling terminal, /dev/tty trimmed in a container).
 func openTTY() *os.File {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -50,10 +50,10 @@ func openTTY() *os.File {
 	return tty
 }
 
-// shouldRedirectClaudeToTTY — true, если stdio Claude Code надо перенаправить
-// в /dev/tty: хотя бы один из переданных потоков — не-TTY *os.File (значит,
-// в проде был редирект/пайп). Если передан не *os.File (тесты с bytes.Buffer),
-// возвращаем false, чтобы не открывать реальный терминал из тестов.
+// shouldRedirectClaudeToTTY true if Claude Code's stdio must be redirected
+// to /dev/tty: at least one of the passed streams is a non-TTY *os.File (meaning
+// there was a redirect/pipe in production). If a non-*os.File is passed (tests with bytes.Buffer),
+// return false to avoid opening a real terminal from tests.
 func shouldRedirectClaudeToTTY(stdout, stderr io.Writer) bool {
 	sf, ok1 := stdout.(*os.File)
 	ef, ok2 := stderr.(*os.File)
@@ -63,7 +63,7 @@ func shouldRedirectClaudeToTTY(stdout, stderr io.Writer) bool {
 	return !isTerminalFile(sf) || !isTerminalFile(ef)
 }
 
-// resolvedPaths — все пути, проверенные на существование.
+// resolvedPaths — all paths verified for existence.
 type resolvedPaths struct {
 	ServerBin string
 	Model     string
@@ -72,8 +72,8 @@ type resolvedPaths struct {
 	Template  string
 }
 
-// resolvePaths проверяет файлы и возвращает пути. Второй результат —
-// exit code, если запуск должен прекратиться (0 — всё ок).
+// resolvePaths checks files and returns paths. The second result is
+// an exit code if launch should be aborted (0 = all ok).
 func resolvePaths(cfg *Config, home string, stdout, stderr io.Writer) (resolvedPaths, int) {
 	var p resolvedPaths
 
@@ -143,15 +143,15 @@ func resolvePaths(cfg *Config, home string, stdout, stderr io.Writer) (resolvedP
 	return p, 0
 }
 
-// shutdown централизует остановку дочерних процессов.
-// Сигналы:
-//   - claude   — прямому процессу (красная зона №1: интерактивный stdin,
-//     не-foreground pgid = SIGTTIN → зависший UI);
-//   - server   — группе (Setpgid:true при запуске);
-//   - mcp      — группе (Setpgid:true).
+// shutdown centralizes stopping child processes.
+// Signals:
+//   - claude   — to the process directly (red zone #1: interactive stdin,
+//     non-foreground pgid = SIGTTIN → hung UI);
+//   - server   — to the group (Setpgid:true at launch);
+//   - mcp      — to the group (Setpgid:true).
 //
-// Если server/mcp запущены без Setpgid (например, в старых тестах),
-// fallback — прямой Process.Signal.
+// If server/mcp are started without Setpgid (e.g. in old tests),
+// fallback — direct Process.Signal.
 type shutdown struct {
 	mu     sync.Mutex
 	claude *exec.Cmd
@@ -179,7 +179,7 @@ func (s *shutdown) SetMCP(cmd *exec.Cmd) {
 	s.mu.Unlock()
 }
 
-// signal отправляет sig claude напрямую, server/mcp — их группам.
+// signal sends sig to claude directly, server/mcp — to their groups.
 func (s *shutdown) signal(sig syscall.Signal) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -205,10 +205,10 @@ func (s *shutdown) signal(sig syscall.Signal) {
 func (s *shutdown) StopAll()                    { s.signal(syscall.SIGINT) }
 func (s *shutdown) Escalate(sig syscall.Signal) { s.signal(sig) }
 
-// handleSignals ловит Ctrl-C/Term и останавливает процессы с эскалацией:
-// SIGINT (сразу) → SIGTERM (через timeout) → SIGKILL (ещё через timeout).
-// Повторный сигнал ускоряет эскалацию (не теряется — дефект №12).
-// done закрывается при отмене из run() (через defer close(done)).
+// handleSignals catches Ctrl-C/Term and stops processes with escalation:
+// SIGINT (immediately) → SIGTERM (after timeout) → SIGKILL (after another timeout).
+// Repeated signal accelerates escalation (not lost — defect #12).
+// done is closed on cancellation from run() (via defer close(done)).
 func handleSignals(sigCh <-chan os.Signal, done <-chan struct{}, shut *shutdown,
 	stdout io.Writer, timeout time.Duration) {
 
@@ -275,10 +275,10 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 
 	cfg.Home = home
 
-	// Ключ внешнего провайдера подхватываем, ТОЛЬКО если внешний провайдер
-	// реально запрошен. Иначе разработчик с OPENAI_API_KEY в окружении
-	// получил бы «-openai обязателен при использовании -key» на локальном
-	// запуске (в т.ч. на `-update`), хотя OpenAI вообще не нужен.
+	// We pick up the external provider's key ONLY if the external provider
+	// is actually requested. Otherwise a developer with OPENAI_API_KEY in the environment
+	// would get "-openai is required when using -key" on a local
+	// launch (including `-update`), even though OpenAI isn't needed at all.
 	if cfg.OpenAIBaseURL != "" || cfg.OpenAIModel != "" || cfg.OpenAIKey != "" {
 		resolvedKey, keyErr := resolveOpenAIKey(cfg.OpenAIKey, os.Getenv, home, stderr)
 		if keyErr != nil {
@@ -307,25 +307,25 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		return 0
 	}
 
-	// --- Пути ---
+	// --- Paths ---
 	paths, code := resolvePaths(cfg, home, stdout, stderr)
 	if code != 0 {
 		return code
 	}
 
-	// --- Сборка args ---
+	// --- Build args ---
 	serverArgs := buildServerArgs(cfg, ServerPaths{
 		Model: paths.Model, Mmproj: paths.Mmproj,
 		Draft: paths.Draft, Template: paths.Template,
 	})
 
 	cmd := runner.Command(paths.ServerBin, serverArgs...)
-	// Setpgid — только для server и mcp (красная зона №1):
-	// терминал они не читают, группа нужна для группового kill.
-	// Для claude — НЕ ставим (см. shutdown.SetClaude).
+	// Setpgid — only for server and mcp (red zone #1):
+	// they don't read the terminal, the group is needed for group kill.
+	// For claude — we do NOT set it (see shutdown.SetClaude).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	// --- LD_LIBRARY_PATH для llama-server ---
+	// --- LD_LIBRARY_PATH for llama-server ---
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
@@ -341,7 +341,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		}
 		oldLP := os.Getenv("LD_LIBRARY_PATH")
 		if pathContainsSegment(oldLP, abs) {
-			// Уже есть в окружении — не дублируем (иначе в логе появляется
+			// Already in the environment — don't duplicate (otherwise the log shows
 			// ".../lib:/home/.../lib:/usr/local/cuda/lib64:").
 			if cfg.Verbose {
 				fmt.Fprintf(stdout, "LD_LIBRARY_PATH для llama-server: %s (уже содержит %s)\n", oldLP, abs)
@@ -358,7 +358,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		}
 		break
 	}
-	// --- Рабочая директория ---
+	// --- Working directory ---
 	if cfg.WorkDir != "" {
 		absDir, dirErr := filepath.Abs(expandHome(cfg.WorkDir, home))
 		if dirErr != nil {
@@ -374,10 +374,10 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		cmd.Dir = wd
 	}
 
-	// --- Лог-файл (в режиме Claude Code) ---
-	// serverLogFile — *os.File для обратной совместимости с остальным
-	// кодом (serverLogFile.Name(), -v-вывод); serverLogWriter — то, что
-	// реально передаётся в cmd.Stdout/Stderr. Если ротация выключена
+	// --- Log file (Claude Code mode) ---
+	// serverLogFile — *os.File for backward compatibility with other
+	// code (serverLogFile.Name(), -v output); serverLogWriter — what is
+	// actually passed to cmd.Stdout/Stderr. If rotation is disabled
 	// (LogMaxMB==0), serverLogWriter == serverLogFile.
 	var serverLogFile *os.File
 	var serverLogWriter io.Writer
@@ -437,8 +437,8 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if cfg.McpProxy {
 		mcpCmd = runner.Command("mcp-search-server", "--addr", cfg.McpAddr)
 		mcpCmd.Env = append(os.Environ(), "SEARCH_ENABLED=true")
-		// Setpgid для mcp — как и для llama-server (красная зона №1:
-		// терминал mcp не читает, группа нужна для группового kill).
+		// Setpgid for mcp — same as for llama-server (red zone #1:
+		// mcp terminal doesn't read, group is needed for group kill).
 		mcpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 		if serverLogWriter != nil {
@@ -456,14 +456,14 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		}
 		if startErr := mcpCmd.Start(); startErr != nil {
 			fmt.Fprintf(stderr, "ошибка запуска mcp-search-server: %v\n", startErr)
-			// mcpCmd.Process == nil (Start не удался), server ещё не запущен,
+			// mcpCmd.Process == nil (Start failed), server not yet started,
 			// nothing to stop.
 			return 1
 		}
 		defer stopMcp(mcpCmd)
 	}
 
-	// --- Запуск llama-server ---
+	// --- Launch llama-server ---
 	if startErr := cmd.Start(); startErr != nil {
 		fmt.Fprintf(stderr, "ошибка запуска сервера: %v\n", startErr)
 		if mcpCmd != nil && mcpCmd.Process != nil {
@@ -474,7 +474,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 	serverProcess := trackProcess(cmd)
 
-	// --- Централизованный shutdown ---
+	// --- Centralized shutdown ---
 	shut := newShutdown()
 	shut.SetServer(cmd)
 	if mcpCmd != nil {
@@ -500,7 +500,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	go handleSignals(sigCh, sigDone, shut, stdout, 15*time.Second)
 
 	// =================================================================
-	// РЕЖИМ 1: -server — только llama-server
+	// MODE 1: -server — llama-server only
 	// =================================================================
 	if cfg.ServerOnly {
 		waitErr := serverProcess.Wait()
@@ -519,7 +519,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 
 	// =================================================================
-	// РЕЖИМ 2 (по умолчанию): llama-server + Claude Code
+	// MODE 2 (default): llama-server + Claude Code
 	// =================================================================
 	healthHost := cfg.Host
 	if healthHost == "" || healthHost == "0.0.0.0" || healthHost == "::" {
@@ -535,7 +535,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 	fmt.Fprintln(stdout, "llama-server готов. Запуск Claude Code...")
 
-	// --- Локальный прокси для переключения между llama-server и OpenAI ---
+	// --- Local proxy for switching between llama-server and OpenAI ---
 	var proxySrv *http.Server
 	if cfg.OpenAIBaseURL != "" && cfg.OpenAIKey != "" && cfg.OpenAIModel != "" {
 		llamaTargetURL := "http://" + net.JoinHostPort(strings.Trim(healthHost, "[]"), cfg.Port)
@@ -584,7 +584,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 			_ = proxySrv.Shutdown(ctx)
 		}()
 
-		// Ждём готовности прокси (не sleep, а poll)
+		// Wait for proxy readiness (not sleep, but poll)
 		proxyHealthURL := "http://" + proxyAddr + "/v1/models"
 		if err := waitForServer(proxyHealthURL, 5*time.Second); err != nil {
 			fmt.Fprintf(stderr, "прокси не поднялся: %v\n", err)
@@ -593,7 +593,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 
 		baseURL = "http://" + proxyAddr
 	}
-	// --- MCP-конфиг для Claude Code ---
+	// --- MCP config for Claude Code ---
 	var mcpConfigFile string
 	if cfg.McpProxy {
 		mcpHost, mcpPort, splitErr := net.SplitHostPort(cfg.McpAddr)
@@ -627,7 +627,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		}
 	}
 
-	// --- Поиск claude ---
+	// --- Locate claude ---
 	claudePath := expandHome(cfg.ClaudeBin, home)
 	if resolved, lookErr := runner.LookPath(claudePath); lookErr == nil {
 		claudePath = resolved
@@ -636,15 +636,15 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		return 1
 	}
 
-	// --- Env и args для claude ---
+	// --- Env and args for claude ---
 	claudeEnv := buildClaudeEnv(cfg, baseURL, os.Environ())
 	claudeArgs := buildClaudeArgs(cfg, mcpConfigFile)
 
-	// --- stdio Claude Code: изолируем TUI от перенаправленного вывода ---
-	// Claude Code — интерактивный TUI, ему нужен TTY. Если родитель пишет в
-	// пайп/файл (например, `llama-runner -v 2>&1 | tee log`), claude уйдёт в
-	// неинтерактивный --print и упадёт без промпта. В этом случае перенаправляем
-	// stdio claude в /dev/tty, а диагностику оставляем в родительском stdout/stderr.
+	// --- stdio Claude Code: isolate TUI from redirected output ---
+	// Claude Code — interactive TUI, needs a TTY. If the parent writes to
+	// a pipe/file (e.g. `llama-runner -v 2>&1 | tee log`), claude will go into
+	// non-interactive --print and crash without a prompt. In this case we redirect
+	// stdio claude to /dev/tty, while keeping diagnostics in the parent's stdout/stderr.
 	var ccTTY *os.File
 	if shouldRedirectClaudeToTTY(stdout, stderr) {
 		if tty := openTTY(); tty != nil {
@@ -673,7 +673,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		cc.Stderr = stderr
 	}
 
-	// --- Рабочая директория claude ---
+	// --- Claude working directory ---
 	if cfg.ClaudeDir != "" {
 		absDir, dirErr := filepath.Abs(expandHome(cfg.ClaudeDir, home))
 		if dirErr != nil {
@@ -695,9 +695,9 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		if cfg.ProxyToken != "" {
 			fmt.Fprintln(stdout, "  ANTHROPIC_AUTH_TOKEN=<configured via -proxy-token, hidden>")
 		}
-		// Печатаем фактически установленные ANTHROPIC_* из claudeEnv, а не cfg.Alias:
-		// в гибридном режиме все три DEFAULT_* ведут на внешнюю модель, а не на
-		// локальный alias — иначе -v врёт.
+		// Print the actually set ANTHROPIC_* from claudeEnv, not cfg.Alias:
+		// in hybrid mode all three DEFAULT_* point to the external model, not the
+		// local alias — otherwise -v lies.
 		for _, want := range []string{
 			"ANTHROPIC_DEFAULT_SONNET_MODEL",
 			"ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -737,7 +737,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 
 }
 
-// printUsage печатает подробную справку программы.
+// printUsage prints detailed program help.
 func printUsage(w io.Writer) {
 	fmt.Fprintf(w, `llama-runner — лаунчер для llama-server и Claude Code
 

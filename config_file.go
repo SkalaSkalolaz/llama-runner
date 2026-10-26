@@ -10,13 +10,13 @@ import (
 	"time"
 )
 
-// defaultConfigPath — путь к конфиг-файлу по умолчанию.
+// defaultConfigPath returns the default config file path.
 func defaultConfigPath(home string) string {
 	return filepath.Join(home, ".config", "llama-runner", "config.json")
 }
 
-// defaultConfig возвращает Config со встроенными дефолтами. Значения совпадают
-// с историческими (до M6), чтобы поведение без конфиг-файла не менялось.
+// defaultConfig returns Config with built-in defaults. Values match
+// historical (pre-M6) so behavior without a config file doesn't change.
 func defaultConfig() *Config {
 	return &Config{
 		Host:                 "127.0.0.1",
@@ -47,22 +47,22 @@ func defaultConfig() *Config {
 	}
 }
 
-// fileConfig — JSON-представление конфиг-файла. Отдельный тип, чтобы:
-//   - не сериализовать производные поля (Home, ChatTemplateSet, AliasSet);
-//   - не включать CLI-only поля (VersionFlag, UpdateFlag, DoctorFlag,
+// fileConfig JSON representation of the config file. Separate type to:
+//   - not serialize derived fields (Home, ChatTemplateSet, AliasSet);
+//   - not include CLI-only fields (VersionFlag, UpdateFlag, DoctorFlag,
 //     ConfigPath, Profile);
-//   - ReadyTimeout хранить как duration-string, а не int64 наносекунд.
+//   - store ReadyTimeout as duration-string, not int64 nanoseconds.
 //
-// Все поля — указатели: nil означает «не задано», поэтому applyFileConfig
-// применяет только заданные. Это даёт правильный приоритет
-// CLI > файл > дефолт: файл переопределяет дефолт, CLI переопределяет файл.
+// All fields are pointers: nil means "not set", so applyFileConfig
+// applies only set fields. This gives the correct priority
+// CLI > file > default: file overrides default, CLI overrides file.
 //
-// Секреты (openaiKey, proxyToken) технически можно хранить в файле, но
-// рекомендуется env (LLAMA_RUNNER_OPENAI_KEY / OPENAI_API_KEY) или
-// ~/.config/llama-runner/credentials для openaiKey. proxyToken — пока только
-// флаг (в M4 добавлен -proxy-token); конфиг это просто альтернатива.
+// Secrets (openaiKey, proxyToken) can technically be stored in the file, but
+// env is recommended (LLAMA_RUNNER_OPENAI_KEY / OPENAI_API_KEY) or
+// ~/.config/llama-runner/credentials for openaiKey. proxyToken — only a
+// flag for now (added -proxy-token in M4); config is just an alternative.
 type fileConfig struct {
-	// Базовые
+	// Base
 	WorkDir    *string `json:"dir,omitempty"`
 	Host       *string `json:"host,omitempty"`
 	Port       *string `json:"port,omitempty"`
@@ -79,7 +79,7 @@ type fileConfig struct {
 	LazyMmap   *bool   `json:"lmLazy,omitempty"`
 	Verbose    *bool   `json:"verbose,omitempty"`
 
-	// Доп. llama.cpp
+	// Extra llama.cpp
 	NGL          *string `json:"ngl,omitempty"`
 	Mmproj       *string `json:"mmproj,omitempty"`
 	Temp         *string `json:"temp,omitempty"`
@@ -122,20 +122,20 @@ type fileConfig struct {
 
 	// OpenAI
 	OpenAIBaseURL *string `json:"openai,omitempty"`
-	OpenAIKey     *string `json:"openaiKey,omitempty"` // не рекомендуется; лучше env / credentials
+	OpenAIKey     *string `json:"openaiKey,omitempty"` // not recommended; prefer env / credentials
 	OpenAIModel   *string `json:"modelOpenai,omitempty"`
 
 	// Proxy
 	ProxyAddr        *string `json:"proxyAddr,omitempty"`
-	ProxyToken       *string `json:"proxyToken,omitempty"` // не рекомендуется; лучше флаг или env
+	ProxyToken       *string `json:"proxyToken,omitempty"` // not recommended; prefer flag or env
 	ProxyAllowRemote *bool   `json:"proxyAllowRemote,omitempty"`
 
-	// Профили
+	// Profiles
 	Profiles map[string]fileConfig `json:"profiles,omitempty"`
 }
 
-// applyFileConfig применяет заданные (не-nil) поля из fc к cfg.
-// Поля из fc переопределяют текущие значения cfg; nil-поля не трогаются.
+// applyFileConfig applies set (non-nil) fields from fc to cfg.
+// Fields from fc override current cfg values; nil fields are untouched.
 func applyFileConfig(cfg *Config, fc fileConfig) error {
 	set := func(dst *string, src *string) {
 		if src != nil {
@@ -222,8 +222,8 @@ func applyFileConfig(cfg *Config, fc fileConfig) error {
 	return nil
 }
 
-// loadConfigFile читает конфиг. Возвращает (nil, nil), если path=="" или файла
-// нет — это не ошибка. Невалидный JSON — ошибка.
+// loadConfigFile reads the config. Returns (nil, nil) if path=="" or the file
+// doesn't exist — this is not an error. Invalid JSON — error.
 func loadConfigFile(path, home string) (*fileConfig, error) {
 	if path == "" {
 		return nil, nil
@@ -250,9 +250,6 @@ func findFlag(args []string, name string) (string, bool) {
 			return "", false
 		}
 		if !strings.HasPrefix(a, "-") {
-			// Позиционный аргумент — стандартный flag.Parse остановится
-			// здесь, значит target-флаг после него фактически не будет
-			// разобран. Возвращаем «не найдено».
 			return "", false
 		}
 		trimmed := strings.TrimLeft(a, "-")
@@ -268,12 +265,6 @@ func findFlag(args []string, name string) (string, bool) {
 			}
 			return "", true
 		}
-		// Неизвестный флаг. Если следующий токен не похож на флаг —
-		// считаем его значением этого флага и перескакиваем. Это
-		// грубо (bool-флаги вроде -v значения не берут), но -config
-		// и -p — всегда non-bool, а вызывающие ищут именно их.
-		// Случай `-v /path -config /x` разберётся неверно, но тогда
-		// и flag.Parse остановится на /path и не увидит -config вовсе.
 		if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 			i++
 		}

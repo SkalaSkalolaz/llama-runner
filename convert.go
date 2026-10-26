@@ -9,59 +9,59 @@ import (
 )
 
 // ============================================================
-// Конвертация Anthropic → OpenAI (запрос)
+// Anthropic → OpenAI conversion (request)
 // ============================================================
 //
-// Перенесено из proxy.go в вехе M1 (PLAN.md). Работает с map[string]any и
-// намеренно НЕ использует json.Decoder с DisallowUnknownFields: незнакомые поля
-// запроса должны проходить дальше, а не отбрасывать сообщение целиком.
+// Moved from proxy.go in milestone M1 (PLAN.md). Works with map[string]any and
+// intentionally does NOT use json.Decoder with DisallowUnknownFields: unknown fields
+// in the request must pass through, not drop the message entirely.
 //
-// Что происходит с блоками content:
+// What happens with content blocks:
 //
-//	text             → склейка в строку content (как в M0)
-//	tool_use         → assistant.tool_calls[]; arguments — ВСЕГДА строка с JSON
-//	                   (mustJSON), иначе OpenAI-сервер не примет поле
-//	tool_result      → role=tool; content строкой ИЛИ массивом блоков (text-блоки
-//	                   склеиваются через "\n"); is_error:true → префикс "Error: ".
-//	                   В M0 массивный content отбрасывался целиком — на локальной
-//	                   модели tool use ломался (STATE.md, дефекты №1 и №3).
-//	system           → строка или массив блоков → одно role=system (дефект №2)
-//	image            → при -mmproj (ConvertOptions.ImagesToOpenAI) → OpenAI
-//	                   image_url data-URL; иначе блок отбрасывается, но НЕ молча:
-//	                   он учтён в ConvertStats.DroppedImages и виден при -v
+//	text             → concatenated into content string (as in M0)
+//	tool_use         → assistant.tool_calls[]; arguments — ALWAYS a string with JSON
+//	                   (mustJSON), otherwise the OpenAI server won't accept the field
+//	tool_result      → role=tool; content as a string OR block array (text blocks
+//	                   concatenated via "\n"); is_error:true → "Error: " prefix.
+//	                   In M0 array content was dropped entirely — on a local
+//	                   model tool use broke (STATE.md, defects #1 and #3).
+//	system           → string or block array → single role=system (defect #2)
+//	image            → on -mmproj (ConvertOptions.ImagesToOpenAI) → OpenAI
+//	                   image_url data-URL; otherwise the block is dropped but NOT silently:
+//	                   it's counted in ConvertStats.DroppedImages and visible at -v
 //	thinking,
-//	redacted_thinking→ отбрасываются: у OpenAI chat/completions нет поля для chain
-//	                   of thought, а подпись thinking-блока невоспроизводима.
-//	                   Учитываются в ConvertStats.DroppedThinking, видны при -v
-//	неизвестный тип  → ConvertStats.DroppedUnknown
+//	redacted_thinking→ dropped: OpenAI chat/completions has no field for chain
+//	                   of thought, and the thinking-block signature is not reproducible.
+//	                   Counted in ConvertStats.DroppedThinking, visible at -v
+//	unknown type     → ConvertStats.DroppedUnknown
 //
-// Порядок сообщений (двухпроходная сборка, см. convertBlocks): сначала
-// assistant.tool_calls, затем role=tool. Нормальный поток (assistant с tool_use,
-// следующий user с tool_result) даёт ровно тот же результат, что и M0 — это
-// зафиксировано golden-тестами и TestConvertRequest_NormalFlowOrder.
+// Message order (two-pass assembly, see convertBlocks): first
+// assistant.tool_calls, then role=tool. Normal flow (assistant with tool_use,
+// next user with tool_result) gives exactly the same result as M0 — this
+// is fixed by golden tests and TestConvertRequest_NormalFlowOrder.
 
-// ConvertOptions — настройки конвертации запроса.
+// ConvertOptions conversion settings for a request.
 type ConvertOptions struct {
-	// ImagesToOpenAI — true, когда llama-server запущен с vision-проектором
-	// (-mmproj): image-блоки имеют смысл и маппятся на OpenAI image_url.
-	// Иначе их всё равно нечем обработать, и блок отбрасывается (со счётчиком).
+	// ImagesToOpenAI true when llama-server is run with vision projector
+	// (-mmproj): image blocks make sense and map to OpenAI image_url.
+	// Otherwise there is nothing to process them with, so the block is dropped (with counter).
 	ImagesToOpenAI bool
 }
 
-// ConvertStats — сколько блоков не дошло до модели. Нужен для того, чтобы
-// отбрасывание перестало быть молчаливым (см. -v в proxyHandler.convert).
+// ConvertStats how many blocks did not reach the model. Needed so that
+// dropping is no longer silent (see -v in proxyHandler.convert).
 type ConvertStats struct {
 	DroppedThinking int
 	DroppedImages   int
 	DroppedUnknown  int
 }
 
-// Dropped — всего отброшенных блоков.
+// Dropped total number of dropped blocks.
 func (s ConvertStats) Dropped() int {
 	return s.DroppedThinking + s.DroppedImages + s.DroppedUnknown
 }
 
-// Summary — одна строка для -v; пустая, если отброшено ничего.
+// Summary one-line summary for -v; empty if nothing was dropped.
 func (s ConvertStats) Summary() string {
 	var parts []string
 	if s.DroppedThinking > 0 {
@@ -76,15 +76,15 @@ func (s ConvertStats) Summary() string {
 	return strings.Join(parts, ", ")
 }
 
-// AnthropicToOpenAI — конвертация с дефолтными опциями (image-блоки не маппятся).
-// Сохранена сигнатура из M0: ею пользуются golden-тесты.
+// AnthropicToOpenAI converts with default options (image blocks are not mapped).
+// Signature preserved from M0: used by golden tests.
 func AnthropicToOpenAI(anthropic map[string]any) (map[string]any, error) {
 	out, _, err := ConvertRequest(anthropic, ConvertOptions{})
 	return out, err
 }
 
-// ConvertRequest конвертирует тело запроса Anthropic Messages API в тело запроса
-// OpenAI chat/completions. Возвращает статистику отброшенных блоков.
+// ConvertRequest converts an Anthropic Messages API request body to an OpenAI
+// chat/completions request body. Returns statistics of dropped blocks.
 func ConvertRequest(anthropic map[string]any, opts ConvertOptions) (map[string]any, ConvertStats, error) {
 	var st ConvertStats
 
@@ -92,13 +92,13 @@ func ConvertRequest(anthropic map[string]any, opts ConvertOptions) (map[string]a
 		"model": anthropic["model"],
 	}
 
-	// system → первое сообщение role=system.
+	// system → first role=system message.
 	var messages []map[string]any
 	if sys := systemText(anthropic["system"]); sys != "" {
 		messages = append(messages, map[string]any{"role": "system", "content": sys})
 	}
 
-	// messages: content может быть строкой или массивом блоков.
+	// messages: content can be a string or block array.
 	if inMsgs, ok := anthropic["messages"].([]any); ok {
 		for _, m := range inMsgs {
 			msg, ok := m.(map[string]any)
@@ -111,7 +111,7 @@ func ConvertRequest(anthropic map[string]any, opts ConvertOptions) (map[string]a
 	}
 	openAI["messages"] = messages
 
-	// Параметры
+	// Parameters
 	if v, ok := anthropic["max_tokens"]; ok {
 		openAI["max_tokens"] = v
 	}
@@ -148,9 +148,9 @@ func ConvertRequest(anthropic map[string]any, opts ConvertOptions) (map[string]a
 	return openAI, st, nil
 }
 
-// systemText собирает system в одну строку: строка как есть, массив блоков —
-// склейка text-блоков через "\n" (cache_control отбрасывается: у OpenAI своего
-// prompt caching в этом виде нет).
+// systemText assembles system into a single string: string as-is, array of blocks —
+// concatenation of text blocks via "\n" (cache_control is dropped: OpenAI has its own
+// prompt caching in this form).
 func systemText(sys any) string {
 	switch v := sys.(type) {
 	case string:
@@ -174,7 +174,7 @@ func systemText(sys any) string {
 	return ""
 }
 
-// convertMessage — одно сообщение Anthropic → ноль, одно или несколько сообщений OpenAI.
+// convertMessage converts one Anthropic message → zero, one or more OpenAI messages.
 func convertMessage(role string, content any, opts ConvertOptions, st *ConvertStats) []map[string]any {
 	switch v := content.(type) {
 	case string:
@@ -182,20 +182,20 @@ func convertMessage(role string, content any, opts ConvertOptions, st *ConvertSt
 	case []any:
 		return convertBlocks(role, v, opts, st)
 	}
-	// content отсутствует или неизвестной формы — сообщение пропускается (как в M0).
+	// content is absent or in an unknown form — skip the message (as in M0).
 	return nil
 }
 
-// convertBlocks — двухпроходная сборка: за один обход блоков собираем
-// «главное» сообщение (text + image + tool_calls) и отдельно role=tool ответы,
-// потом выдаём их в порядке, который понимает OpenAI:
+// convertBlocks two-pass assembly: in one pass over blocks we collect the
+// "main" message (text + image + tool_calls) and separately role=tool answers,
+// then emit them in the order OpenAI understands:
 //
-//	assistant с tool_calls  →  сначала он, затем tool-ответы
-//	user                    →  сначала tool-ответы (они должны идти сразу за
-//	                           assistant.tool_calls), затем текст пользователя
+//	assistant with tool_calls  →  first it, then tool-answers
+//	user                    →  first tool-answers (they must follow
+//	                           assistant.tool_calls immediately), then user text
 //
-// Для нормального потока (tool_use и tool_result в разных сообщениях) порядок
-// совпадает с M0 байт-в-байт.
+// For a normal flow (tool_use and tool_result in different messages) order
+// matches M0 byte-for-byte.
 func convertBlocks(role string, blocks []any, opts ConvertOptions, st *ConvertStats) []map[string]any {
 	var (
 		textParts    []string
@@ -248,8 +248,8 @@ func convertBlocks(role string, blocks []any, opts ConvertOptions, st *ConvertSt
 	var main map[string]any
 	switch {
 	case len(toolCalls) > 0:
-		// У assistant-сообщения в OpenAI content мультимодальным не бывает,
-		// поэтому image-блоки здесь некуда положить — они уходят в счётчик.
+		// In OpenAI, assistant messages cannot have multimodal content,
+		// so image blocks have nowhere to go here — they go to the counter.
 		st.DroppedImages += mappedImages
 		mappedImages = 0
 		main = map[string]any{
@@ -275,9 +275,9 @@ func convertBlocks(role string, blocks []any, opts ConvertOptions, st *ConvertSt
 	}
 }
 
-// toolResultMessage — tool_result → сообщение role=tool.
-// content бывает строкой, массивом блоков или отсутствовать; is_error:true
-// обязан дойти до модели, поэтому текст получает префикс "Error: ".
+// toolResultMessage tool_result → role=tool message.
+// content may be a string, an array of blocks, or absent; is_error:true
+// must reach the model, so the text gets the "Error: " prefix.
 func toolResultMessage(block map[string]any, opts ConvertOptions, st *ConvertStats) (map[string]any, bool) {
 	var (
 		text       string
@@ -286,8 +286,8 @@ func toolResultMessage(block map[string]any, opts ConvertOptions, st *ConvertSta
 
 	switch c := block["content"].(type) {
 	case nil:
-		// Пустой результат: сообщение role=tool всё равно отдаём — вызов обязан
-		// быть закрыт, иначе OpenAI-сервер отвергнет весь запрос.
+		// Empty result: we still emit the role=tool message — the call must be
+		// be closed, otherwise the OpenAI server will reject the entire request.
 	case string:
 		text = c
 	case []any:
@@ -316,7 +316,7 @@ func toolResultMessage(block map[string]any, opts ConvertOptions, st *ConvertSta
 		}
 		text = strings.Join(texts, "\n")
 	default:
-		// Число, bool, объект — отдаём как JSON, терять данные незачем.
+		// Number, bool, object — emit as JSON, no reason to lose data.
 		text = mustJSON(block["content"])
 	}
 
@@ -341,8 +341,8 @@ func toolResultMessage(block map[string]any, opts ConvertOptions, st *ConvertSta
 	return msg, true
 }
 
-// imageDataURL — Anthropic image-блок → OpenAI image_url.
-// base64 → data-URL, url → как есть.
+// imageDataURL Anthropic image block → OpenAI image_url.
+// base64 → data-URL, url → as-is.
 func imageDataURL(block map[string]any) (string, bool) {
 	src, ok := block["source"].(map[string]any)
 	if !ok {
@@ -366,9 +366,9 @@ func imageDataURL(block map[string]any) (string, bool) {
 	return "", false
 }
 
-// requestSummary — краткое описание сконвертированного запроса для -v.
-// По нему видно, что системный промпт и результаты инструментов действительно
-// дошли до апстрима, не читая тело запроса целиком.
+// requestSummary brief description of the converted request for -v.
+// Shows that the system prompt and tool results actually reached the upstream without
+// reading the full request body.
 func requestSummary(openAIReq map[string]any) string {
 	msgs, _ := openAIReq["messages"].([]map[string]any)
 	var (
@@ -398,9 +398,9 @@ func mustJSON(v any) string {
 	return string(b)
 }
 
-// toolMessagesPreview — по одной строке на каждое сообщение role=tool с
-// обрезанным превью content. Нужен для -v, чтобы в логе было видно, что
-// именно вернул инструмент, включая префикс "Error: " у is_error:true.
+// toolMessagesPreview one line per role=tool message with truncated
+// content preview. Needed for -v so the log shows exactly what the tool returned,
+// including the "Error: " prefix on is_error:true.
 func toolMessagesPreview(openAIReq map[string]any) []string {
 	msgs, _ := openAIReq["messages"].([]map[string]any)
 	var out []string
@@ -414,9 +414,9 @@ func toolMessagesPreview(openAIReq map[string]any) []string {
 	return out
 }
 
-// previewContent — превью content для лога. У role=tool content обычно
-// строка, но может быть []any (с image_url при -mmproj) — тогда показываем
-// пометку, чтобы не вываливать base64 в лог.
+// previewContent content preview for the log. For role=tool content is usually
+// a string, but may be []any (with image_url on -mmproj) — then show a note
+// to avoid dumping base64 into the log.
 func previewContent(v any, maxLen int) string {
 	switch c := v.(type) {
 	case string:
@@ -428,8 +428,8 @@ func previewContent(v any, maxLen int) string {
 	}
 }
 
-// truncate — обрезает строку до maxLen рун, экранируя переносы строк, чтобы
-// лог оставался однострочным. Счёт по рунам, не по байтам, чтобы не рвать UTF-8.
+// truncate truncates a string to maxLen runes, escaping newlines so
+// the log stays single-line. Counts by runes, not bytes, to avoid breaking UTF-8.
 func truncate(s string, maxLen int) string {
 	s = strings.ReplaceAll(s, "\n", `\n`)
 	s = strings.ReplaceAll(s, "\r", `\r`)
@@ -441,13 +441,12 @@ func truncate(s string, maxLen int) string {
 }
 
 // ============================================================
-// Конвертация стриминга OpenAI → Anthropic (SSE)
+// OpenAI → Anthropic streaming conversion (SSE)
 // ============================================================
 //
-// Стриминг устроен так: апстрим присылает чанки `data: {...}\n\n`
-// (по одному на дельту контента/tool_calls) и завершает поток
-// `data: [DONE]\n\n`. Мы конвертируем это в SSE-последовательность
-// Anthropic:
+// Streaming is arranged as: the upstream sends chunks `data: {...}\n\n`
+// (one per content/tool_calls delta) and terminates the stream
+// `data: [DONE]\n\n`. We convert this to an Anthropic SSE sequence:
 //
 //	message_start
 //	  content_block_start (text) / content_block_delta (text) / content_block_stop
@@ -455,15 +454,15 @@ func truncate(s string, maxLen int) string {
 //	message_delta (stop_reason, usage)
 //	message_stop
 //
-// При обрыве потока до [DONE] (ошибка чтения апстрима или чистый EOF без
-// finish_reason) вместо message_stop отдаём `event: error` — см. дефект №6.
-// Usage запрашивается через stream_options.include_usage и проставляется
-// в message_delta (дефект №7). В message_start usage = 0: у OpenAI usage
-// приходит только в конце, а message_start уходит первым — достоверно
-// input_tokens там взять неоткуда, выдумывать не будем.
+// On stream break before [DONE] (upstream read error or clean EOF without
+// finish_reason) we emit `event: error` instead of message_stop — see defect #6.
+// Usage is requested via stream_options.include_usage and set in
+// message_delta (defect #7). In message_start usage = 0: OpenAI sends usage
+// only at the end, while message_start goes first — there is no reliable
+// way to get input_tokens there, so we do not fabricate it.
 //
-// Возвращает input_tokens/output_tokens (нужно для лога при -v).
-// Если апстрим usage не прислал — оба 0.
+// Returns input_tokens/output_tokens (needed for the -v log).
+// If the upstream did not send usage — both are 0.
 func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Response, modelName string) (int, int) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -491,11 +490,11 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 		},
 	})
 
-	// Индекс текущего content-блока (text или tool_use)
+	// Current content-block index (text or tool_use)
 	blockIndex := 0
 	textBlockOpen := false
 
-	// Состояние tool_calls: OpenAI присылает их кусками (index → {id, name, args})
+	// tool call state: OpenAI sends them in pieces (index → {id, name, args})
 	type toolState struct {
 		id        string
 		name      string
@@ -539,7 +538,7 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
-			// Финальный чанк с stream_options.include_usage:
+			// Final chunk with stream_options.include_usage:
 			// {"choices":[],"usage":{"prompt_tokens":N,"completion_tokens":M}}
 			Usage *struct {
 				PromptTokens     int `json:"prompt_tokens"`
@@ -550,8 +549,8 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 			continue
 		}
 
-		// Usage приходит отдельным чанком, обычно с пустым choices —
-		// обрабатываем ДО проверки len(choices)==0.
+		// Usage arrives as a separate chunk, usually with empty choices —
+		// process before checking len(choices)==0.
 		if chunk.Usage != nil {
 			inputTokens = chunk.Usage.PromptTokens
 			outputTokens = chunk.Usage.CompletionTokens
@@ -565,7 +564,7 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 			gotFinishReason = true
 		}
 
-		// --- Текстовые дельты ---
+		// --- Text deltas ---
 		if choice.Delta.Content != "" {
 			if !textBlockOpen {
 				writeSSE("content_block_start", map[string]any{
@@ -580,12 +579,12 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 			})
 		}
 
-		// --- tool_calls дельты ---
+		// --- tool_calls deltas ---
 		for _, tc := range choice.Delta.ToolCalls {
 			st, exists := tools[tc.Index]
 			if !exists {
-				// Закрываем text-блок, если открыт
-				if textBlockOpen {
+			// Close text block if open
+			if textBlockOpen {
 					writeSSE("content_block_stop", map[string]any{"type": "content_block_stop", "index": blockIndex})
 					blockIndex++
 					textBlockOpen = false
@@ -621,18 +620,18 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 		}
 	}
 
-	// --- Обработка обрыва потока (дефект №6) ---
+	// --- Stream break handling (defect #6) ---
 	//
-	// scanner.Err() != nil  — TCP RST/таймаут/ошибка декодирования.
-	// !gotDone && !gotFinishReason — чистый EOF, но ни [DONE], ни finish_reason:
-	//   поток оборван на середине. Если finish_reason был, а [DONE] нет —
-	//   считаем провайдер просто не шлёт [DONE] (некоторые так делают).
+	// scanner.Err() != nil  — TCP RST/timeout/decode error.
+	// !gotDone && !gotFinishReason — clean EOF, neither [DONE] nor finish_reason:
+	//   stream was cut mid-way. If finish_reason was set but [DONE] wasn't —
+	//   assume the provider simply doesn't send [DONE] (some do this).
 	streamErr := scanner.Err()
 	if streamErr == nil && !gotDone && !gotFinishReason {
 		streamErr = fmt.Errorf("upstream stream ended before [DONE]")
 	}
 	if streamErr != nil {
-		// Закрываем открытые блоки, чтобы клиент не завис на незакрытом
+		// Close open blocks so the client doesn't hang on an unclosed
 		// content_block (некоторые клиенты так умеют).
 		if textBlockOpen {
 			writeSSE("content_block_stop", map[string]any{"type": "content_block_stop", "index": blockIndex})
@@ -640,8 +639,8 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 		for _, idx := range toolOrder {
 			writeSSE("content_block_stop", map[string]any{"type": "content_block_stop", "index": tools[idx].blockIdx})
 		}
-		// event: error — Anthropic-формат ошибки в стриме. JSON-тело уже
-		// нельзя: заголовки отправлены, message_start ушёл.
+		// event: error — Anthropic error format in stream. JSON body is already
+		// impossible: headers are sent, message_start went out.
 		writeSSE("error", map[string]any{
 			"type": "error",
 			"error": map[string]any{
@@ -652,7 +651,7 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 		return inputTokens, outputTokens
 	}
 
-	// --- Нормальное завершение ---
+	// --- Normal completion ---
 	if textBlockOpen {
 		writeSSE("content_block_stop", map[string]any{"type": "content_block_stop", "index": blockIndex})
 	}
@@ -663,10 +662,10 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 	writeSSE("message_delta", map[string]any{
 		"type":  "message_delta",
 		"delta": map[string]any{"stop_reason": stopReason, "stop_sequence": nil},
-		// input_tokens в message_delta — «сверх» Anthropic-спеки, но безвредно:
-		// message_start уходит раньше, чем мы узнаём usage, поэтому реальный
-		// input_tokens доступен только здесь. Клиент читает output_tokens,
-		// input_tokens — для полноты.
+		// input_tokens in message_delta — "beyond" the Anthropic spec, but harmless:
+		// message_start goes before we learn usage, so real
+		// input_tokens is only available here. The client reads output_tokens,
+		// input_tokens — for completeness.
 		"usage": map[string]any{
 			"input_tokens":  inputTokens,
 			"output_tokens": outputTokens,

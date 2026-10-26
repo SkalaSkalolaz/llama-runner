@@ -14,8 +14,8 @@ import (
 
 const localModelName = "llama-server"
 
-// maxRequestBodyBytes — лимит тела запроса. Реальные payload'ы Claude Code
-// < 10 МБ; 100 МБ — с большим запасом (image base64, длинная история).
+// maxRequestBodyBytes request body limit. Real Claude Code payloads
+// are < 10 MB; 100 MB — with a large margin (image base64, long history).
 const maxRequestBodyBytes int64 = 100 * 1024 * 1024
 
 type proxyHandler struct {
@@ -25,9 +25,9 @@ type proxyHandler struct {
 	logWriter      io.Writer
 }
 
-// StartProxyServer поднимает локальный прокси и возвращает *http.Server для Shutdown.
-// logWriter — приёмник [proxy]-строк при -v; обычно os.Stderr (пайп/редирект)
-// или открытый лог-файл llama-server (интерактивный режим). nil — логи выключены.
+// StartProxyServer starts a local proxy and returns *http.Server for Shutdown.
+// logWriter — [proxy]-line sink at -v; usually os.Stderr (pipe/redirect)
+// or an open llama-server log file (interactive mode). nil — logs disabled.
 func StartProxyServer(proxyAddr, llamaServerURL string, cfg *Config, logWriter io.Writer) (*http.Server, error) {
 	h := &proxyHandler{
 		llamaServerURL: strings.TrimRight(llamaServerURL, "/"),
@@ -49,9 +49,9 @@ func StartProxyServer(proxyAddr, llamaServerURL string, cfg *Config, logWriter i
 	return srv, nil
 }
 
-// newProxyMux собирает маршруты прокси. Вынесено из StartProxyServer
-// для end-to-end-тестов: httptest.NewServer(h.authMiddleware(newProxyMux(h)))
-// проверяет ту же схему, что и боевой запуск.
+// newProxyMux assembles proxy routes. Moved out of StartProxyServer
+// for end-to-end tests: httptest.NewServer(h.authMiddleware(newProxyMux(h)))
+// checks the same scheme as the live launch.
 func newProxyMux(h *proxyHandler) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/messages", h.handleMessages)
@@ -62,8 +62,8 @@ func newProxyMux(h *proxyHandler) *http.ServeMux {
 	return mux
 }
 
-// authMiddleware проверяет токен, если -proxy-token задан. Пустой токен —
-// проверка отключена (backward-compat: дефолтный запуск работает как раньше).
+// authMiddleware checks the token if -proxy-token is set. Empty token —
+// check disabled (backward-compat: default launch works as before).
 func (h *proxyHandler) authMiddleware(next http.Handler) http.Handler {
 	if h.cfg == nil || h.cfg.ProxyToken == "" {
 		return next
@@ -80,8 +80,8 @@ func (h *proxyHandler) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// requestToken извлекает токен из заголовков запроса. Разные версии
-// Claude Code шлют либо Authorization: Bearer, либо x-api-key.
+// requestToken extracts the token from request headers. Different versions
+// of Claude Code send either Authorization: Bearer or x-api-key.
 func requestToken(r *http.Request) string {
 	if a := r.Header.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
 		return strings.TrimPrefix(a, "Bearer ")
@@ -92,8 +92,8 @@ func requestToken(r *http.Request) string {
 	return ""
 }
 
-// isLoopbackHost — true, если адрес слушателя loopback (127.0.0.1, ::1,
-// localhost). Нужно для предупреждения «прокси открыт в сеть».
+// isLoopbackHost true if the listener address is loopback (127.0.0.1, ::1,
+// localhost). Needed for the "proxy exposed to network" warning.
 func isLoopbackHost(hostport string) bool {
 	host, _, err := net.SplitHostPort(hostport)
 	if err != nil || host == "" {
@@ -106,9 +106,9 @@ func isLoopbackHost(hostport string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// shouldWarnProxyExposure — true, если прокси слушает не-loopback адрес,
-// аутентификация выключена и явного разрешения нет. Только предупреждение,
-// не hard-fail (красная зона №3).
+// shouldWarnProxyExposure true if the proxy listens on a non-loopback address,
+// authentication is disabled, and no explicit permission exists. Warning only,
+// not hard-fail (red zone #3).
 func shouldWarnProxyExposure(proxyAddr string, cfg *Config) bool {
 	if cfg == nil || isLoopbackHost(proxyAddr) {
 		return false
@@ -116,16 +116,16 @@ func shouldWarnProxyExposure(proxyAddr string, cfg *Config) bool {
 	return cfg.ProxyToken == "" && !cfg.ProxyAllowRemote
 }
 
-// newProxyClient — http.Client для запросов к апстриму.
+// newProxyClient creates an http.Client for upstream requests.
 //
-// Client.Timeout = 0: иначе 5-минутный лимит режет длинную генерацию
-// посреди стрима (дефект №8). Защита от зависшего соединения — на уровне
-// Transport.ResponseHeaderTimeout: 30s (заголовки ждём не дольше 30 с,
-// тело стрима — сколько нужно). Отмена — по r.Context() в
-// forwardToLlama/forwardToOpenAI, там NewRequestWithContext.
+// Client.Timeout = 0: otherwise the 5-minute limit cuts long generation
+// mid-stream (defect #8). Stale connection protection is at the
+// Transport.ResponseHeaderTimeout level: 30s (we wait for headers no longer
+// than 30s, stream body — as long as needed). Cancellation via r.Context() in
+// forwardToLlama/forwardToOpenAI, there NewRequestWithContext.
 //
-// Транспорт — копия http.DefaultTransport с одним изменённым полем:
-// сохраняем проксирование из env, HTTP/2, keep-alive.
+// Transport is a copy of http.DefaultTransport with one changed field:
+// we preserve env proxying, HTTP/2, keep-alive.
 func newProxyClient() *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.ResponseHeaderTimeout = 30 * time.Second
@@ -147,8 +147,8 @@ func (h *proxyHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 		{ID: localModelName, Type: "model", DisplayName: localModelName, CreatedAt: now},
 		{ID: h.cfg.OpenAIModel, Type: "model", DisplayName: h.cfg.OpenAIModel, CreatedAt: now},
 	}
-	// Стандартные алиасы — для наглядности в /v1/models.
-	// Маршрутизация всё равно пойдёт на openai, т.к. они не "llama-server".
+	// Standard aliases — for visibility in /v1/models.
+	// Routing still goes to openai since they aren't "llama-server".
 	for _, alias := range []string{"sonnet", "haiku", "opus"} {
 		data = append(data, model{ID: alias, Type: "model", DisplayName: alias, CreatedAt: now})
 	}
@@ -187,8 +187,6 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	model, _ := req["model"].(string)
 	stream, _ := req["stream"].(bool)
 
-	// Локальный сервер — только явное имя "llama-server".
-	// Всё остальное (sonnet, haiku, opus, gpt-4, ...) — внешний провайдер.
 	isLocal := strings.EqualFold(strings.TrimSpace(model), localModelName)
 
 	if isLocal {
@@ -198,10 +196,9 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	h.forwardToOpenAI(w, r, req, stream)
 }
 
-// ---- Маршрут в llama-server ----
+// ---- Route to llama-server ----
 
 func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, req map[string]any, stream bool) {
-	// llama-server понимает только OpenAI API. Конвертируем Anthropic → OpenAI.
 	openAIReq, err := h.convert(req)
 	if err != nil {
 		writeAnthropicError(w, http.StatusInternalServerError, "api_error", "convert: "+err.Error())
@@ -238,7 +235,7 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 	convertOpenAIResponseToAnthropic(w, resp, "llama-server")
 }
 
-// ---- Маршрут во внешний OpenAI-совместимый сервис ----
+// ---- Route to external OpenAI-compatible service ----
 
 func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, req map[string]any, stream bool) {
 	openAIReq, err := h.convert(req)
@@ -277,7 +274,7 @@ func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, r
 	convertOpenAIResponseToAnthropic(w, resp, h.cfg.OpenAIModel)
 }
 
-// ---- Прочее (/v1/complete и т.п.) ----
+// ---- Other (/v1/complete, etc.) ----
 
 func (h *proxyHandler) handleOther(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/count_tokens") {
@@ -306,10 +303,10 @@ func (h *proxyHandler) handleOther(w http.ResponseWriter, r *http.Request) {
 	writeAnthropicError(w, http.StatusNotFound, "not_found_error", "not implemented: "+r.URL.Path)
 }
 
-// Конвертация запроса Anthropic → OpenAI — в convert.go (веха M1).
+// ConvertRequest converts Anthropic → OpenAI request in convert.go (M1 milestone).
 
 // ============================================================
-// Конвертация OpenAI → Anthropic (ответ, non-streaming)
+// OpenAI → Anthropic conversion (response, non-streaming)
 // ============================================================
 
 func convertOpenAIResponseToAnthropic(w http.ResponseWriter, openAIResp *http.Response, modelName string) {
@@ -385,11 +382,11 @@ func convertOpenAIResponseToAnthropic(w http.ResponseWriter, openAIResp *http.Re
 }
 
 // ============================================================
-// Конвертация стриминга (SSE)
+// Streaming conversion (SSE)
 // ============================================================
 
 // ============================================================
-// Утилиты
+// Utility functions
 // ============================================================
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -398,13 +395,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeAnthropicError — ошибка в формате Anthropic Messages API:
+// writeAnthropicError writes an Anthropic Messages API error response.
 //
 //	{"type":"error","error":{"type":"...","message":"..."}}
 //
-// http.Error отдаёт text/plain, который Claude Code показывает как «API Error»
-// без разбора. Применять только для error-путей ДО начала стрима: когда заголовки
-// и первый SSE-event отправлены, остаётся только `event: error` (см. M2).
+// http.Error returns text/plain which Claude Code shows as "API Error"
+// without parsing. Use only for error paths BEFORE streaming starts: after
+// headers and the first SSE event are sent, only `event: error` is left (see M2).
 func writeAnthropicError(w http.ResponseWriter, status int, errType, message string) {
 	writeJSON(w, status, map[string]any{
 		"type": "error",
@@ -415,7 +412,7 @@ func writeAnthropicError(w http.ResponseWriter, status int, errType, message str
 	})
 }
 
-// anthropicErrorType — тип ошибки Anthropic по HTTP-статусу апстрима.
+// anthropicErrorType returns the Anthropic error type by upstream HTTP status.
 func anthropicErrorType(status int) string {
 	switch status {
 	case http.StatusBadRequest:
@@ -434,9 +431,9 @@ func anthropicErrorType(status int) string {
 	return "api_error"
 }
 
-// logf — вывод прокси только при -v. Пишет в h.logWriter, чтобы в
-// интерактивном режиме не засорять TUI Claude Code: в TTY при -quiet-server
-// логи уходят в тот же файл, что и у llama-server, в пайпе — в stderr.
+// logf logs proxy messages only when -v is set. Writes to h.logWriter so
+// in interactive mode logs don't clutter Claude Code's TUI: on TTY with -quiet-server
+// logs go to the same file as llama-server's, in a pipe — to stderr.
 func (h *proxyHandler) logf(format string, args ...any) {
 	if h.cfg == nil || !h.cfg.Verbose || h.logWriter == nil {
 		return
