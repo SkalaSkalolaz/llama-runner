@@ -583,8 +583,8 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 		for _, tc := range choice.Delta.ToolCalls {
 			st, exists := tools[tc.Index]
 			if !exists {
-			// Close text block if open
-			if textBlockOpen {
+				// Close text block if open
+				if textBlockOpen {
 					writeSSE("content_block_stop", map[string]any{"type": "content_block_stop", "index": blockIndex})
 					blockIndex++
 					textBlockOpen = false
