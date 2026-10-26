@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +15,26 @@ import (
 )
 
 var version = "1.5.3"
+
+// isRussianLocale returns true if LC_ALL or LANG env is set to a Russian locale.
+func isRussianLocale() bool {
+	if v := os.Getenv("LC_ALL"); strings.HasPrefix(v, "ru") {
+		return true
+	}
+	if v := os.Getenv("LANG"); strings.HasPrefix(v, "ru") {
+		return true
+	}
+	return false
+}
+
+// printUsageForLocale prints help text in the current console locale (RU or EN).
+func printUsageForLocale(w io.Writer) {
+	if isRussianLocale() {
+		printUsageRU(w)
+	} else {
+		printUsageEN(w)
+	}
+}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, realRunner{}))
