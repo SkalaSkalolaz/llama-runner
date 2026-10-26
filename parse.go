@@ -99,7 +99,7 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 	//    CLI overrides it if the flag is set.
 	fs := flag.NewFlagSet("llama-runner", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() { printUsage(stderr) }
+	fs.Usage = func() { printUsageForLocale(stderr) }
 
 	fs.StringVar(&cfg.WorkDir, "dir", cfg.WorkDir, "рабочая директория...")
 	fs.StringVar(&cfg.Host, "host", cfg.Host, "адрес...")

@@ -737,8 +737,8 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 
 }
 
-// printUsage prints detailed program help.
-func printUsage(w io.Writer) {
+// printUsageRU prints detailed program help in Russian.
+func printUsageRU(w io.Writer) {
 	fmt.Fprintf(w, `llama-runner — лаунчер для llama-server и Claude Code
 
 По умолчанию запускает локальный llama-server и, дождавшись его готовности,
@@ -855,5 +855,125 @@ Claude Code:
 
 Совет:
   Для доступа из локальной сети используйте -host 0.0.0.0.
+`)
+}
+
+// printUsageEN prints detailed program help in English.
+func printUsageEN(w io.Writer) {
+	fmt.Fprintf(w, `llama-runner — launcher for llama-server and Claude Code
+
+By default it starts a local llama-server and, after waiting for it to be ready,
+launches Claude Code with the required environment variables (ANTHROPIC_BASE_URL, etc.).
+When Claude Code finishes, llama-server stops automatically.
+
+With -server, ONLY llama-server starts (legacy behavior).
+With -update, llama.cpp is updated (git pull + build + install), then exits.
+
+With -webui-mcp-proxy, SEARCH_ENABLED=true mcp-search-server --addr :8090 is also started.
+
+Usage:
+  llama-runner [flags]
+
+Main flags:
+  -bin string
+        path to llama-server (default "~/.local/bin/llama-server")
+  -model string
+        path to GGUF model
+  -host string
+        server address (default "127.0.0.1")
+  -port string
+        server port (default "8080")
+  -alias string
+        model alias (--alias for llama-server and ANTHROPIC_DEFAULT_*_MODEL)
+  -v    print the command before launch
+  -version
+        show version and exit
+  -h, --help
+        show this help and exit
+
+llama.cpp parameters:
+  -c, -b, -ub string   context / batch / micro-batch
+  -fa string           flash attention (-fa)
+  -parallel string     number of parallel slots
+  -tools string        tool mode
+  -jinja               Jinja templates
+  -ngl string          layers on GPU
+  -mmproj string       path to multimodal projector
+  -temp, -top-p string sampling
+  -cache-type-k/v string KV-cache types
+  -fit string          --fit mode (on|off)
+  -lv string           llama.cpp log verbosity
+  -lm-lazy             mmap with lazy mode
+  -webui-mcp-proxy     CORS-proxy + mcp-search-server
+  -reasoning string    reasoning mode: on|off|auto
+  -reasoning-budget N  reasoning token budget: -1 (unlimited), 0 (disabled), N (positive)
+
+Speculative decoding:
+  -spec-type string        type (draft-mtp, draft-dflash)
+  -spec-draft-model string path to draft model
+  -spec-draft-n-max string max draft tokens
+  -spec-draft-ngl string   draft layers on GPU
+
+Claude Code:
+  -server              only llama-server, no Claude Code
+  -claude-bin string   path to claude (default "claude")
+  -claude-dir string   working directory for claude
+  -ready-timeout dur   readiness timeout for /health (default 180s)
+  -log-file string     llama-server log file (default "~/.cache/llama-runner/llama-server.log")
+  -quiet-server        redirect llama-server logs to file (default true)
+  -log-max-mb int      max log size in MB before rotation
+                       (default 50; 0 = no rotation)
+  -log-keep int        how many log archives to keep (default 5; 0 = no archives)
+  -mcp-addr string     mcp-search-server address (default 127.0.0.1:8090)
+  -mcp-config string   path to MCP config (default: temp file)
+  -mcp-strict          pass --strict-mcp-config
+  -chat-template str   chat template ("auto" | "" | path)
+  -openai string       OpenAI-compatible API URL
+  -key string          external provider API key
+  -model-openai str    model name at external provider
+  -proxy-addr string   local proxy address (default 127.0.0.1:8082)
+  -proxy-token string  proxy auth token for incoming requests (empty = no check)
+  -proxy-allow-remote  allow non-loopback -proxy-addr without warning
+
+Config:
+  -config string       config file path (default
+                       "~/.config/llama-runner/config.json"; "" = don't read)
+  -p string            profile from config file (profiles: {name: {...}})
+  -doctor              show resolved paths and version without starting processes
+
+llama.cpp update:
+  -update
+        update llama.cpp: git pull --ff-only, cmake configure/build/install,
+        then exit
+  -llama-src string
+        path to llama.cpp sources (default "~/src/llama.cpp")
+  -install-prefix string
+        -DCMAKE_INSTALL_PREFIX prefix (default "~/.local")
+  -cuda
+        build with CUDA (default true)
+  -cuda-arch string
+        value for -DCMAKE_CUDA_ARCHITECTURES (default "61")
+
+Examples:
+  # Server + Claude Code
+  llama-runner
+
+  # Server only
+  llama-runner -server -port 9090
+
+  # MCP search + Claude Code
+  llama-runner -webui-mcp-proxy
+
+  # Profile from config file
+  llama-runner -p coder
+
+  # Diagnose without starting processes
+  llama-runner -doctor
+
+  # Update llama.cpp
+  llama-runner -update -cuda-arch 61
+
+Tip:
+  For local network access, use -host 0.0.0.0.
 `)
 }
