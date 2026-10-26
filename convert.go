@@ -40,28 +40,41 @@ import (
 // next user with tool_result) gives exactly the same result as M0 — this
 // is fixed by golden tests and TestConvertRequest_NormalFlowOrder.
 
-// ConvertOptions conversion settings for a request.
+// ConvertOptions controls how an Anthropic request is mapped onto the OpenAI
+// chat/completions API.
 type ConvertOptions struct {
-	// ImagesToOpenAI true when llama-server is run with vision projector
-	// (-mmproj): image blocks make sense and map to OpenAI image_url.
-	// Otherwise there is nothing to process them with, so the block is dropped (with counter).
+	// ImagesToOpenAI enables mapping Anthropic image blocks to OpenAI
+	// image_url parts. Set it only when llama-server runs with a vision
+	// projector (-mmproj): without a projector there is nothing that could
+	// process the pixels, so image blocks are dropped instead — and counted,
+	// never silently.
 	ImagesToOpenAI bool
 }
 
-// ConvertStats how many blocks did not reach the model. Needed so that
-// dropping is no longer silent (see -v in proxyHandler.convert).
+// ConvertStats counts content blocks that did not reach the model during
+// conversion, one counter per drop reason. It exists so that lossy
+// conversion is never silent: the proxy surfaces these numbers under -v (see
+// proxyHandler.convert).
 type ConvertStats struct {
+	// DroppedThinking counts thinking/redacted_thinking blocks — OpenAI
+	// chat/completions has no chain-of-thought field.
 	DroppedThinking int
-	DroppedImages   int
-	DroppedUnknown  int
+	// DroppedImages counts image blocks with no projector configured or no
+	// usable source.
+	DroppedImages int
+	// DroppedUnknown counts blocks whose type is not recognised at all.
+	DroppedUnknown int
 }
 
-// Dropped total number of dropped blocks.
+// Dropped returns the total number of blocks dropped during conversion,
+// summing all reasons.
 func (s ConvertStats) Dropped() int {
 	return s.DroppedThinking + s.DroppedImages + s.DroppedUnknown
 }
 
-// Summary one-line summary for -v; empty if nothing was dropped.
+// Summary renders a compact one-line description of what was dropped
+// (e.g. "2 thinking, 1 image") for the -v log. It returns an empty string
+// when nothing was dropped, so callers can test the result directly.
 func (s ConvertStats) Summary() string {
 	var parts []string
 	if s.DroppedThinking > 0 {
@@ -76,15 +89,32 @@ func (s ConvertStats) Summary() string {
 	return strings.Join(parts, ", ")
 }
 
-// AnthropicToOpenAI converts with default options (image blocks are not mapped).
-// Signature preserved from M0: used by golden tests.
+// AnthropicToOpenAI converts an Anthropic request with default options, i.e.
+// image blocks are not mapped (no vision projector assumed). Its signature is
+// preserved from the original M0 implementation because the golden tests use
+// it; new code should call ConvertRequest to get drop statistics.
 func AnthropicToOpenAI(anthropic map[string]any) (map[string]any, error) {
 	out, _, err := ConvertRequest(anthropic, ConvertOptions{})
 	return out, err
 }
 
-// ConvertRequest converts an Anthropic Messages API request body to an OpenAI
-// chat/completions request body. Returns statistics of dropped blocks.
+// ConvertRequest converts an Anthropic Messages API request body into an
+// OpenAI chat/completions request body, returning per-reason statistics of
+// content blocks that could not be carried over.
+//
+// Mapping: the system prompt (string or block array) becomes the first
+// role=system message; each conversation message goes through
+// convertMessage, which may yield several OpenAI messages from one Anthropic
+// one. Sampling parameters pass through where an equivalent exists
+// (max_tokens, temperature, top_p; stop_sequences → stop), and Anthropic
+// tools {name, description, input_schema} become OpenAI
+// {type: function, function: {...}} entries.
+//
+// The input is deliberately handled as plain map[string]any without
+// DisallowUnknownFields: fields the converter does not know about (and
+// therefore does not copy) must never cause the request to be rejected.
+// The returned error is reserved for unrecoverable problems; lossy parts of
+// the conversion are reported through ConvertStats instead.
 func ConvertRequest(anthropic map[string]any, opts ConvertOptions) (map[string]any, ConvertStats, error) {
 	var st ConvertStats
 
@@ -148,9 +178,11 @@ func ConvertRequest(anthropic map[string]any, opts ConvertOptions) (map[string]a
 	return openAI, st, nil
 }
 
-// systemText assembles system into a single string: string as-is, array of blocks —
-// concatenation of text blocks via "\n" (cache_control is dropped: OpenAI has its own
-// prompt caching in this form).
+// systemText flattens the Anthropic system field into a single string for the
+// role=system message. A plain string is returned as-is; a block array is
+// reduced to its text blocks joined with "\n" — cache_control markers are
+// discarded because OpenAI's prompt caching works differently and the marker
+// has no meaning there. Anything else yields "".
 func systemText(sys any) string {
 	switch v := sys.(type) {
 	case string:
@@ -174,7 +206,10 @@ func systemText(sys any) string {
 	return ""
 }
 
-// convertMessage converts one Anthropic message → zero, one or more OpenAI messages.
+// convertMessage converts one Anthropic message into zero, one or more
+// OpenAI messages: a plain string content maps 1:1, a content-block array is
+// handed to convertBlocks, and a message with absent or unrecognised content
+// is skipped entirely (matching M0 behaviour).
 func convertMessage(role string, content any, opts ConvertOptions, st *ConvertStats) []map[string]any {
 	switch v := content.(type) {
 	case string:
@@ -186,20 +221,25 @@ func convertMessage(role string, content any, opts ConvertOptions, st *ConvertSt
 	return nil
 }
 
-// convertBlocks two-pass assembly: in one pass over blocks we collect the
-// "main" message (text + image + tool_calls) and separately role=tool answers,
-// then emit them in the order OpenAI understands:
+// convertBlocks performs the two-pass assembly of one message's content
+// blocks. The first pass sorts blocks into a "main" message payload (text,
+// images, tool_calls) and separate role=tool answers; the second pass emits
+// them in the order the OpenAI API requires:
 //
-//	assistant with tool_calls  →  first it, then tool-answers
-//	user                    →  first tool-answers (they must follow
-//	                           assistant.tool_calls immediately), then user text
+//	assistant with tool_calls → the assistant message first, then its
+//	                             tool answers;
+//	user (carrying tool_result) → tool answers first — they must
+//	                             immediately follow the assistant's
+//	                             tool_calls — then the user's own text.
 //
-// For a normal flow (tool_use and tool_result in different messages) order
-// matches M0 byte-for-byte.
+// For the normal Anthropic flow (tool_use and tool_result in separate
+// messages) the resulting order is byte-for-byte identical to M0. Images
+// inside an assistant message are dropped (counted), since OpenAI assistant
+// messages cannot carry multimodal content.
 func convertBlocks(role string, blocks []any, opts ConvertOptions, st *ConvertStats) []map[string]any {
 	var (
 		textParts    []string
-		parts        []any // content массивом — нужен только если в сообщении есть image
+		parts        []any // content as an array — only needed when the message has images
 		toolCalls    []map[string]any
 		toolMsgs     []map[string]any
 		mappedImages int
@@ -275,9 +315,16 @@ func convertBlocks(role string, blocks []any, opts ConvertOptions, st *ConvertSt
 	}
 }
 
-// toolResultMessage tool_result → role=tool message.
-// content may be a string, an array of blocks, or absent; is_error:true
-// must reach the model, so the text gets the "Error: " prefix.
+// toolResultMessage converts an Anthropic tool_result block into the
+// corresponding role=tool message, keyed by tool_use_id.
+//
+// The result content may be a string, an array of blocks (text blocks joined
+// with "\n", image blocks mapped to image_url when a projector is configured
+// and counted as dropped otherwise), a scalar/object (serialised to JSON so
+// no data is lost) or absent. Even an empty result produces a message: every
+// tool call must be closed, or the OpenAI server rejects the whole request.
+// When is_error is true the text is prefixed with "Error: " so the failure
+// actually reaches the model — OpenAI has no structured error flag here.
 func toolResultMessage(block map[string]any, opts ConvertOptions, st *ConvertStats) (map[string]any, bool) {
 	var (
 		text       string
@@ -341,8 +388,11 @@ func toolResultMessage(block map[string]any, opts ConvertOptions, st *ConvertSta
 	return msg, true
 }
 
-// imageDataURL Anthropic image block → OpenAI image_url.
-// base64 → data-URL, url → as-is.
+// imageDataURL maps an Anthropic image block's source to an OpenAI image_url
+// string: a base64 source becomes a data: URL (media_type defaults to
+// application/octet-stream when missing), a url source is passed through
+// unchanged. It reports false when the block has no usable source — wrong
+// shape, empty base64 data or empty URL.
 func imageDataURL(block map[string]any) (string, bool) {
 	src, ok := block["source"].(map[string]any)
 	if !ok {
@@ -366,9 +416,12 @@ func imageDataURL(block map[string]any) (string, bool) {
 	return "", false
 }
 
-// requestSummary brief description of the converted request for -v.
-// Shows that the system prompt and tool results actually reached the upstream without
-// reading the full request body.
+// requestSummary renders a brief human-readable digest of a converted OpenAI
+// request for the -v log: total message count, whether a system message is
+// present, how many assistant messages carry tool_calls, how many role=tool
+// answers there are, and how many tool schemas were sent. It lets you verify
+// at a glance that the system prompt and tool results actually reached the
+// upstream, without dumping the full request body.
 func requestSummary(openAIReq map[string]any) string {
 	msgs, _ := openAIReq["messages"].([]map[string]any)
 	var (
@@ -393,14 +446,20 @@ func requestSummary(openAIReq map[string]any) string {
 		len(msgs), hasSystem, toolCalls, toolMsgs, len(tools))
 }
 
+// mustJSON serialises v to its compact JSON representation for the
+// tool_calls arguments field, which OpenAI requires to be a JSON string.
+// Marshalling errors are swallowed (the zero value "null" is produced);
+// callers pass plain decoded JSON values, which always serialise.
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
 
-// toolMessagesPreview one line per role=tool message with truncated
-// content preview. Needed for -v so the log shows exactly what the tool returned,
-// including the "Error: " prefix on is_error:true.
+// toolMessagesPreview produces one log line per role=tool message in a
+// converted request, with the tool_call_id and a truncated content preview
+// (see previewContent). It backs the -v log so you can see exactly what each
+// tool returned — including the "Error: " prefix set for is_error results —
+// without dumping full payloads.
 func toolMessagesPreview(openAIReq map[string]any) []string {
 	msgs, _ := openAIReq["messages"].([]map[string]any)
 	var out []string
@@ -414,9 +473,11 @@ func toolMessagesPreview(openAIReq map[string]any) []string {
 	return out
 }
 
-// previewContent content preview for the log. For role=tool content is usually
-// a string, but may be []any (with image_url on -mmproj) — then show a note
-// to avoid dumping base64 into the log.
+// previewContent renders a message content value for the log. role=tool
+// content is normally a string (truncated to maxLen), but with -mmproj it can
+// be a multimodal block array — that is replaced by a fixed placeholder note
+// rather than dumping base64 image data into the log. Anything else is
+// serialised to JSON and truncated.
 func previewContent(v any, maxLen int) string {
 	switch c := v.(type) {
 	case string:
@@ -428,8 +489,10 @@ func previewContent(v any, maxLen int) string {
 	}
 }
 
-// truncate truncates a string to maxLen runes, escaping newlines so
-// the log stays single-line. Counts by runes, not bytes, to avoid breaking UTF-8.
+// truncate prepares a string for a single-line log entry: literal "\n" and
+// "\r" sequences are escaped, and the result is cut to maxLen runes (counted
+// by runes, never bytes, so multi-byte UTF-8 characters are never broken),
+// with a trailing ellipsis when anything was cut off.
 func truncate(s string, maxLen int) string {
 	s = strings.ReplaceAll(s, "\n", `\n`)
 	s = strings.ReplaceAll(s, "\r", `\r`)
@@ -443,26 +506,38 @@ func truncate(s string, maxLen int) string {
 // ============================================================
 // OpenAI → Anthropic streaming conversion (SSE)
 // ============================================================
+
+// convertOpenAIStreamToAnthropic consumes an OpenAI streaming
+// chat/completions response and re-emits it live as an Anthropic Messages SSE
+// stream, flushing every event as it is produced.
 //
-// Streaming is arranged as: the upstream sends chunks `data: {...}\n\n`
-// (one per content/tool_calls delta) and terminates the stream
-// `data: [DONE]\n\n`. We convert this to an Anthropic SSE sequence:
+// The upstream sends `data: {...}\n\n` chunks carrying content or tool_calls
+// deltas and terminates with `data: [DONE]\n\n`. The emitted Anthropic
+// sequence is:
 //
 //	message_start
-//	  content_block_start (text) / content_block_delta (text) / content_block_stop
-//	  content_block_start (tool_use) / content_block_delta (input_json_delta) / content_block_stop
-//	message_delta (stop_reason, usage)
+//	  content_block_start/delta/stop for the text block (opened lazily on
+//	  the first non-empty content delta)
+//	  content_block_start/delta/stop per tool_use block (each tool call,
+//	  accumulated from its fragmented deltas across chunks)
+//	message_delta (mapped stop_reason and token usage)
 //	message_stop
 //
-// On stream break before [DONE] (upstream read error or clean EOF without
-// finish_reason) we emit `event: error` instead of message_stop — see defect #6.
-// Usage is requested via stream_options.include_usage and set in
-// message_delta (defect #7). In message_start usage = 0: OpenAI sends usage
-// only at the end, while message_start goes first — there is no reliable
-// way to get input_tokens there, so we do not fabricate it.
+// Semantics worth knowing:
+//   - usage is requested via stream_options.include_usage and arrives in a
+//     final chunk, so it is reported in message_delta; message_start carries
+//     zeros because real input_tokens cannot be known before anything was
+//     streamed and fabricating them would lie (defect #7);
+//   - a broken stream — scanner error, or a clean EOF with neither [DONE]
+//     nor a finish_reason — ends with an `event: error` instead of
+//     message_stop, after closing every open content block so no client
+//     hangs (defect #6). A provider that sets finish_reason but never sends
+//     [DONE] is treated as complete;
+//   - the response writer must implement http.Flusher; if it does not, a 500
+//     is written instead of streaming.
 //
-// Returns input_tokens/output_tokens (needed for the -v log).
-// If the upstream did not send usage — both are 0.
+// Returns the input/output token counts taken from the upstream usage chunk
+// (both 0 when the upstream sent none); the caller logs them under -v.
 func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Response, modelName string) (int, int) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -632,7 +707,7 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 	}
 	if streamErr != nil {
 		// Close open blocks so the client doesn't hang on an unclosed
-		// content_block (некоторые клиенты так умеют).
+		// content_block (some clients behave that way).
 		if textBlockOpen {
 			writeSSE("content_block_stop", map[string]any{"type": "content_block_stop", "index": blockIndex})
 		}

@@ -10,13 +10,19 @@ import (
 	"time"
 )
 
-// defaultConfigPath returns the default config file path.
+// defaultConfigPath returns the location of the config file used when the
+// user does not pass -config: ~/.config/llama-runner/config.json (built from
+// the injected home directory so the function stays testable).
 func defaultConfigPath(home string) string {
 	return filepath.Join(home, ".config", "llama-runner", "config.json")
 }
 
-// defaultConfig returns Config with built-in defaults. Values match
-// historical (pre-M6) so behavior without a config file doesn't change.
+// defaultConfig returns a Config populated with the built-in defaults — the
+// bottom layer of the precedence chain (defaults < file < profile < CLI).
+// The values deliberately match the historical pre-M6 hardcoded behaviour, so
+// running without any config file behaves exactly as it did before the
+// config-file feature existed. Paths keep their "~" prefix; expansion happens
+// at use time.
 func defaultConfig() *Config {
 	return &Config{
 		Host:                 "127.0.0.1",
@@ -47,20 +53,24 @@ func defaultConfig() *Config {
 	}
 }
 
-// fileConfig JSON representation of the config file. Separate type to:
-//   - not serialize derived fields (Home, ChatTemplateSet, AliasSet);
-//   - not include CLI-only fields (VersionFlag, UpdateFlag, DoctorFlag,
-//     ConfigPath, Profile);
-//   - store ReadyTimeout as duration-string, not int64 nanoseconds.
+// fileConfig is the JSON schema of the config file. It is a separate type
+// from Config on purpose:
+//   - derived fields (Home, ChatTemplateSet, AliasSet) are not serializable
+//     state and must never appear in the file;
+//   - CLI-only one-shot flags (VersionFlag, UpdateFlag, DoctorFlag,
+//     ConfigPath, Profile) make no sense as persisted settings;
+//   - ReadyTimeout is stored as a human-friendly duration string ("180s")
+//     rather than int64 nanoseconds.
 //
-// All fields are pointers: nil means "not set", so applyFileConfig
-// applies only set fields. This gives the correct priority
-// CLI > file > default: file overrides default, CLI overrides file.
+// Every field is a pointer: nil means "absent from the file", so
+// applyFileConfig overlays only the fields the user actually set. This is
+// what implements the precedence chain — the file overrides built-in
+// defaults, and CLI flags later override the file.
 //
-// Secrets (openaiKey, proxyToken) can technically be stored in the file, but
-// env is recommended (LLAMA_RUNNER_OPENAI_KEY / OPENAI_API_KEY) or
-// ~/.config/llama-runner/credentials for openaiKey. proxyToken — only a
-// flag for now (added -proxy-token in M4); config is just an alternative.
+// Secrets (openaiKey, proxyToken) can technically live in the file, but this
+// is discouraged: prefer LLAMA_RUNNER_OPENAI_KEY / OPENAI_API_KEY or the
+// ~/.config/llama-runner/credentials file for openaiKey, and the -proxy-token
+// flag for the proxy token.
 type fileConfig struct {
 	// Base
 	WorkDir    *string `json:"dir,omitempty"`
@@ -109,7 +119,7 @@ type fileConfig struct {
 	ClaudeBin            *string `json:"claudeBin,omitempty"`
 	ClaudeDir            *string `json:"claudeDir,omitempty"`
 	Alias                *string `json:"alias,omitempty"`
-	ReadyTimeout         *string `json:"readyTimeout,omitempty"` // duration-string, напр. "180s"
+	ReadyTimeout         *string `json:"readyTimeout,omitempty"` // duration string, e.g. "180s"
 	ChatTemplate         *string `json:"chatTemplate,omitempty"`
 	ChatTemplateFallback *string `json:"chatTemplateFallback,omitempty"`
 	LogFile              *string `json:"logFile,omitempty"`
@@ -134,8 +144,14 @@ type fileConfig struct {
 	Profiles map[string]fileConfig `json:"profiles,omitempty"`
 }
 
-// applyFileConfig applies set (non-nil) fields from fc to cfg.
-// Fields from fc override current cfg values; nil fields are untouched.
+// applyFileConfig overlays the set (non-nil) fields of fc onto cfg; nil
+// fields leave cfg untouched. It is the single mechanism by which both the
+// config file's root section and an individual profile are applied, so the
+// same overlay rules hold at both levels.
+//
+// The only field requiring interpretation is readyTimeout: it is parsed from
+// a Go duration string and a malformed value is returned as an error rather
+// than silently keeping the previous setting.
 func applyFileConfig(cfg *Config, fc fileConfig) error {
 	set := func(dst *string, src *string) {
 		if src != nil {
@@ -222,8 +238,15 @@ func applyFileConfig(cfg *Config, fc fileConfig) error {
 	return nil
 }
 
-// loadConfigFile reads the config. Returns (nil, nil) if path=="" or the file
-// doesn't exist — this is not an error. Invalid JSON — error.
+// loadConfigFile reads and parses the JSON config file at path (which may
+// start with "~").
+//
+// A missing file is not an error: it returns (nil, nil), matching the
+// "no config file is normal" rule for the default path. path == "" likewise
+// yields (nil, nil) — reading is disabled (explicit -config ""). Any other
+// read failure or invalid JSON is returned as an error, and whether a missing
+// file should be promoted to an error (explicit -config) is decided by the
+// caller.
 func loadConfigFile(path, home string) (*fileConfig, error) {
 	if path == "" {
 		return nil, nil
@@ -243,6 +266,16 @@ func loadConfigFile(path, home string) (*fileConfig, error) {
 	return &fc, nil
 }
 
+// findFlag pre-scans raw argument list args for a flag given as
+// -name value, --name value or -name=value (single and double dashes are
+// equivalent). It returns the flag's value and true, or ("", false) when the
+// flag is absent.
+//
+// This scan exists because -config and -p must be discovered before the
+// FlagSet is built — they determine where flag defaults come from. Scanning
+// stops at the first argument that is neither a flag nor a pending flag
+// value, and at the "--" terminator, so positional arguments are never
+// mistaken for flag values.
 func findFlag(args []string, name string) (string, bool) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]

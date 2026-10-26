@@ -6,20 +6,26 @@ import (
 	"sync"
 )
 
-// rotatingWriter is an io.Writer that writes to a file and rotates it when
-// maxSize is reached. Archives: <path>.1 — newest, <path>.<keep> — oldest.
-// keep==0 — no archives (truncate). maxSize==0 — rotation disabled
-// (pre-M7 behavior: O_APPEND without rotation).
+// rotatingWriter is a goroutine-safe io.Writer that appends to a file and
+// rotates it once its size reaches maxSize.
 //
-// Why not rename the open *os.File in the parent (red zone #5):
-// llama-server holds the fd, rename won't switch it to a new inode.
-// So cmd.Stdout/Stderr of the child process point to this writer
-// (not *os.File), os/exec creates a pipe, and the parent writes to the file itself —
-// the child process knows nothing about rotation.
+// Rotation keeps numbered archives: <path>.1 is the most recent rotated file
+// and <path>.<keep> the oldest; when keep > 0 the oldest archive is discarded
+// to make room. keep == 0 disables archiving — the file is simply removed
+// (truncated) at the limit. maxSize == 0 disables rotation entirely, giving
+// the pre-M7 plain O_APPEND behaviour.
+//
+// The child process (llama-server) is deliberately not told about rotation.
+// Handing it the *os.File directly would pin the opened inode: renaming the
+// file afterwards would not move the child's file descriptor to the new file
+// (red zone #5). Instead cmd.Stdout/Stderr are set to this writer (not an
+// *os.File), os/exec wires an OS pipe, and the parent process copies pipe
+// output into the current file — so each rotation only changes where the
+// parent writes, transparently to the child.
 type rotatingWriter struct {
 	path    string
-	maxSize int64 // в байтах; 0 — не ротировать
-	keep    int   // сколько архивов держать; 0 — без архивов
+	maxSize int64 // rotation threshold in bytes; 0 — do not rotate
+	keep    int   // number of archives to keep; 0 — no archives
 	perm    os.FileMode
 
 	mu   sync.Mutex
@@ -27,8 +33,12 @@ type rotatingWriter struct {
 	size int64
 }
 
-// newRotatingWriter opens path (O_CREATE|O_WRONLY|O_APPEND, perm) and
-// sets perm via Chmod (M5-code analogue that explicitly set 0600).
+// newRotatingWriter creates a rotatingWriter for path, opening it for
+// appending (O_CREATE|O_WRONLY|O_APPEND with perm) and additionally Chmod-ing
+// it, because O_CREATE's mode argument is masked by the process umask — the
+// explicit Chmod guarantees the requested permissions (production uses 0600).
+// The size counter is seeded from the existing file, so rotation accounts for
+// previously written content.
 func newRotatingWriter(path string, maxSize int64, keep int, perm os.FileMode) (*rotatingWriter, error) {
 	w := &rotatingWriter{path: path, maxSize: maxSize, keep: keep, perm: perm}
 	if err := w.openLocked(); err != nil {
@@ -37,6 +47,9 @@ func newRotatingWriter(path string, maxSize int64, keep int, perm os.FileMode) (
 	return w, nil
 }
 
+// openLocked (re)opens the log file and refreshes the size counter from its
+// current length. Callers must hold w.mu. On any failure after a successful
+// open the descriptor is closed before returning, so no handle leaks.
 func (w *rotatingWriter) openLocked() error {
 	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, w.perm)
 	if err != nil {
@@ -56,9 +69,11 @@ func (w *rotatingWriter) openLocked() error {
 	return nil
 }
 
-// Write implements io.Writer. Rotates AFTER write if size reached the limit.
-// The current write always fits entirely in the current file (no data loss
-// at the boundary).
+// Write implements io.Writer. The bytes are appended first and rotation is
+// considered afterwards, so every write lands wholly in one file — maxSize is
+// exceeded slightly at most, but no record is ever split across the rotation
+// boundary. Writing to a closed (or just-rotated-away) writer returns
+// os.ErrClosed.
 func (w *rotatingWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -73,9 +88,13 @@ func (w *rotatingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// rotateLocked called under w.mu. Closes the current file, shifts
-// archives .1..<keep>, opens a new one. Idempotent to missing
-// archives — Rename of a non-existent file is a no-op.
+// rotateLocked performs one rotation and must be called with w.mu held: it
+// closes the current file, then either shifts the archive chain
+// (delete <path>.<keep>, rename .N → .N+1 down to .1 → its current name, and
+// finally <path> → <path>.1) or, with keep == 0, simply removes the file.
+// Missing intermediate archives are tolerated — a failing rename is ignored —
+// so the shift is safe even when fewer than keep archives exist. A freshly
+// opened file finishes the rotation.
 func (w *rotatingWriter) rotateLocked() error {
 	if err := w.file.Close(); err != nil {
 		return err
@@ -100,7 +119,9 @@ func (w *rotatingWriter) rotateLocked() error {
 	return w.openLocked()
 }
 
-// Close closes the file. Idempotent.
+// Close closes the underlying file and releases it from the writer. It is
+// idempotent — subsequent calls succeed without doing anything — and any
+// later Write returns os.ErrClosed.
 func (w *rotatingWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()

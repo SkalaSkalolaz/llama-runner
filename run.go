@@ -18,7 +18,10 @@ import (
 	"time"
 )
 
-// isTerminalFile reports whether f is connected to a terminal (character device).
+// isTerminalFile reports whether f is connected to a terminal, detected by
+// the character-device mode bit on its stat info. A nil file or a stat
+// failure counts as "not a terminal", which is the safe answer for
+// redirect decisions.
 func isTerminalFile(f *os.File) bool {
 	if f == nil {
 		return false
@@ -30,7 +33,10 @@ func isTerminalFile(f *os.File) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// pathContainsSegment reports whether seg is among the :--separated path segments.
+// pathContainsSegment reports whether seg appears as one of the
+// colon-separated entries of an environment path variable such as
+// LD_LIBRARY_PATH. Used to avoid prepending a directory that is already
+// present.
 func pathContainsSegment(path, seg string) bool {
 	for _, p := range strings.Split(path, ":") {
 		if p == seg {
@@ -40,8 +46,11 @@ func pathContainsSegment(path, seg string) bool {
 	return false
 }
 
-// openTTY tries to open /dev/tty. Returns nil if unavailable
-// (Windows, no controlling terminal, /dev/tty trimmed in a container).
+// openTTY opens /dev/tty read-write and returns the handle, or nil when it
+// cannot be opened — typical reasons are Windows, a process without a
+// controlling terminal, or a container image with /dev/tty trimmed away.
+// The caller treats nil as "no terminal available" and degrades instead of
+// failing.
 func openTTY() *os.File {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -50,10 +59,16 @@ func openTTY() *os.File {
 	return tty
 }
 
-// shouldRedirectClaudeToTTY true if Claude Code's stdio must be redirected
-// to /dev/tty: at least one of the passed streams is a non-TTY *os.File (meaning
-// there was a redirect/pipe in production). If a non-*os.File is passed (tests with bytes.Buffer),
-// return false to avoid opening a real terminal from tests.
+// shouldRedirectClaudeToTTY decides whether Claude Code's stdio must be
+// reconnected to /dev/tty. Claude Code is an interactive TUI: if its stdout
+// or stderr is a pipe or file it falls back to non-interactive --print mode
+// and dies without a prompt. That happens whenever the parent's streams were
+// redirected (e.g. `llama-runner -v 2>&1 | tee log`).
+//
+// The rule: redirect only when both streams are real *os.File handles and at
+// least one of them is not a terminal. When either stream is something else
+// (bytes.Buffer and friends, as used in tests) the answer is false, so tests
+// never grab a real terminal.
 func shouldRedirectClaudeToTTY(stdout, stderr io.Writer) bool {
 	sf, ok1 := stdout.(*os.File)
 	ef, ok2 := stderr.(*os.File)
@@ -63,7 +78,11 @@ func shouldRedirectClaudeToTTY(stdout, stderr io.Writer) bool {
 	return !isTerminalFile(sf) || !isTerminalFile(ef)
 }
 
-// resolvedPaths — all paths verified for existence.
+// resolvedPaths holds the absolute paths validated for launch, ready to be
+// handed to llama-server: the server binary and model are always set on the
+// success path; Mmproj, Draft and Template are "" when not configured or,
+// for Template only, when an auto-detected template turned out to be
+// unavailable.
 type resolvedPaths struct {
 	ServerBin string
 	Model     string
@@ -72,8 +91,19 @@ type resolvedPaths struct {
 	Template  string
 }
 
-// resolvePaths checks files and returns paths. The second result is
-// an exit code if launch should be aborted (0 = all ok).
+// resolvePaths expands every configured path ("~" → home → absolute) and
+// checks it, printing user-facing errors to stderr. The second return value
+// is an exit code for run: 0 means every check passed and the resolved
+// paths are safe to launch with.
+//
+// Severity rules:
+//
+//	2 — cannot build an absolute path, or an explicitly requested
+//	    chat-template is unavailable (hard failure);
+//	1 — a required or configured file does not exist (model, server binary,
+//	    mmproj, draft model);
+//	0 — all good; an auto-detected template that is missing only produces a
+//	    warning and falls back to the template embedded in the GGUF.
 func resolvePaths(cfg *Config, home string, stdout, stderr io.Writer) (resolvedPaths, int) {
 	var p resolvedPaths
 
@@ -143,15 +173,21 @@ func resolvePaths(cfg *Config, home string, stdout, stderr io.Writer) (resolvedP
 	return p, 0
 }
 
-// shutdown centralizes stopping child processes.
-// Signals:
-//   - claude   — to the process directly (red zone #1: interactive stdin,
-//     non-foreground pgid = SIGTTIN → hung UI);
-//   - server   — to the group (Setpgid:true at launch);
-//   - mcp      — to the group (Setpgid:true).
+// shutdown is the single place that knows how to stop the three kinds of
+// child processes, because each needs a different signalling strategy:
 //
-// If server/mcp are started without Setpgid (e.g. in old tests),
-// fallback — direct Process.Signal.
+//   - claude — signalled on its PID directly, never via a process group:
+//     Claude Code reads the terminal interactively, and putting it in its own
+//     group (non-foreground pgid) makes terminal reads raise SIGTTIN and hang
+//     the UI (red zone #1);
+//   - server — signalled to its process group (started with Setpgid), so any
+//     helper processes llama-server spawns die with it;
+//   - mcp    — signalled to its process group as well (Setpgid).
+//
+// When server/mcp were started without Setpgid (older tests do this), the
+// signal falls back to the process directly. All setters and signal
+// operations are mutex-guarded, so the signal-handler goroutine and run()
+// can touch the struct concurrently.
 type shutdown struct {
 	mu     sync.Mutex
 	claude *exec.Cmd
@@ -159,27 +195,37 @@ type shutdown struct {
 	mcp    *exec.Cmd
 }
 
+// newShutdown returns an empty shutdown coordinator with no children
+// registered yet.
 func newShutdown() *shutdown { return &shutdown{} }
 
+// SetClaude registers the Claude Code process. It must be called right after
+// Start so a signal arriving immediately afterwards still reaches it.
 func (s *shutdown) SetClaude(cmd *exec.Cmd) {
 	s.mu.Lock()
 	s.claude = cmd
 	s.mu.Unlock()
 }
 
+// SetServer registers the llama-server process.
 func (s *shutdown) SetServer(cmd *exec.Cmd) {
 	s.mu.Lock()
 	s.server = cmd
 	s.mu.Unlock()
 }
 
+// SetMCP registers the mcp-search-server process.
 func (s *shutdown) SetMCP(cmd *exec.Cmd) {
 	s.mu.Lock()
 	s.mcp = cmd
 	s.mu.Unlock()
 }
 
-// signal sends sig to claude directly, server/mcp — to their groups.
+// signal sends sig to every registered child: claude on its PID directly,
+// server and mcp to their process groups when they were started with
+// Setpgid and to the PID otherwise (see the type doc for why). Unregistered
+// or not-yet-started processes are skipped; signalling errors (e.g. an
+// already-exited child) are ignored.
 func (s *shutdown) signal(sig syscall.Signal) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -202,13 +248,26 @@ func (s *shutdown) signal(sig syscall.Signal) {
 	}
 }
 
-func (s *shutdown) StopAll()                    { s.signal(syscall.SIGINT) }
+// StopAll sends SIGINT to all registered children — the first, graceful
+// stop attempt.
+func (s *shutdown) StopAll() { s.signal(syscall.SIGINT) }
+
+// Escalate re-signals all children with a harder signal (SIGTERM, SIGKILL)
+// when a previous one did not stop them in time.
 func (s *shutdown) Escalate(sig syscall.Signal) { s.signal(sig) }
 
-// handleSignals catches Ctrl-C/Term and stops processes with escalation:
-// SIGINT (immediately) → SIGTERM (after timeout) → SIGKILL (after another timeout).
-// Repeated signal accelerates escalation (not lost — defect #12).
-// done is closed on cancellation from run() (via defer close(done)).
+// handleSignals runs the Ctrl-C/Terminate shutdown dance, in its own
+// goroutine, escalating until the children are gone:
+//
+//	first signal  → SIGINT to everything;
+//	no exit within timeout (or a repeated signal, which skips the wait)
+//	              → SIGTERM;
+//	still nothing (or another signal) → SIGKILL.
+//
+// Repeated signals are never lost or merely echoed — each one pulls the
+// escalation forward immediately (defect #12). Progress is announced on
+// stdout. The goroutine returns without acting when done is closed (run()
+// finished normally and no longer needs it) or when sigCh is closed.
 func handleSignals(sigCh <-chan os.Signal, done <-chan struct{}, shut *shutdown,
 	stdout io.Writer, timeout time.Duration) {
 
@@ -247,6 +306,29 @@ func handleSignals(sigCh <-chan os.Signal, done <-chan struct{}, shut *shutdown,
 	}
 }
 
+// run is the whole program minus os.Exit: testable end to end with injected
+// argument list, output streams and CommandRunner. It returns the process
+// exit code (0 success, 1 runtime/launcher failure, 2 bad configuration or
+// flags; help and -version return 0).
+//
+// Flow:
+//  1. parse flags (help → 0), apply the default alias, resolve the OpenAI
+//     key only when an external provider was actually requested;
+//  2. handle the one-shot modes: -doctor and -update exit here;
+//  3. validate and resolve all paths, then build and start llama-server in
+//     its own process group, with LD_LIBRARY_PATH pointed at the sibling
+//     lib/ or lib64/ directory, the chosen working directory, and logs going
+//     either to the rotating log file (-quiet-server) or to the inherited
+//     streams; optionally start mcp-search-server the same way;
+//  4. register everything with the shutdown coordinator and start the
+//     escalating signal handler;
+//  5. -server mode: wait for the server and exit with its status;
+//     default mode: wait for /health, optionally start the local proxy when
+//     an external provider is configured (routing llama-server vs OpenAI),
+//     wait for the MCP server and write its config, then launch Claude Code
+//     with the ANTHROPIC_* environment — reconnecting its stdio to /dev/tty
+//     when the parent's streams were redirected. When Claude Code exits,
+//     deferred cleanup stops server and MCP, and run returns.
 func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	cfg, err := parseFlags(args, stderr)
 	if err != nil {
@@ -737,7 +819,11 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 
 }
 
-// printUsageRU prints detailed program help in Russian.
+// printUsageRU writes the full command-line help in Russian: program purpose,
+// all flag groups (core, llama.cpp tuning, speculative decoding, Claude Code,
+// config file, llama.cpp update) with defaults, usage examples and a
+// networking tip. It is selected by printUsageForLocale when the console
+// locale is Russian.
 func printUsageRU(w io.Writer) {
 	fmt.Fprintf(w, `llama-runner — лаунчер для llama-server и Claude Code
 
@@ -858,7 +944,10 @@ Claude Code:
 `)
 }
 
-// printUsageEN prints detailed program help in English.
+// printUsageEN writes the full command-line help in English — the mirror of
+// printUsageRU: program purpose, every flag group with its defaults, usage
+// examples and a networking tip. It is the default help language and is used
+// whenever the console locale is not Russian.
 func printUsageEN(w io.Writer) {
 	fmt.Fprintf(w, `llama-runner — launcher for llama-server and Claude Code
 

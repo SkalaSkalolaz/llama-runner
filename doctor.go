@@ -8,8 +8,19 @@ import (
 	"strings"
 )
 
-// runDoctor prints diagnostics without spawning child processes.
-// Returns exit code: 0 — all ok, 1 — path problems, 2 — invalid config.
+// runDoctor implements -doctor: it prints a read-only diagnostic report —
+// version, effective config file and profile, resolved existence-checked
+// paths for the model, llama-server, mmproj, draft model and chat template,
+// the claude executable (PATH lookup or absolute path), and where the OpenAI
+// key came from — and finally the exact llama-server command line that would
+// be executed, with paths normalised the same way run() normalises them
+// (expandHome + filepath.Abs), so the report cannot diverge from reality.
+//
+// No child processes are spawned. Exit codes:
+//
+//	0 — everything checked out;
+//	1 — a path is missing, is a directory, or claude was not found;
+//	2 — the configuration itself is invalid (validateConfig failed).
 func runDoctor(cfg *Config, home string, runner CommandRunner, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "llama-runner doctor\n")
 	fmt.Fprintf(stdout, "  версия:         %s\n", version)

@@ -9,8 +9,23 @@ import (
 	"strings"
 )
 
-// updateLlamaCPP updates and installs llama.cpp. Runs git pull (if upstream exists),
-// cmake configure, build, install.
+// updateLlamaCPP implements -update: it brings the llama.cpp installation up
+// to date in four steps, streaming each tool's output to stdout (commands
+// themselves are echoed only with verbose):
+//
+//  1. git pull --ff-only in srcPath — skipped with a notice when the current
+//     branch has no upstream, in which case the existing checkout is built;
+//  2. cmake configure into <srcPath>/build with CMAKE_BUILD_TYPE=Release and
+//     CMAKE_INSTALL_PREFIX=installPrefix; CUDA toggled via GGML_CUDA, with
+//     CMAKE_CUDA_ARCHITECTURES pinned to cudaArch or unset to let cmake
+//     auto-detect;
+//  3. cmake build using all logical CPUs;
+//  4. cmake install into installPrefix.
+//
+// srcPath must be an existing directory (resolved to an absolute path
+// first); every step's failure aborts the update with a wrapped error naming
+// the failed step. runner is injected so tests can observe the command
+// sequence without executing git or cmake.
 func updateLlamaCPP(runner CommandRunner, srcPath, installPrefix, cudaArch string,
 	withCuda, verbose bool, stdout io.Writer) error {
 
