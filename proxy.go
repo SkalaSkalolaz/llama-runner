@@ -110,7 +110,7 @@ func (h *proxyHandler) authMiddleware(next http.Handler) http.Handler {
 	want := h.cfg.ProxyToken
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if requestToken(r) != want {
-			h.logf("auth rejected: %s %s (token mismatch or missing)", r.Method, r.URL.Path)
+			h.logf(T(msgProxyAuthReject), r.Method, r.URL.Path)
 			writeAnthropicError(w, http.StatusUnauthorized,
 				"authentication_error", "invalid or missing API token")
 			return
@@ -237,7 +237,7 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			writeAnthropicError(w, http.StatusRequestEntityTooLarge,
-				"request_too_large", fmt.Sprintf("тело запроса больше %d байт", maxErr.Limit))
+				"request_too_large", strings.TrimSuffix(TF(msgBodyTooLarge, maxErr.Limit), "\n"))
 			return
 		}
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -247,7 +247,7 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", "invalid JSON: "+err.Error())
+		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", strings.TrimSuffix(TF(msgInvalidJSON, err), "\n"))
 		return
 	}
 	model, _ := req["model"].(string)
@@ -277,7 +277,7 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, req map[string]any, stream bool) {
 	openAIReq, err := h.convert(req)
 	if err != nil {
-		writeAnthropicError(w, http.StatusInternalServerError, "api_error", "convert: "+err.Error())
+		writeAnthropicError(w, http.StatusInternalServerError, "api_error", strings.TrimSuffix(TF(msgConvertErr, err), "\n"))
 		return
 	}
 	openAIReq["stream"] = stream
@@ -292,7 +292,7 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 
 	resp, err := h.client.Do(proxyReq)
 	if err != nil {
-		writeAnthropicError(w, http.StatusBadGateway, "api_error", "llama-server: "+err.Error())
+		writeAnthropicError(w, http.StatusBadGateway, "api_error", strings.TrimSuffix(TF(msgUpstreamErr, err), "\n"))
 		return
 	}
 	defer resp.Body.Close()
@@ -300,12 +300,12 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		writeAnthropicError(w, resp.StatusCode, anthropicErrorType(resp.StatusCode),
-			"llama-server upstream: "+string(b))
+			strings.TrimSuffix(TF(msgLlamaUpstream, string(b)), "\n"))
 		return
 	}
 	if stream {
 		in, out := convertOpenAIStreamToAnthropic(w, resp, "llama-server")
-		h.logf("← usage: input_tokens=%d, output_tokens=%d", in, out)
+		h.logf(T(msgProxyUsage), in, out)
 		return
 	}
 	convertOpenAIResponseToAnthropic(w, resp, "llama-server")
@@ -323,7 +323,7 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, req map[string]any, stream bool) {
 	openAIReq, err := h.convert(req)
 	if err != nil {
-		writeAnthropicError(w, http.StatusInternalServerError, "api_error", "convert: "+err.Error())
+		writeAnthropicError(w, http.StatusInternalServerError, "api_error", strings.TrimSuffix(TF(msgConvertErr, err), "\n"))
 		return
 	}
 	openAIReq["stream"] = stream
@@ -338,7 +338,7 @@ func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, r
 
 	resp, err := h.client.Do(proxyReq)
 	if err != nil {
-		writeAnthropicError(w, http.StatusBadGateway, "api_error", "openai: "+err.Error())
+		writeAnthropicError(w, http.StatusBadGateway, "api_error", strings.TrimSuffix(TF(msgUpstreamOpenai, err), "\n"))
 		return
 	}
 	defer resp.Body.Close()
@@ -346,12 +346,12 @@ func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, r
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		writeAnthropicError(w, resp.StatusCode, anthropicErrorType(resp.StatusCode),
-			"openai upstream: "+string(b))
+			strings.TrimSuffix(TF(msgOpenaiUpstream, string(b)), "\n"))
 		return
 	}
 	if stream {
 		in, out := convertOpenAIStreamToAnthropic(w, resp, h.cfg.OpenAIModel)
-		h.logf("← usage: input_tokens=%d, output_tokens=%d", in, out)
+		h.logf(T(msgProxyUsage), in, out)
 		return
 	}
 	convertOpenAIResponseToAnthropic(w, resp, h.cfg.OpenAIModel)
@@ -561,12 +561,12 @@ func (h *proxyHandler) convert(req map[string]any) (map[string]any, error) {
 	if err != nil {
 		return out, err
 	}
-	h.logf("→ апстрим: %s", requestSummary(out))
+	h.logf(T(msgProxyUpstream), requestSummary(out))
 	for _, line := range toolMessagesPreview(out) {
 		h.logf("%s", line)
 	}
 	if st.Dropped() > 0 {
-		h.logf("отброшено блоков: %s (thinking не имеет аналога в OpenAI, image требует -mmproj)", st.Summary())
+		h.logf(T(msgProxyDropped), st.Summary())
 	}
 	return out, err
 }

@@ -22,8 +22,8 @@ import (
 //	1 — a path is missing, is a directory, or claude was not found;
 //	2 — the configuration itself is invalid (validateConfig failed).
 func runDoctor(cfg *Config, home string, runner CommandRunner, stdout, stderr io.Writer) int {
-	fmt.Fprintf(stdout, "llama-runner doctor\n")
-	fmt.Fprintf(stdout, "  версия:         %s\n", version)
+	fmt.Fprintln(stdout, "llama-runner doctor")
+	fmt.Fprint(stdout, TF(msgDoctorVersion, version))
 
 	cfgPath := cfg.ConfigPath
 	if cfgPath == "" {
@@ -31,77 +31,78 @@ func runDoctor(cfg *Config, home string, runner CommandRunner, stdout, stderr io
 	}
 	absCfg := expandHome(cfgPath, home)
 	if _, err := os.Stat(absCfg); err == nil {
-		fmt.Fprintf(stdout, "  конфиг:         %s\n", absCfg)
+		fmt.Fprint(stdout, TF(msgDoctorConfig, absCfg))
 	} else {
-		fmt.Fprintf(stdout, "  конфиг:         %s (не найден — встроенные дефолты)\n", absCfg)
+		fmt.Fprint(stdout, TF(msgDoctorConfigMiss, absCfg))
 	}
 	if cfg.Profile != "" {
-		fmt.Fprintf(stdout, "  профиль:        %s\n", cfg.Profile)
+		fmt.Fprint(stdout, TF(msgDoctorProfile, cfg.Profile))
 	}
 
 	if err := validateConfig(cfg); err != nil {
-		fmt.Fprintf(stderr, "  ошибка конфига: %v\n", err)
+		fmt.Fprint(stderr, TF(msgErrDoctorConfig, err))
 		return 2
 	}
 
 	code := 0
-	checkPath := func(label, path string) {
+	checkPath := func(labelKey, path string) {
+		label := T(labelKey)
 		if path == "" {
-			fmt.Fprintf(stdout, "  %-15s (не задан)\n", label+":")
+			fmt.Fprint(stdout, TF(msgDoctorNotSet, label))
 			return
 		}
 		abs, err := filepath.Abs(expandHome(path, home))
 		if err != nil {
-			fmt.Fprintf(stdout, "  %-15s %s (ошибка пути: %v)\n", label+":", path, err)
+			fmt.Fprint(stdout, TF(msgDoctorPathErr, label, path, err))
 			code = 1
 			return
 		}
 		info, err := os.Stat(abs)
 		if err != nil {
-			fmt.Fprintf(stdout, "  %-15s %s (НЕ найден: %v)\n", label+":", abs, err)
+			fmt.Fprint(stdout, TF(msgDoctorNotFound, label, abs, err))
 			code = 1
 			return
 		}
 		if info.IsDir() {
-			fmt.Fprintf(stdout, "  %-15s %s (ЭТО КАТАЛОГ)\n", label+":", abs)
+			fmt.Fprint(stdout, TF(msgDoctorIsDir, label, abs))
 			code = 1
 			return
 		}
-		fmt.Fprintf(stdout, "  %-15s %s (OK)\n", label+":", abs)
+		fmt.Fprint(stdout, TF(msgDoctorOk, label, abs))
 	}
 
-	checkPath("модель", cfg.Model)
-	checkPath("llama-server", cfg.ServerBin)
-	checkPath("mmproj", cfg.Mmproj)
-	checkPath("spec-draft", cfg.SpecDraftModel)
+	checkPath(msgLblModel, cfg.Model)
+	checkPath(msgLblServerBin, cfg.ServerBin)
+	checkPath(msgLblMmproj, cfg.Mmproj)
+	checkPath(msgLblSpecDraft, cfg.SpecDraftModel)
 
 	templateRaw := resolveChatTemplate(cfg.ChatTemplate, cfg.Model, cfg.ChatTemplateFallback)
-	checkPath("chat-template", templateRaw)
+	checkPath(msgLblChatTemplate, templateRaw)
 
 	if !cfg.ServerOnly {
 		claudePath := expandHome(cfg.ClaudeBin, home)
 		if resolved, err := runner.LookPath(claudePath); err == nil && resolved != "" {
-			fmt.Fprintf(stdout, "  %-15s %s (OK)\n", "claude:", resolved)
+			fmt.Fprint(stdout, TF(msgDoctorOk, T(msgLblClaude), resolved))
 		} else if filepath.IsAbs(claudePath) {
-			checkPath("claude", claudePath)
+			checkPath(msgLblClaude, claudePath)
 		} else {
-			fmt.Fprintf(stdout, "  %-15s %s (НЕ найден в PATH)\n", "claude:", claudePath)
+			fmt.Fprint(stdout, TF(msgDoctorClaudeNoPath, T(msgLblClaude), claudePath))
 			code = 1
 		}
 	}
 
-	keySrc := "не задан"
+	keySrc := T(msgNotSet)
 	if cfg.OpenAIKey != "" {
 		switch {
 		case os.Getenv("LLAMA_RUNNER_OPENAI_KEY") != "":
-			keySrc = "задан (env LLAMA_RUNNER_OPENAI_KEY)"
+			keySrc = T(msgKeySrcEnvRunner)
 		case os.Getenv("OPENAI_API_KEY") != "":
-			keySrc = "задан (env OPENAI_API_KEY)"
+			keySrc = T(msgKeySrcEnvOpenai)
 		default:
-			keySrc = "задан"
+			keySrc = T(msgKeySrcSet)
 		}
 	}
-	fmt.Fprintf(stdout, "  %-15s %s\n", "OpenAI-ключ:", keySrc)
+	fmt.Fprint(stdout, TF(msgOpenaiKeyLine, T(msgLblOpenaiKey), keySrc))
 
 	// Normalize to the same form as actually passed to run():
 	// expandHome + filepath.Abs. Otherwise doctor prints ~/... ,
@@ -122,8 +123,7 @@ func runDoctor(cfg *Config, home string, runner CommandRunner, stdout, stderr io
 		Draft:    expandAbs(cfg.SpecDraftModel),
 		Template: expandAbs(templateRaw),
 	})
-	fmt.Fprintf(stdout, "\nКоманда llama-server:\n  %s %s\n",
-		expandAbs(cfg.ServerBin), strings.Join(serverArgs, " "))
+	fmt.Fprint(stdout, TF(msgDoctorServerCmd, expandAbs(cfg.ServerBin), strings.Join(serverArgs, " ")))
 
 	return code
 }

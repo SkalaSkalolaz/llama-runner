@@ -32,14 +32,14 @@ func updateLlamaCPP(runner CommandRunner, srcPath, installPrefix, cudaArch strin
 	var err error
 	srcPath, err = filepath.Abs(srcPath)
 	if err != nil {
-		return fmt.Errorf("не удалось определить абсолютный путь исходников: %w", err)
+		return errorf(msgErrSrcAbs, err)
 	}
 	info, err := os.Stat(srcPath)
 	if err != nil {
-		return fmt.Errorf("исходники llama.cpp не найдены по пути %q: %w", srcPath, err)
+		return errorf(msgErrSrcNotFound, err, srcPath)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("путь %q не является каталогом", srcPath)
+		return errorv(msgErrSrcNotDir, srcPath)
 	}
 
 	// Upstream check — quiet, no noise in stderr.
@@ -48,23 +48,23 @@ func updateLlamaCPP(runner CommandRunner, srcPath, installPrefix, cudaArch strin
 	upstreamCheck.Stdout = io.Discard
 	upstreamCheck.Stderr = io.Discard
 	if err := upstreamCheck.Run(); err != nil {
-		fmt.Fprintln(stdout, "  (у текущей ветки нет upstream — git pull пропущен, используем текущий код)")
+		fmt.Fprint(stdout, TF(msgNoUpstreamSkipPull))
 	} else {
 		pullArgs := []string{"-C", srcPath, "pull", "--ff-only"}
 		if verbose {
-			fmt.Fprintf(stdout, "  git %s\n", strings.Join(pullArgs, " "))
+			fmt.Fprint(stdout, TF(msgGitCmd, strings.Join(pullArgs, " ")))
 		}
 		pull := runner.Command("git", pullArgs...)
 		pull.Stdout = stdout
 		pull.Stderr = stdout
 		if err := pull.Run(); err != nil {
-			return fmt.Errorf("git pull: %w", err)
+			return errorf(msgErrGitPull, err)
 		}
 	}
 
 	installAbs, err := filepath.Abs(installPrefix)
 	if err != nil {
-		return fmt.Errorf("не удалось определить абсолютный install-prefix: %w", err)
+		return errorf(msgErrInstallPrefixAbs, err)
 	}
 	cmakeArgs := []string{
 		"-S", srcPath,
@@ -83,42 +83,42 @@ func updateLlamaCPP(runner CommandRunner, srcPath, installPrefix, cudaArch strin
 		cmakeArgs = append(cmakeArgs, "-DGGML_CUDA=OFF", "-U", "CMAKE_CUDA_ARCHITECTURES")
 	}
 	if verbose {
-		fmt.Fprintf(stdout, "  cmake %s\n", strings.Join(cmakeArgs, " "))
+		fmt.Fprint(stdout, TF(msgCMakeCmd, strings.Join(cmakeArgs, " ")))
 	}
 	configure := runner.Command("cmake", cmakeArgs...)
 	configure.Dir = srcPath
 	configure.Stdout = stdout
 	configure.Stderr = stdout
 	if err := configure.Run(); err != nil {
-		return fmt.Errorf("cmake configure: %w", err)
+		return errorf(msgErrCMakeConfigure, err)
 	}
 
 	jobs := runtime.NumCPU()
-	fmt.Fprintf(stdout, "Сборка (%d потоков)...\n", jobs)
+	fmt.Fprint(stdout, TF(msgBuilding, jobs))
 	buildArgs := []string{"--build", filepath.Join(srcPath, "build"),
 		"--config", "Release", "-j", fmt.Sprintf("%d", jobs)}
 	if verbose {
-		fmt.Fprintf(stdout, "  cmake %s\n", strings.Join(buildArgs, " "))
+		fmt.Fprint(stdout, TF(msgCMakeCmd, strings.Join(buildArgs, " ")))
 	}
 	build := runner.Command("cmake", buildArgs...)
 	build.Dir = srcPath
 	build.Stdout = stdout
 	build.Stderr = stdout
 	if err := build.Run(); err != nil {
-		return fmt.Errorf("cmake build: %w", err)
+		return errorf(msgErrCMakeBuild, err)
 	}
 
-	fmt.Fprintf(stdout, "Установка в %s...\n", installPrefix)
+	fmt.Fprint(stdout, TF(msgInstalling, installPrefix))
 	installArgs := []string{"--install", filepath.Join(srcPath, "build")}
 	if verbose {
-		fmt.Fprintf(stdout, "  cmake %s\n", strings.Join(installArgs, " "))
+		fmt.Fprint(stdout, TF(msgCMakeCmd, strings.Join(installArgs, " ")))
 	}
 	install := runner.Command("cmake", installArgs...)
 	install.Dir = srcPath
 	install.Stdout = stdout
 	install.Stderr = stdout
 	if err := install.Run(); err != nil {
-		return fmt.Errorf("cmake install: %w", err)
+		return errorf(msgErrCMakeInstall, err)
 	}
 	return nil
 }

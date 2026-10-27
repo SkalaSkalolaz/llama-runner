@@ -334,6 +334,7 @@ func TestParseFlags_ProfileChatTemplateSet(t *testing.T) {
 }
 
 func TestParseFlags_ExplicitConfigMissing(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8") // текст ошибки локализован
 	dir := t.TempDir()
 	var buf bytes.Buffer
 	if _, err := parseFlagsWithHome(
@@ -347,6 +348,7 @@ func TestParseFlags_ExplicitConfigMissing(t *testing.T) {
 func TestParseFlags_ExplicitConfigMissingWithProfile(t *testing.T) {
 	// Ошибка должна быть про конфиг, не про профиль: сначала файл,
 	// потом профиль.
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
 	dir := t.TempDir()
 	var buf bytes.Buffer
 	if _, err := parseFlagsWithHome(
@@ -359,6 +361,7 @@ func TestParseFlags_ExplicitConfigMissingWithProfile(t *testing.T) {
 
 func TestParseFlags_ProfileWithoutConfigFile(t *testing.T) {
 	// -config "" + -p coder: конфиг отключён, профиль неоткуда взять.
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
 	dir := t.TempDir()
 	var buf bytes.Buffer
 	if _, err := parseFlagsWithHome(
@@ -372,6 +375,7 @@ func TestParseFlags_ProfileWithoutConfigFile(t *testing.T) {
 func TestParseFlags_ProfileWithDefaultConfigMissing(t *testing.T) {
 	// Дефолтный конфиг не существует, но пользователь просит профиль:
 	// это не ошибка про пути, а ошибка про «нечего применять».
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
 	dir := t.TempDir() // без .config/llama-runner/config.json
 	var buf bytes.Buffer
 	if _, err := parseFlagsWithHome(

@@ -32,6 +32,7 @@ func TestRun_Help(t *testing.T) {
 
 func TestRun_BadPort(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("LC_ALL", "ru_RU.UTF-8") // сообщение об ошибке локализовано
 	var out, errb bytes.Buffer
 	code := run([]string{"-port", "abc"}, &out, &errb, fakeRunner{})
 	if code != 2 {
@@ -44,6 +45,7 @@ func TestRun_BadPort(t *testing.T) {
 
 func TestRun_UpdateFlag_PassesThrough(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
 	dir := t.TempDir()
 	runner := fakeRunner{}
 	var out, errb bytes.Buffer

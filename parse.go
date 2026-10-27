@@ -23,7 +23,7 @@ import (
 func parseFlags(args []string, stderr io.Writer) (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("не удалось получить домашний каталог: %w", err)
+		return nil, errorf(msgErrHomeDir, err)
 	}
 	return parseFlagsWithHome(args, stderr, home)
 }
@@ -74,7 +74,7 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 		// Explicit -config but no file — error. For the default
 		// path, a missing file is normal (most users have no config).
 		if fc == nil && configExplicit {
-			return nil, fmt.Errorf("конфиг-файл %q не найден", expandHome(effectivePath, home))
+			return nil, errorv(msgErrConfigFileNotFound, expandHome(effectivePath, home))
 		}
 	}
 
@@ -82,7 +82,7 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 	// nothing to apply the profile from. Cannot ignore silently: doctor
 	// would then lie about "profile: coder", and run() uses defaults.
 	if profileName != "" && fc == nil {
-		return nil, fmt.Errorf("профиль %q не найден: конфиг-файл отсутствует", profileName)
+		return nil, errorv(msgErrProfileNoConfig, profileName)
 	}
 
 	// 3. Assemble Config: built-in defaults → root file → profile.
@@ -104,7 +104,7 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 		if profileName != "" {
 			p, ok := fc.Profiles[profileName]
 			if !ok {
-				return nil, fmt.Errorf("профиль %q не найден в конфиге", profileName)
+				return nil, errorv(msgErrProfileNotFound, profileName)
 			}
 			if err := applyFileConfig(cfg, p); err != nil {
 				return nil, err
@@ -127,78 +127,70 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 	fs.SetOutput(stderr)
 	fs.Usage = func() { printUsageForLocale(stderr) }
 
-	fs.StringVar(&cfg.WorkDir, "dir", cfg.WorkDir, "рабочая директория...")
-	fs.StringVar(&cfg.Host, "host", cfg.Host, "адрес...")
-	fs.StringVar(&cfg.Port, "port", cfg.Port, "порт...")
-	fs.StringVar(&cfg.Model, "model", cfg.Model, "путь к GGUF...")
-	fs.StringVar(&cfg.ServerBin, "bin", cfg.ServerBin, "путь к llama-server...")
-	fs.StringVar(&cfg.CtxSize, "c", cfg.CtxSize, "размер контекста (-c)")
-	fs.StringVar(&cfg.BatchSize, "b", cfg.BatchSize, "размер батча (-b)")
-	fs.StringVar(&cfg.UbatchSize, "ub", cfg.UbatchSize, "размер микро-батча (-ub)")
-	fs.StringVar(&cfg.FlashAttn, "fa", cfg.FlashAttn, "flash attention (-fa)")
-	fs.StringVar(&cfg.Parallel, "parallel", cfg.Parallel, "число параллельных слотов")
-	fs.StringVar(&cfg.Tools, "tools", cfg.Tools, "режим инструментов")
-	fs.BoolVar(&cfg.Jinja, "jinja", cfg.Jinja, "включить Jinja-шаблоны")
-	fs.BoolVar(&cfg.McpProxy, "webui-mcp-proxy", cfg.McpProxy, "включить CORS-прокси")
-	fs.BoolVar(&cfg.LazyMmap, "lm-lazy", cfg.LazyMmap, "mmap с ленивым режимом")
-	fs.BoolVar(&cfg.Verbose, "v", cfg.Verbose, "печатать команду")
+	fs.StringVar(&cfg.WorkDir, "dir", cfg.WorkDir, T(msgFlagDir))
+	fs.StringVar(&cfg.Host, "host", cfg.Host, T(msgFlagHost))
+	fs.StringVar(&cfg.Port, "port", cfg.Port, T(msgFlagPort))
+	fs.StringVar(&cfg.Model, "model", cfg.Model, T(msgFlagModel))
+	fs.StringVar(&cfg.ServerBin, "bin", cfg.ServerBin, T(msgFlagBin))
+	fs.StringVar(&cfg.CtxSize, "c", cfg.CtxSize, T(msgFlagC))
+	fs.StringVar(&cfg.BatchSize, "b", cfg.BatchSize, T(msgFlagB))
+	fs.StringVar(&cfg.UbatchSize, "ub", cfg.UbatchSize, T(msgFlagUb))
+	fs.StringVar(&cfg.FlashAttn, "fa", cfg.FlashAttn, T(msgFlagFa))
+	fs.StringVar(&cfg.Parallel, "parallel", cfg.Parallel, T(msgFlagParallel))
+	fs.StringVar(&cfg.Tools, "tools", cfg.Tools, T(msgFlagTools))
+	fs.BoolVar(&cfg.Jinja, "jinja", cfg.Jinja, T(msgFlagJinja))
+	fs.BoolVar(&cfg.McpProxy, "webui-mcp-proxy", cfg.McpProxy, T(msgFlagMcpProxy))
+	fs.BoolVar(&cfg.LazyMmap, "lm-lazy", cfg.LazyMmap, T(msgFlagLazyMmap))
+	fs.BoolVar(&cfg.Verbose, "v", cfg.Verbose, T(msgFlagVerbose))
 
-	fs.StringVar(&cfg.NGL, "ngl", cfg.NGL, "число слоёв на GPU")
-	fs.StringVar(&cfg.Mmproj, "mmproj", cfg.Mmproj, "путь к mmproj")
-	fs.StringVar(&cfg.Temp, "temp", cfg.Temp, "температура")
-	fs.StringVar(&cfg.TopP, "top-p", cfg.TopP, "top-p")
-	fs.StringVar(&cfg.CacheTypeK, "cache-type-k", cfg.CacheTypeK, "тип K-кэша")
-	fs.StringVar(&cfg.CacheTypeV, "cache-type-v", cfg.CacheTypeV, "тип V-кэша")
-	fs.StringVar(&cfg.FitMode, "fit", cfg.FitMode, "режим --fit")
-	fs.StringVar(&cfg.LogVerbosity, "lv", cfg.LogVerbosity, "уровень логов (-lv)")
-	fs.StringVar(&cfg.Reasoning, "reasoning", cfg.Reasoning,
-		"режим размышлений: on|off|auto (пусто — значение llama-server по умолчанию)")
-	fs.StringVar(&cfg.ReasoningBudget, "reasoning-budget", cfg.ReasoningBudget,
-		"бюджет токенов на размышления: -1 (без лимита), 0 (отключить), N (положительное число)")
-	fs.StringVar(&cfg.SpecType, "spec-type", cfg.SpecType, "тип spec-декодирования")
-	fs.StringVar(&cfg.SpecDraftModel, "spec-draft-model", cfg.SpecDraftModel, "путь к драфтеру")
-	fs.StringVar(&cfg.SpecDraftNMax, "spec-draft-n-max", cfg.SpecDraftNMax, "n-max драфтера")
-	fs.StringVar(&cfg.SpecDraftNGL, "spec-draft-ngl", cfg.SpecDraftNGL, "ngl драфтера")
+	fs.StringVar(&cfg.NGL, "ngl", cfg.NGL, T(msgFlagNgl))
+	fs.StringVar(&cfg.Mmproj, "mmproj", cfg.Mmproj, T(msgFlagMmproj))
+	fs.StringVar(&cfg.Temp, "temp", cfg.Temp, T(msgFlagTemp))
+	fs.StringVar(&cfg.TopP, "top-p", cfg.TopP, T(msgFlagTopP))
+	fs.StringVar(&cfg.CacheTypeK, "cache-type-k", cfg.CacheTypeK, T(msgFlagCacheK))
+	fs.StringVar(&cfg.CacheTypeV, "cache-type-v", cfg.CacheTypeV, T(msgFlagCacheV))
+	fs.StringVar(&cfg.FitMode, "fit", cfg.FitMode, T(msgFlagFit))
+	fs.StringVar(&cfg.LogVerbosity, "lv", cfg.LogVerbosity, T(msgFlagLv))
+	fs.StringVar(&cfg.Reasoning, "reasoning", cfg.Reasoning, T(msgFlagReasoning))
+	fs.StringVar(&cfg.ReasoningBudget, "reasoning-budget", cfg.ReasoningBudget, T(msgFlagReasoningBudget))
+	fs.StringVar(&cfg.SpecType, "spec-type", cfg.SpecType, T(msgFlagSpecType))
+	fs.StringVar(&cfg.SpecDraftModel, "spec-draft-model", cfg.SpecDraftModel, T(msgFlagSpecDraftModel))
+	fs.StringVar(&cfg.SpecDraftNMax, "spec-draft-n-max", cfg.SpecDraftNMax, T(msgFlagSpecDraftNMax))
+	fs.StringVar(&cfg.SpecDraftNGL, "spec-draft-ngl", cfg.SpecDraftNGL, T(msgFlagSpecDraftNGL))
 
-	fs.BoolVar(&cfg.UpdateFlag, "update", false, "обновить llama.cpp")
-	fs.StringVar(&cfg.LlamaSrc, "llama-src", cfg.LlamaSrc, "путь к исходникам")
-	fs.StringVar(&cfg.InstallPrefix, "install-prefix", cfg.InstallPrefix, "префикс установки")
-	fs.BoolVar(&cfg.WithCuda, "cuda", cfg.WithCuda, "собирать с CUDA")
-	fs.StringVar(&cfg.CudaArch, "cuda-arch", cfg.CudaArch, "архитектура CUDA")
+	fs.BoolVar(&cfg.UpdateFlag, "update", false, T(msgFlagUpdate))
+	fs.StringVar(&cfg.LlamaSrc, "llama-src", cfg.LlamaSrc, T(msgFlagLlamaSrc))
+	fs.StringVar(&cfg.InstallPrefix, "install-prefix", cfg.InstallPrefix, T(msgFlagInstallPrefix))
+	fs.BoolVar(&cfg.WithCuda, "cuda", cfg.WithCuda, T(msgFlagCuda))
+	fs.StringVar(&cfg.CudaArch, "cuda-arch", cfg.CudaArch, T(msgFlagCudaArch))
 
-	fs.BoolVar(&cfg.ServerOnly, "server", false, "только llama-server")
-	fs.StringVar(&cfg.ClaudeBin, "claude-bin", cfg.ClaudeBin, "путь к claude")
-	fs.StringVar(&cfg.ClaudeDir, "claude-dir", cfg.ClaudeDir, "рабочая директория claude")
-	fs.StringVar(&cfg.Alias, "alias", cfg.Alias, "алиас модели")
-	fs.DurationVar(&cfg.ReadyTimeout, "ready-timeout", cfg.ReadyTimeout, "таймаут готовности")
-	fs.StringVar(&cfg.ChatTemplate, "chat-template", cfg.ChatTemplate, "шаблон чата")
-	fs.StringVar(&cfg.LogFile, "log-file", cfg.LogFile, "лог-файл")
-	fs.BoolVar(&cfg.QuietServer, "quiet-server", cfg.QuietServer, "уводить логи в файл")
-	fs.IntVar(&cfg.LogMaxMB, "log-max-mb", cfg.LogMaxMB,
-		"макс. размер лога llama-server в МБ перед ротацией (0 — не ротировать)")
-	fs.IntVar(&cfg.LogKeep, "log-keep", cfg.LogKeep,
-		"сколько архивов лога хранить (0 — без архивов)")
-	fs.StringVar(&cfg.McpAddr, "mcp-addr", cfg.McpAddr, "адрес mcp-search-server")
-	fs.StringVar(&cfg.McpConfigOut, "mcp-config", cfg.McpConfigOut, "куда записать MCP-конфиг")
-	fs.BoolVar(&cfg.McpStrict, "mcp-strict", cfg.McpStrict, "strict-mcp-config")
+	fs.BoolVar(&cfg.ServerOnly, "server", false, T(msgFlagServer))
+	fs.StringVar(&cfg.ClaudeBin, "claude-bin", cfg.ClaudeBin, T(msgFlagClaudeBin))
+	fs.StringVar(&cfg.ClaudeDir, "claude-dir", cfg.ClaudeDir, T(msgFlagClaudeDir))
+	fs.StringVar(&cfg.Alias, "alias", cfg.Alias, T(msgFlagAlias))
+	fs.DurationVar(&cfg.ReadyTimeout, "ready-timeout", cfg.ReadyTimeout, T(msgFlagReadyTimeout))
+	fs.StringVar(&cfg.ChatTemplate, "chat-template", cfg.ChatTemplate, T(msgFlagChatTemplate))
+	fs.StringVar(&cfg.LogFile, "log-file", cfg.LogFile, T(msgFlagLogFile))
+	fs.BoolVar(&cfg.QuietServer, "quiet-server", cfg.QuietServer, T(msgFlagQuietServer))
+	fs.IntVar(&cfg.LogMaxMB, "log-max-mb", cfg.LogMaxMB, T(msgFlagLogMaxMB))
+	fs.IntVar(&cfg.LogKeep, "log-keep", cfg.LogKeep, T(msgFlagLogKeep))
+	fs.StringVar(&cfg.McpAddr, "mcp-addr", cfg.McpAddr, T(msgFlagMcpAddr))
+	fs.StringVar(&cfg.McpConfigOut, "mcp-config", cfg.McpConfigOut, T(msgFlagMcpConfig))
+	fs.BoolVar(&cfg.McpStrict, "mcp-strict", cfg.McpStrict, T(msgFlagMcpStrict))
 
-	fs.BoolVar(&cfg.VersionFlag, "version", false, "показать версию")
+	fs.BoolVar(&cfg.VersionFlag, "version", false, T(msgFlagVersion))
 
-	fs.StringVar(&cfg.OpenAIBaseURL, "openai", cfg.OpenAIBaseURL, "URL OpenAI-совместимого API")
-	fs.StringVar(&cfg.OpenAIKey, "key", cfg.OpenAIKey, "API-ключ для внешнего провайдера")
-	fs.StringVar(&cfg.OpenAIModel, "model-openai", cfg.OpenAIModel, "Название модели у внешнего провайдера")
-	fs.StringVar(&cfg.ProxyAddr, "proxy-addr", cfg.ProxyAddr, "адрес локального прокси (гибридный режим)")
-	fs.StringVar(&cfg.ProxyToken, "proxy-token", cfg.ProxyToken,
-		"токен для аутентификации входящих запросов прокси (пусто — без проверки)")
-	fs.BoolVar(&cfg.ProxyAllowRemote, "proxy-allow-remote", cfg.ProxyAllowRemote,
-		"разрешить не-loopback -proxy-addr без предупреждения")
+	fs.StringVar(&cfg.OpenAIBaseURL, "openai", cfg.OpenAIBaseURL, T(msgFlagOpenai))
+	fs.StringVar(&cfg.OpenAIKey, "key", cfg.OpenAIKey, T(msgFlagKey))
+	fs.StringVar(&cfg.OpenAIModel, "model-openai", cfg.OpenAIModel, T(msgFlagModelOpenai))
+	fs.StringVar(&cfg.ProxyAddr, "proxy-addr", cfg.ProxyAddr, T(msgFlagProxyAddr))
+	fs.StringVar(&cfg.ProxyToken, "proxy-token", cfg.ProxyToken, T(msgFlagProxyToken))
+	fs.BoolVar(&cfg.ProxyAllowRemote, "proxy-allow-remote", cfg.ProxyAllowRemote, T(msgFlagProxyAllowRem))
 
 	// M6: config, profile, doctor.
-	fs.StringVar(&cfg.ConfigPath, "config", cfg.ConfigPath,
-		"путь к конфиг-файлу (\"\" — не читать)")
-	fs.StringVar(&cfg.Profile, "p", cfg.Profile, "профиль из конфиг-файла")
-	fs.BoolVar(&cfg.DoctorFlag, "doctor", false,
-		"показать разрешённые пути и версию, не запуская процессы")
+	fs.StringVar(&cfg.ConfigPath, "config", cfg.ConfigPath, T(msgFlagConfig))
+	fs.StringVar(&cfg.Profile, "p", cfg.Profile, T(msgFlagP))
+	fs.BoolVar(&cfg.DoctorFlag, "doctor", false, T(msgFlagDoctor))
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -231,21 +223,21 @@ func parseFlagsWithHome(args []string, stderr io.Writer, home string) (*Config, 
 //     host:port pair.
 func validateConfig(cfg *Config) error {
 	if cfg.ReadyTimeout <= 0 {
-		return fmt.Errorf("-ready-timeout должен быть больше нуля")
+		return errorv(msgErrReadyTimeoutPositive)
 	}
 	if strings.TrimSpace(cfg.Host) == "" {
-		return fmt.Errorf("-host не может быть пустым")
+		return errorv(msgErrHostEmpty)
 	}
 	portNum, err := strconv.Atoi(cfg.Port)
 	if err != nil || portNum < 1 || portNum > 65535 {
-		return fmt.Errorf("некорректный -port %q: ожидается число от 1 до 65535", cfg.Port)
+		return errorv(msgErrPortBad, cfg.Port)
 	}
 	if strings.TrimSpace(cfg.McpAddr) == "" {
-		return fmt.Errorf("-mcp-addr не может быть пустым")
+		return errorv(msgErrMcpAddrEmpty)
 	}
 	if cfg.McpProxy {
 		if _, _, err := net.SplitHostPort(cfg.McpAddr); err != nil {
-			return fmt.Errorf("некорректный -mcp-addr %q: используйте host:port", cfg.McpAddr)
+			return errorv(msgErrMcpAddrHostPort, cfg.McpAddr)
 		}
 	}
 
@@ -253,31 +245,31 @@ func validateConfig(cfg *Config) error {
 		switch cfg.Reasoning {
 		case "on", "off", "auto":
 		default:
-			return fmt.Errorf("invalid -reasoning %q: expect on, off or auto", cfg.Reasoning)
+			return errorv(msgErrReasoning, cfg.Reasoning)
 		}
 	}
 	if cfg.ReasoningBudget != "" {
 		n, err := strconv.Atoi(cfg.ReasoningBudget)
 		if err != nil || n < -1 {
-			return fmt.Errorf("invalid -reasoning-budget %q: expect -1, 0 or a positive number", cfg.ReasoningBudget)
+			return errorv(msgErrReasoningBudget, cfg.ReasoningBudget)
 		}
 	}
 	if cfg.OpenAIBaseURL != "" || cfg.OpenAIKey != "" || cfg.OpenAIModel != "" {
 		if cfg.OpenAIBaseURL == "" {
-			return fmt.Errorf("-openai обязателен при использовании -key или -model-openai")
+			return errorv(msgErrOpenaiRequired)
 		}
 		if cfg.OpenAIKey == "" {
-			return fmt.Errorf("-key обязателен при использовании -openai")
+			return errorv(msgErrKeyRequired)
 		}
 		if cfg.OpenAIModel == "" {
-			return fmt.Errorf("-model-openai обязателен при использовании -openai")
+			return errorv(msgErrModelOpenaiRequired)
 		}
 		if _, err := url.ParseRequestURI(cfg.OpenAIBaseURL); err != nil {
-			return fmt.Errorf("некорректный -openai URL %q: %v", cfg.OpenAIBaseURL, err)
+			return errorv(msgErrOpenaiURLBad, cfg.OpenAIBaseURL, err)
 		}
 		if cfg.ProxyAddr != "" {
 			if _, _, err := net.SplitHostPort(cfg.ProxyAddr); err != nil {
-				return fmt.Errorf("некорректный -proxy-addr %q: используйте host:port", cfg.ProxyAddr)
+				return errorv(msgErrProxyAddrBad, cfg.ProxyAddr)
 			}
 		}
 	}
@@ -321,12 +313,12 @@ func validateTemplatePath(raw, home string, explicit bool) (string, error) {
 	}
 	p, err := filepath.Abs(expandHome(raw, home))
 	if err != nil {
-		return "", fmt.Errorf("не удалось определить абсолютный путь chat-template: %w", err)
+		return "", errorf(msgErrTemplateAbs, err)
 	}
 	info, statErr := os.Stat(p)
 	if statErr != nil || !info.Mode().IsRegular() {
 		if explicit {
-			return "", fmt.Errorf("указанный -chat-template недоступен или не является обычным файлом: %q (%v)", p, statErr)
+			return "", errorv(msgErrTemplateMissing, p, statErr)
 		}
 		return "", nil
 	}
@@ -547,18 +539,17 @@ func resolveOpenAIKey(keyFlag string, env func(string) string, home string, stde
 	path := credentialsPath(home)
 	if _, err := os.Stat(path); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintf(stderr, "предупреждение: не удалось проверить %q: %v\n", path, err)
+			fmt.Fprint(stderr, TF(msgWarnCredCheck, path, err))
 		}
 		return "", nil
 	}
 	info, err := os.Stat(path)
 	if err == nil && info.Mode().Perm() != 0o600 {
-		fmt.Fprintf(stderr, "предупреждение: %q имеет права %o, рекомендуется 0600\n",
-			path, info.Mode().Perm())
+		fmt.Fprint(stderr, TF(msgWarnCredPerms, path, info.Mode().Perm()))
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintf(stderr, "предупреждение: не удалось прочитать %q: %v\n", path, err)
+		fmt.Fprint(stderr, TF(msgWarnCredRead, path, err))
 		return "", nil
 	}
 	for _, line := range strings.Split(string(data), "\n") {

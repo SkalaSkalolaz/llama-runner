@@ -7,6 +7,7 @@ import (
 )
 
 func TestUpdateLlamaCPP_NoUpstream(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8") // сообщение локализовано
 	dir := t.TempDir()
 	runner := fakeRunner{scripts: map[string]string{
 		"git rev-parse": "exit 1", // нет upstream

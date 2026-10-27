@@ -109,49 +109,49 @@ func resolvePaths(cfg *Config, home string, stdout, stderr io.Writer) (resolvedP
 
 	serverPath, err := filepath.Abs(expandHome(cfg.ServerBin, home))
 	if err != nil {
-		fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь llama-server: %v\n", err)
+		fmt.Fprint(stderr, TF(msgErrResolved, errorv(msgErrBinAbs, err)))
 		return p, 2
 	}
 	p.ServerBin = serverPath
 
 	modelPath, err := filepath.Abs(expandHome(cfg.Model, home))
 	if err != nil {
-		fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь модели: %v\n", err)
+		fmt.Fprint(stderr, TF(msgErrResolved, errorv(msgErrModelAbs, err)))
 		return p, 2
 	}
 	p.Model = modelPath
 
 	if _, err := os.Stat(p.ServerBin); err != nil {
-		fmt.Fprintf(stderr, "llama-server не найден по пути %q: %v\n", p.ServerBin, err)
+		fmt.Fprint(stderr, TF(msgBinNotFound, p.ServerBin, err))
 		return p, 1
 	}
 	if _, err := os.Stat(p.Model); err != nil {
-		fmt.Fprintf(stderr, "модель не найдена по пути %q: %v\n", p.Model, err)
+		fmt.Fprint(stderr, TF(msgModelNotFound, p.Model, err))
 		return p, 1
 	}
 
 	templateRaw := resolveChatTemplate(cfg.ChatTemplate, p.Model, cfg.ChatTemplateFallback)
 	if cfg.Verbose && cfg.ChatTemplate == "auto" && templateRaw != "" {
-		fmt.Fprintf(stdout, "Автоопределение шаблона: qwen → %s\n", templateRaw)
+		fmt.Fprint(stdout, TF(msgTemplateAutoDetected, templateRaw))
 	}
 	templatePath, terr := validateTemplatePath(templateRaw, home, cfg.ChatTemplateSet)
 	if terr != nil {
-		fmt.Fprintf(stderr, "ошибка: %v\n", terr)
+		fmt.Fprint(stderr, TF(msgErrResolved, terr))
 		return p, 2
 	}
 	if templateRaw != "" && templatePath == "" && !cfg.ChatTemplateSet {
-		fmt.Fprintf(stderr, "предупреждение: автоматически выбранный шаблон %q недоступен; использую шаблон из GGUF\n", templateRaw)
+		fmt.Fprint(stderr, TF(msgWarnTemplateAuto, templateRaw))
 	}
 	p.Template = templatePath
 
 	if cfg.Mmproj != "" {
 		mmprojPath, err := filepath.Abs(expandHome(cfg.Mmproj, home))
 		if err != nil {
-			fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь mmproj: %v\n", err)
+			fmt.Fprint(stderr, TF(msgErrResolved, errorv(msgErrMmprojAbs, err)))
 			return p, 2
 		}
 		if _, err := os.Stat(mmprojPath); err != nil {
-			fmt.Fprintf(stderr, "mmproj не найден по пути %q: %v\n", mmprojPath, err)
+			fmt.Fprint(stderr, TF(msgMmprojNotFound, mmprojPath, err))
 			return p, 1
 		}
 		p.Mmproj = mmprojPath
@@ -160,11 +160,11 @@ func resolvePaths(cfg *Config, home string, stdout, stderr io.Writer) (resolvedP
 	if cfg.SpecDraftModel != "" {
 		draftPath, err := filepath.Abs(expandHome(cfg.SpecDraftModel, home))
 		if err != nil {
-			fmt.Fprintf(stderr, "ошибка: не удалось определить абсолютный путь spec-draft-model: %v\n", err)
+			fmt.Fprint(stderr, TF(msgErrResolved, errorv(msgErrDraftAbs, err)))
 			return p, 2
 		}
 		if _, err := os.Stat(draftPath); err != nil {
-			fmt.Fprintf(stderr, "spec-draft-model не найден по пути %q: %v\n", draftPath, err)
+			fmt.Fprint(stderr, TF(msgDraftNotFound, draftPath, err))
 			return p, 1
 		}
 		p.Draft = draftPath
@@ -281,7 +281,7 @@ func handleSignals(sigCh <-chan os.Signal, done <-chan struct{}, shut *shutdown,
 		}
 		sig = s
 	}
-	fmt.Fprintf(stdout, "\nПолучен сигнал %v — останавливаем дочерние процессы...\n", sig)
+	fmt.Fprint(stdout, TF(msgSignalReceived, sig))
 	shut.StopAll()
 
 	for _, esc := range []struct {
@@ -298,9 +298,9 @@ func handleSignals(sigCh <-chan os.Signal, done <-chan struct{}, shut *shutdown,
 			if !ok {
 				return
 			}
-			fmt.Fprintf(stdout, "\nПовторный сигнал %v — эскалация без ожидания\n", s)
+			fmt.Fprint(stdout, TF(msgSignalRepeatEscalate, s))
 		case <-time.After(timeout):
-			fmt.Fprintf(stdout, "\nЭскалация: %s\n", esc.name)
+			fmt.Fprint(stdout, TF(msgEscalation, esc.name))
 		}
 		shut.Escalate(esc.sig)
 	}
@@ -346,12 +346,12 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 
 	if cfg.ServerOnly && cfg.OpenAIBaseURL != "" {
-		fmt.Fprintln(stderr, "предупреждение: -openai/-key/-model-openai игнорируются в режиме -server")
+		fmt.Fprint(stderr, TF(msgWarnOpenaiIgnored))
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(stderr, "не удалось получить домашний каталог: %v\n", err)
+		fmt.Fprint(stderr, TF(msgErrHomeDirShort, err))
 		return 1
 	}
 
@@ -364,14 +364,14 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if cfg.OpenAIBaseURL != "" || cfg.OpenAIModel != "" || cfg.OpenAIKey != "" {
 		resolvedKey, keyErr := resolveOpenAIKey(cfg.OpenAIKey, os.Getenv, home, stderr)
 		if keyErr != nil {
-			fmt.Fprintf(stderr, "ошибка: %v\n", keyErr)
+			fmt.Fprint(stderr, TF(msgErrResolved, keyErr))
 			return 2
 		}
 		cfg.OpenAIKey = resolvedKey
 	}
 
 	if err := validateConfig(cfg); err != nil {
-		fmt.Fprintf(stderr, "ошибка: %v\n", err)
+		fmt.Fprint(stderr, TF(msgErrResolved, err))
 		return 2
 	}
 	if cfg.DoctorFlag {
@@ -382,10 +382,10 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		installAbs := expandHome(cfg.InstallPrefix, home)
 		if err := updateLlamaCPP(runner, srcAbs, installAbs, cfg.CudaArch,
 			cfg.WithCuda, cfg.Verbose, stdout); err != nil {
-			fmt.Fprintf(stderr, "ошибка обновления llama.cpp: %v\n", err)
+			fmt.Fprint(stderr, TF(msgErrUpdate, err))
 			return 1
 		}
-		fmt.Fprintln(stdout, "llama.cpp успешно обновлён и установлен.")
+		fmt.Fprint(stdout, TF(msgUpdateSuccess))
 		return 0
 	}
 
@@ -426,7 +426,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 			// Already in the environment — don't duplicate (otherwise the log shows
 			// ".../lib:/home/.../lib:/usr/local/cuda/lib64:").
 			if cfg.Verbose {
-				fmt.Fprintf(stdout, "LD_LIBRARY_PATH для llama-server: %s (уже содержит %s)\n", oldLP, abs)
+				fmt.Fprint(stdout, TF(msgLdLibPathAlready, oldLP, abs))
 			}
 		} else {
 			newLP := abs
@@ -435,7 +435,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 			}
 			cmd.Env = append(cmd.Env, "LD_LIBRARY_PATH="+newLP)
 			if cfg.Verbose {
-				fmt.Fprintf(stdout, "LD_LIBRARY_PATH для llama-server: %s\n", newLP)
+				fmt.Fprint(stdout, TF(msgLdLibPath, newLP))
 			}
 		}
 		break
@@ -444,11 +444,11 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if cfg.WorkDir != "" {
 		absDir, dirErr := filepath.Abs(expandHome(cfg.WorkDir, home))
 		if dirErr != nil {
-			fmt.Fprintf(stderr, "не удалось определить абсолютный путь рабочей директории: %v\n", dirErr)
+			fmt.Fprint(stderr, TF(msgErrWorkDirAbs, dirErr))
 			return 1
 		}
 		if info, statErr := os.Stat(absDir); statErr != nil || !info.IsDir() {
-			fmt.Fprintf(stderr, "рабочая директория %q недоступна: %v\n", absDir, statErr)
+			fmt.Fprint(stderr, TF(msgErrWorkDirUnavail, absDir, statErr))
 			return 1
 		}
 		cmd.Dir = absDir
@@ -466,13 +466,13 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if !cfg.ServerOnly && cfg.QuietServer {
 		logPath := expandHome(cfg.LogFile, home)
 		if mkErr := os.MkdirAll(filepath.Dir(logPath), 0o700); mkErr != nil {
-			fmt.Fprintf(stderr, "не удалось создать каталог для логов %q: %v\n", filepath.Dir(logPath), mkErr)
+			fmt.Fprint(stderr, TF(msgErrLogDirCreate, filepath.Dir(logPath), mkErr))
 			return 1
 		}
 		if cfg.LogMaxMB > 0 {
 			rw, rwErr := newRotatingWriter(logPath, int64(cfg.LogMaxMB)*1024*1024, cfg.LogKeep, 0o600)
 			if rwErr != nil {
-				fmt.Fprintf(stderr, "не удалось открыть ротируемый лог-файл %q: %v\n", logPath, rwErr)
+				fmt.Fprint(stderr, TF(msgErrLogOpenRotating, logPath, rwErr))
 				return 1
 			}
 			defer rw.Close()
@@ -480,12 +480,12 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		} else {
 			f, openErr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 			if openErr != nil {
-				fmt.Fprintf(stderr, "не удалось открыть лог-файл %q: %v\n", logPath, openErr)
+				fmt.Fprint(stderr, TF(msgErrLogOpen, logPath, openErr))
 				return 1
 			}
 			if chErr := f.Chmod(0o600); chErr != nil {
 				_ = f.Close()
-				fmt.Fprintf(stderr, "не удалось установить права доступа к лог-файлу %q: %v\n", logPath, chErr)
+				fmt.Fprint(stderr, TF(msgErrLogChmod, logPath, chErr))
 				return 2
 			}
 			serverLogFile = f
@@ -502,15 +502,15 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	cmd.Stdin = os.Stdin
 
 	if cfg.Verbose {
-		fmt.Fprintf(stdout, "Рабочая директория: %s\n", cmd.Dir)
-		fmt.Fprintf(stdout, "Команда: %s %s\n\n", paths.ServerBin, strings.Join(serverArgs, " "))
+		fmt.Fprint(stdout, TF(msgWorkDirLine, cmd.Dir))
+		fmt.Fprint(stdout, TF(msgCommandLine, paths.ServerBin, strings.Join(serverArgs, " ")), "\n")
 		if serverLogFile != nil {
-			fmt.Fprintf(stdout, "Логи llama-server: %s\n", serverLogFile.Name())
+			fmt.Fprint(stdout, TF(msgServerLogFile, serverLogFile.Name()))
 		}
 	} else {
-		fmt.Fprintf(stdout, "Запуск llama-server на %s:%s ...\n", cfg.Host, cfg.Port)
+		fmt.Fprint(stdout, TF(msgStartingServer, cfg.Host, cfg.Port))
 		if serverLogFile != nil {
-			fmt.Fprintf(stdout, "Логи llama-server: %s\n", serverLogFile.Name())
+			fmt.Fprint(stdout, TF(msgServerLogFile, serverLogFile.Name()))
 		}
 	}
 
@@ -534,10 +534,10 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 			mcpCmd.Dir = cmd.Dir
 		}
 		if cfg.Verbose {
-			fmt.Fprintf(stdout, "MCP-сервер: SEARCH_ENABLED=true mcp-search-server --addr %s\n\n", cfg.McpAddr)
+			fmt.Fprint(stdout, TF(msgMcpCommandLine, cfg.McpAddr), "\n")
 		}
 		if startErr := mcpCmd.Start(); startErr != nil {
-			fmt.Fprintf(stderr, "ошибка запуска mcp-search-server: %v\n", startErr)
+			fmt.Fprint(stderr, TF(msgErrMcpStart, startErr))
 			// mcpCmd.Process == nil (Start failed), server not yet started,
 			// nothing to stop.
 			return 1
@@ -547,7 +547,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 
 	// --- Launch llama-server ---
 	if startErr := cmd.Start(); startErr != nil {
-		fmt.Fprintf(stderr, "ошибка запуска сервера: %v\n", startErr)
+		fmt.Fprint(stderr, TF(msgErrServerStart, startErr))
 		if mcpCmd != nil && mcpCmd.Process != nil {
 			_ = mcpCmd.Process.Signal(syscall.SIGINT)
 			_ = mcpCmd.Wait()
@@ -591,11 +591,11 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 				stopMcp(mcpCmd)
 				return exitErr.ExitCode()
 			}
-			fmt.Fprintf(stderr, "сервер завершился с ошибкой: %v\n", waitErr)
+			fmt.Fprint(stderr, TF(msgServerExitErr, waitErr))
 			stopMcp(mcpCmd)
 			return 1
 		}
-		fmt.Fprintln(stdout, "llama-server завершён.")
+		fmt.Fprint(stdout, TF(msgServerDone))
 		stopMcp(mcpCmd)
 		return 0
 	}
@@ -610,12 +610,12 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	baseURL := "http://" + net.JoinHostPort(strings.Trim(healthHost, "[]"), cfg.Port)
 	healthURL := baseURL + "/health"
 
-	fmt.Fprintf(stdout, "Ожидание готовности сервера (%s), таймаут %v ...\n", healthURL, cfg.ReadyTimeout)
+	fmt.Fprint(stdout, TF(msgWaitingReady, healthURL, cfg.ReadyTimeout))
 	if waitErr := waitForServerProcess(healthURL, cfg.ReadyTimeout, serverProcess); waitErr != nil {
-		fmt.Fprintf(stderr, "ошибка: %v\n", waitErr)
+		fmt.Fprint(stderr, TF(msgErrResolved, waitErr))
 		return 1
 	}
-	fmt.Fprintln(stdout, "llama-server готов. Запуск Claude Code...")
+	fmt.Fprint(stdout, TF(msgServerReady))
 
 	// --- Local proxy for switching between llama-server and OpenAI ---
 	var proxySrv *http.Server
@@ -627,12 +627,9 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		}
 
 		if shouldWarnProxyExposure(proxyAddr, cfg) {
-			fmt.Fprintf(stderr, "предупреждение: прокси слушает не-loopback адрес %s без аутентификации — "+
-				"любой в сети может использовать ваш платный ключ. Задайте -proxy-token (и тот же токен "+
-				"в Claude Code) или явный -proxy-allow-remote.\n", proxyAddr)
+			fmt.Fprint(stderr, TF(msgWarnProxyExposure, proxyAddr))
 		}
-		fmt.Fprintf(stdout, "Запуск прокси на %s (llama → %s, openai → %s)\n",
-			proxyAddr, llamaTargetURL, cfg.OpenAIBaseURL)
+		fmt.Fprint(stdout, TF(msgStartingProxy, proxyAddr, llamaTargetURL, cfg.OpenAIBaseURL))
 
 		var proxyLogWriter io.Writer
 		if serverLogWriter != nil {
@@ -644,19 +641,18 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 					proxyLogWriter = pf
 					defer func() { _ = pf.Close() }()
 					if cfg.Verbose {
-						fmt.Fprintf(stdout, "Логи прокси: %s\n", proxyLogPath)
+						fmt.Fprint(stdout, TF(msgProxyLogFile, proxyLogPath))
 					}
 				}
 			}
 		}
 		if cfg.Verbose && proxyLogWriter == nil {
-			fmt.Fprintln(stdout,
-				"предупреждение: не удалось открыть лог-файл для [proxy] — логи прокси отключены, чтобы не портить TUI Claude Code")
+			fmt.Fprint(stdout, TF(msgWarnProxyLogDisabled))
 		}
 
 		srv, err := StartProxyServer(proxyAddr, llamaTargetURL, cfg, proxyLogWriter)
 		if err != nil {
-			fmt.Fprintf(stderr, "ошибка запуска прокси: %v\n", err)
+			fmt.Fprint(stderr, TF(msgErrProxyStart, err))
 			return 1
 		}
 		proxySrv = srv
@@ -669,7 +665,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 		// Wait for proxy readiness (not sleep, but poll)
 		proxyHealthURL := "http://" + proxyAddr + "/v1/models"
 		if err := waitForServer(proxyHealthURL, 5*time.Second); err != nil {
-			fmt.Fprintf(stderr, "прокси не поднялся: %v\n", err)
+			fmt.Fprint(stderr, TF(msgProxyNotUp, err))
 			return 1
 		}
 
@@ -680,30 +676,28 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if cfg.McpProxy {
 		mcpHost, mcpPort, splitErr := net.SplitHostPort(cfg.McpAddr)
 		if splitErr != nil {
-			fmt.Fprintf(stderr, "некорректный -mcp-addr %q: %v\n", cfg.McpAddr, splitErr)
+			fmt.Fprint(stderr, TF(msgErrMcpAddrInvalid, cfg.McpAddr, splitErr))
 			return 2
 		}
 		mcpURL := "http://" + net.JoinHostPort(strings.Trim(mcpHost, "[]"), mcpPort)
 		mcpHealthURL := mcpURL + "/health"
 		mcpEndpointURL := mcpURL + "/mcp"
 
-		fmt.Fprintf(stdout, "Ожидание готовности MCP-сервера (%s) ...\n", mcpHealthURL)
+		fmt.Fprint(stdout, TF(msgWaitingMcpReady, mcpHealthURL))
 		if mcpWaitErr := waitForServer(mcpHealthURL, 15*time.Second); mcpWaitErr != nil {
-			fmt.Fprintf(stderr,
-				"предупреждение: mcp-search-server не готов: %v\n"+
-					"Claude Code будет запущен без web_search.\n", mcpWaitErr)
+			fmt.Fprint(stderr, TF(msgWarnMcpNotReady, mcpWaitErr))
 		} else {
 			requestedConfigPath := expandHome(cfg.McpConfigOut, home)
 			path, werr := writeMCPConfig(requestedConfigPath, mcpEndpointURL)
 			if werr != nil {
-				fmt.Fprintf(stderr, "предупреждение: не удалось создать MCP-конфиг: %v\n", werr)
+				fmt.Fprint(stderr, TF(msgWarnMcpConfigWrite, werr))
 			} else {
 				mcpConfigFile = path
 				if requestedConfigPath == "" {
 					defer os.Remove(mcpConfigFile)
 				}
 				if cfg.Verbose {
-					fmt.Fprintf(stdout, "MCP-конфиг: %s (url=%s, type=http)\n", path, mcpEndpointURL)
+					fmt.Fprint(stdout, TF(msgMcpConfigLine, path, mcpEndpointURL))
 				}
 			}
 		}
@@ -714,7 +708,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if resolved, lookErr := runner.LookPath(claudePath); lookErr == nil {
 		claudePath = resolved
 	} else if !filepath.IsAbs(claudePath) {
-		fmt.Fprintf(stderr, "Claude Code не найден (%q): %v\n", cfg.ClaudeBin, lookErr)
+		fmt.Fprint(stderr, TF(msgClaudeNotFound, cfg.ClaudeBin, lookErr))
 		return 1
 	}
 
@@ -733,17 +727,17 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 			ccTTY = tty
 			defer func() { _ = ccTTY.Close() }()
 			if cfg.Verbose {
-				fmt.Fprintln(stdout, "Claude Code: stdio перенаправлен в /dev/tty (родительские stdout/stderr — не TTY)")
+				fmt.Fprint(stdout, TF(msgClaudeTtyRedirect))
 			}
 		} else {
-			fmt.Fprintln(stderr, "предупреждение: stdout/stderr не TTY, /dev/tty недоступен — Claude Code может не запуститься интерактивно")
+			fmt.Fprint(stderr, TF(msgWarnNoTty))
 		}
 	}
 
 	cc := runner.Command(claudePath, claudeArgs...)
 	cc.Env = claudeEnv
 	if cfg.Verbose && len(claudeArgs) > 0 {
-		fmt.Fprintf(stdout, "Claude Code args: %v\n", claudeArgs)
+		fmt.Fprint(stdout, TF(msgClaudeArgsLine, claudeArgs))
 	}
 	if ccTTY != nil {
 		cc.Stdin = ccTTY
@@ -759,11 +753,11 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	if cfg.ClaudeDir != "" {
 		absDir, dirErr := filepath.Abs(expandHome(cfg.ClaudeDir, home))
 		if dirErr != nil {
-			fmt.Fprintf(stderr, "не удалось определить абсолютный путь claude-dir: %v\n", dirErr)
+			fmt.Fprint(stderr, TF(msgErrClaudeDirAbs, dirErr))
 			return 1
 		}
 		if info, statErr := os.Stat(absDir); statErr != nil || !info.IsDir() {
-			fmt.Fprintf(stderr, "claude-dir %q недоступна: %v\n", absDir, statErr)
+			fmt.Fprint(stderr, TF(msgErrClaudeDirUnavail, absDir, statErr))
 			return 1
 		}
 		cc.Dir = absDir
@@ -772,10 +766,10 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 
 	if cfg.Verbose {
-		fmt.Fprintf(stdout, "Claude Code: %s (cwd=%s)\n", claudePath, cc.Dir)
-		fmt.Fprintf(stdout, "  ANTHROPIC_BASE_URL=%s\n", baseURL)
+		fmt.Fprint(stdout, TF(msgClaudeRunLine, claudePath, cc.Dir))
+		fmt.Fprint(stdout, "  ", TF(msgAnthropicBaseURL, baseURL))
 		if cfg.ProxyToken != "" {
-			fmt.Fprintln(stdout, "  ANTHROPIC_AUTH_TOKEN=<configured via -proxy-token, hidden>")
+			fmt.Fprint(stdout, "  ", TF(msgAnthropicTokenHidden))
 		}
 		// Print the actually set ANTHROPIC_* from claudeEnv, not cfg.Alias:
 		// in hybrid mode all three DEFAULT_* point to the external model, not the
@@ -797,7 +791,7 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	}
 
 	if startErr := cc.Start(); startErr != nil {
-		fmt.Fprintf(stderr, "ошибка запуска Claude Code: %v\n", startErr)
+		fmt.Fprint(stderr, TF(msgErrClaudeStart, startErr))
 		return 1
 	}
 	shut.SetClaude(cc)
@@ -806,15 +800,15 @@ func run(args []string, stdout, stderr io.Writer, runner CommandRunner) int {
 	ccErr := claudeProcess.Wait()
 	if ccErr != nil {
 		if exitErr, ok := ccErr.(*exec.ExitError); ok {
-			fmt.Fprintf(stdout, "Claude Code завершён с кодом %d. Останавливаем llama-server...\n", exitErr.ExitCode())
+			fmt.Fprint(stdout, TF(msgClaudeExitCode, exitErr.ExitCode()))
 		} else {
-			fmt.Fprintf(stderr, "Claude Code завершился с ошибкой: %v\n", ccErr)
+			fmt.Fprint(stderr, TF(msgClaudeExitErr, ccErr))
 		}
 	} else {
-		fmt.Fprintln(stdout, "Claude Code завершён. Останавливаем llama-server...")
+		fmt.Fprint(stdout, TF(msgClaudeDone))
 	}
 
-	fmt.Fprintln(stdout, "Готово.")
+	fmt.Fprint(stdout, TF(msgDone))
 	return 0
 
 }

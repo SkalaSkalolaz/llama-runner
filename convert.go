@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -84,7 +85,7 @@ func (s ConvertStats) Summary() string {
 		parts = append(parts, fmt.Sprintf("%d image", s.DroppedImages))
 	}
 	if s.DroppedUnknown > 0 {
-		parts = append(parts, fmt.Sprintf("%d неизвестных", s.DroppedUnknown))
+		parts = append(parts, fmt.Sprintf(T(msgSummaryUnknown), s.DroppedUnknown))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -442,7 +443,7 @@ func requestSummary(openAIReq map[string]any) string {
 		}
 	}
 	tools, _ := openAIReq["tools"].([]map[string]any)
-	return fmt.Sprintf("%d сообщений: system=%v, assistant с tool_calls=%d, tool-ответов=%d, схем инструментов=%d",
+	return fmt.Sprintf(T(msgSummaryMessages),
 		len(msgs), hasSystem, toolCalls, toolMsgs, len(tools))
 }
 
@@ -541,7 +542,7 @@ func truncate(s string, maxLen int) string {
 func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Response, modelName string) (int, int) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeAnthropicError(w, http.StatusInternalServerError, "api_error", "streaming unsupported")
+		writeAnthropicError(w, http.StatusInternalServerError, "api_error", T(msgStreamingUnsupp))
 		return 0, 0
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -703,7 +704,7 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 	//   assume the provider simply doesn't send [DONE] (some do this).
 	streamErr := scanner.Err()
 	if streamErr == nil && !gotDone && !gotFinishReason {
-		streamErr = fmt.Errorf("upstream stream ended before [DONE]")
+		streamErr = errors.New(T(msgStreamNoDone))
 	}
 	if streamErr != nil {
 		// Close open blocks so the client doesn't hang on an unclosed
@@ -720,7 +721,7 @@ func convertOpenAIStreamToAnthropic(w http.ResponseWriter, openAIResp *http.Resp
 			"type": "error",
 			"error": map[string]any{
 				"type":    "api_error",
-				"message": "upstream stream interrupted: " + streamErr.Error(),
+				"message": strings.TrimSuffix(TF(msgStreamInterrupte, streamErr), "\n"),
 			},
 		})
 		return inputTokens, outputTokens

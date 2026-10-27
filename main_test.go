@@ -196,6 +196,7 @@ func TestWaitForServer_Success(t *testing.T) {
 }
 
 func TestWaitForServer_Timeout(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8") // текст ошибки локализован
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -258,6 +259,7 @@ func TestWaitForServerProcess_ServerReady(t *testing.T) {
 }
 
 func TestWaitForServerProcess_ProcessDiesEarly(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -279,6 +281,7 @@ func TestWaitForServerProcess_ProcessDiesEarly(t *testing.T) {
 }
 
 func TestWaitForServerProcess_Timeout(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))

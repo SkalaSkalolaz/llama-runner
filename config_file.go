@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -231,7 +230,7 @@ func applyFileConfig(cfg *Config, fc fileConfig) error {
 	if fc.ReadyTimeout != nil {
 		d, err := time.ParseDuration(*fc.ReadyTimeout)
 		if err != nil {
-			return fmt.Errorf("некорректный readyTimeout %q: %w", *fc.ReadyTimeout, err)
+			return errorf(msgErrReadyTimeoutBad, err, *fc.ReadyTimeout)
 		}
 		cfg.ReadyTimeout = d
 	}
@@ -257,11 +256,11 @@ func loadConfigFile(path, home string) (*fileConfig, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("не удалось прочитать конфиг %q: %w", absPath, err)
+		return nil, errorf(msgErrConfigRead, err, absPath)
 	}
 	var fc fileConfig
 	if err := json.Unmarshal(data, &fc); err != nil {
-		return nil, fmt.Errorf("некорректный JSON в конфиге %q: %w", absPath, err)
+		return nil, errorf(msgErrConfigJSON, err, absPath)
 	}
 	return &fc, nil
 }

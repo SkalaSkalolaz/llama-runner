@@ -100,6 +100,8 @@ func TestHandleSignals_EscalatesByTimeout(t *testing.T) {
 		<-p.done
 	}()
 
+	t.Setenv("LC_ALL", "ru_RU.UTF-8") // сообщения handleSignals локализованы
+
 	shut := newShutdown()
 	shut.SetServer(cmd)
 
@@ -141,6 +143,8 @@ func TestHandleSignals_SecondSignalEscalates(t *testing.T) {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		<-p.done
 	}()
+
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
 
 	shut := newShutdown()
 	shut.SetServer(cmd)

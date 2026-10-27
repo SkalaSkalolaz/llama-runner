@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -144,7 +145,7 @@ func waitForReady(ctx context.Context, url string, timeout time.Duration, done <
 		if resp.StatusCode == http.StatusOK {
 			return true
 		}
-		lastErr = fmt.Errorf("статус %d", resp.StatusCode)
+		lastErr = fmt.Errorf(T(msgStatus), resp.StatusCode)
 		return false
 	}
 
@@ -152,7 +153,7 @@ func waitForReady(ctx context.Context, url string, timeout time.Duration, done <
 		if done != nil {
 			select {
 			case <-done:
-				return fmt.Errorf("%s завершился до готовности", label)
+				return errorv(msgFinishedBeforeRdy, label)
 			default:
 			}
 		}
@@ -161,19 +162,19 @@ func waitForReady(ctx context.Context, url string, timeout time.Duration, done <
 		}
 		select {
 		case <-done:
-			return fmt.Errorf("%s завершился до готовности", label)
+			return errorv(msgFinishedBeforeRdy, label)
 		case <-ctx.Done():
 			if done != nil {
 				select {
 				case <-done:
-					return fmt.Errorf("%s завершился до готовности", label)
+					return errorv(msgFinishedBeforeRdy, label)
 				default:
 				}
 			}
 			if lastErr == nil {
-				lastErr = fmt.Errorf("таймаут")
+				lastErr = errors.New(T(msgTimeout))
 			}
-			return fmt.Errorf("%s не стал готов за %v: %v", label, timeout, lastErr)
+			return errorv(msgNotReadyInTime, label, timeout, lastErr)
 		case <-ticker.C:
 		}
 	}
@@ -184,7 +185,7 @@ func waitForReady(ctx context.Context, url string, timeout time.Duration, done <
 // are not represented by a tracked child — the proxy and the MCP server.
 // Retained as a thin compatibility wrapper around waitForReady.
 func waitForServer(url string, timeout time.Duration) error {
-	return waitForReady(context.Background(), url, timeout, nil, "сервер")
+	return waitForReady(context.Background(), url, timeout, nil, T(msgLabelServer))
 }
 
 // waitForServerProcess is waitForServer with an additional early-exit
@@ -218,21 +219,21 @@ func stopMcp(mcpCmd *exec.Cmd) {
 	case err := <-done:
 		if err != nil {
 			if _, ok := err.(*exec.ExitError); !ok {
-				fmt.Fprintf(os.Stderr, "mcp-search-server завершился с ошибкой: %v\n", err)
+				fmt.Fprint(os.Stderr, TF(msgMcpExitErr, err))
 			}
 		}
 	case <-time.After(3 * time.Second):
-		fmt.Fprintln(os.Stderr, "mcp-search-server не завершился за 3 секунды — убиваем")
+		fmt.Fprint(os.Stderr, TF(msgMcpKill))
 		_ = mcpCmd.Process.Kill()
 		select {
 		case err := <-done:
 			if err != nil {
 				if _, ok := err.(*exec.ExitError); !ok {
-					fmt.Fprintf(os.Stderr, "ошибка ожидания mcp-search-server: %v\n", err)
+					fmt.Fprint(os.Stderr, TF(msgMcpWaitErr, err))
 				}
 			}
 		case <-time.After(3 * time.Second):
-			fmt.Fprintln(os.Stderr, "предупреждение: процесс mcp-search-server не подтвердил завершение после Kill")
+			fmt.Fprint(os.Stderr, TF(msgMcpKillUnconfirmed))
 		}
 	}
 }

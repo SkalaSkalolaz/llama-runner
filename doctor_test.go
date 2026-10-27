@@ -9,6 +9,7 @@ import (
 )
 
 func TestRunDoctor_OK(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8") // вывод локализзован, проверяем русские подписи
 	dir := t.TempDir()
 	model := filepath.Join(dir, "model.gguf")
 	if err := os.WriteFile(model, []byte("x"), 0o600); err != nil {
@@ -42,6 +43,7 @@ func TestRunDoctor_OK(t *testing.T) {
 }
 
 func TestRunDoctor_MissingModel(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
 	dir := t.TempDir()
 	cfg := defaultConfig()
 	cfg.Model = filepath.Join(dir, "missing.gguf")
@@ -60,6 +62,7 @@ func TestRunDoctor_MissingModel(t *testing.T) {
 }
 
 func TestRunDoctor_InvalidConfig(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
 	dir := t.TempDir()
 	cfg := defaultConfig()
 	cfg.Port = "not-a-number" // validateConfig упадёт
@@ -92,6 +95,7 @@ func TestRunDoctor_DoesNotStartProcesses(t *testing.T) {
 }
 
 func TestRunDoctor_PrintsCommand(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
 	dir := t.TempDir()
 	model := filepath.Join(dir, "m.gguf")
 	if err := os.WriteFile(model, []byte("x"), 0o600); err != nil {

@@ -456,6 +456,7 @@ func TestHandleMessages_InvalidJSONIsAnthropicError(t *testing.T) {
 
 func TestRequestSummary(t *testing.T) {
 	// Сводка для -v: по ней проверяют в ручном прогоне, что system и tool-ответы дошли.
+	t.Setenv("LC_ALL", "ru_RU.UTF-8") // сводка локализована
 	out, _, err := ConvertRequest(map[string]any{
 		"model":  "local",
 		"system": "s",
