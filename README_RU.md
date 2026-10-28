@@ -15,7 +15,7 @@
 ## Быстрый старт
 
 ```bash
-go build -o llama-runner .
+go build -o llama-runner ./cmd/llama-runner
 
 ./llama-runner                  # llama-server + Claude Code (по умолчанию)
 ./llama-runner -server          # только llama-server (старое поведение)

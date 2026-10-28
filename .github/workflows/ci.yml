@@ -37,5 +37,5 @@ jobs:
       - name: build with version
         run: |
           VERSION="$(git describe --tags --always --dirty)"
-          go build -ldflags "-X main.version=$VERSION" -o llama-runner .
+          go build -ldflags "-X main.version=$VERSION" -o llama-runner ./cmd/llama-runner
           echo "llama-runner -version -> $(./llama-runner -version)"

@@ -15,7 +15,7 @@ A local launcher: starts `llama-server` with your GGUF model and automatically o
 ## Quick start
 
 ```bash
-go build -o llama-runner .
+go build -o llama-runner ./cmd/llama-runner
 
 ./llama-runner                  # llama-server + Claude Code (default)
 ./llama-runner -server          # llama-server only (legacy behavior)
