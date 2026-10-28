@@ -27,19 +27,17 @@ import (
 
 // IsRussianLocale reports whether the console locale is Russian.
 //
-// Only LC_ALL and LANG are consulted — the POSIX variables that actually
-// select the message locale, with LC_ALL taking precedence over LANG.
-// LANGUAGE is deliberately ignored: GNU gettext only falls back to it when
-// LANG/LC_ALL select the "C"/POSIX locale, so it does not reliably reflect
-// the console language. A value matches when it starts with the "ru"
-// language tag (e.g. "ru_RU.UTF-8"); anything else — including an unset or
-// empty variable — is treated as non-Russian.
+// LC_ALL wins over LANG, matching POSIX precedence: a locale set in LC_ALL
+// decides the answer, even when LANG disagrees. "C", "POSIX" and "C.UTF-8"
+// mean "no language preference" and are skipped so the next variable is
+// consulted. LANGUAGE is deliberately ignored — it selects gettext message
+// translations, not the console locale.
 func IsRussianLocale() bool {
-	if v := os.Getenv("LC_ALL"); strings.HasPrefix(v, "ru") {
-		return true
-	}
-	if v := os.Getenv("LANG"); strings.HasPrefix(v, "ru") {
-		return true
+	for _, v := range []string{os.Getenv("LC_ALL"), os.Getenv("LANG")} {
+		if v == "" || v == "C" || v == "POSIX" || v == "C.UTF-8" {
+			continue
+		}
+		return strings.HasPrefix(v, "ru")
 	}
 	return false
 }

@@ -25,7 +25,7 @@ import (
 // used for local development builds. It is passed down to the run loop and
 // the doctor report as data, so no library package has to depend on the
 // executable.
-var version = "1.5.3"
+var version = "1.6"
 
 // main is the process entry point. It delegates everything to app.Run (which
 // is fully testable with injected streams and runner) and turns the returned

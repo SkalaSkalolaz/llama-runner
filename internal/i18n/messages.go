@@ -205,6 +205,12 @@ const (
 	MsgKeySrcEnvOpenai    = "key_src_env_openai"
 	MsgKeySrcSet          = "key_src_set"
 	MsgDoctorServerCmd    = "doctor_server_cmd"
+	MsgDoctorAlias        = "doctor_alias"
+	MsgAliasSrcCLI        = "alias_src_cli"
+	MsgAliasSrcDerived    = "alias_src_derived"
+	MsgAliasSrcProfile    = "alias_src_profile"
+	MsgAliasSrcFile       = "alias_src_file"
+	MsgAliasSrcDefault    = "alias_src_default"
 
 	// --- Proxy (proxy.go, convert.go) ---
 	MsgBodyTooLarge     = "proxy_body_too_large"
@@ -428,21 +434,27 @@ var messages = map[string]i18nMessage{
 	MsgKeySrcEnvOpenai:    {"задан (env OPENAI_API_KEY)", "set (env OPENAI_API_KEY)"},
 	MsgKeySrcSet:          {"задан", "set"},
 	MsgDoctorServerCmd:    {"\nКоманда llama-server:\n  %s %s", "\nllama-server command:\n  %s %s"},
+	MsgDoctorAlias:        {"  эффективный алиас:  %s (%s)", "  effective alias:  %s (%s)"},
+	MsgAliasSrcCLI:        {"CLI", "CLI"},
+	MsgAliasSrcDerived:    {"выведен из модели", "derived from model"},
+	MsgAliasSrcProfile:    {"профиль", "profile"},
+	MsgAliasSrcFile:       {"конфиг-файл", "config file"},
+	MsgAliasSrcDefault:    {"по умолчанию", "default"},
 
 	// --- Proxy ---
 	MsgBodyTooLarge:     {"тело запроса больше %d байт", "request body larger than %d bytes"},
-	MsgInvalidJSON:      {"invalid JSON: %v", "invalid JSON: %v"},
-	MsgConvertErr:       {"convert: %v", "convert: %v"},
-	MsgLlamaUpstream:    {"llama-server upstream: %s", "llama-server upstream: %s"},
-	MsgOpenaiUpstream:   {"openai upstream: %s", "openai upstream: %s"},
+	MsgInvalidJSON:      {"некорректный JSON: %v", "invalid JSON: %v"},
+	MsgConvertErr:       {"ошибка конвертации: %v", "convert: %v"},
+	MsgLlamaUpstream:    {"ответ llama-server: %s", "llama-server upstream: %s"},
+	MsgOpenaiUpstream:   {"ответ openai: %s", "openai upstream: %s"},
+	MsgStreamingUnsupp:  {"стриминг не поддерживается", "streaming unsupported"},
+	MsgStreamNoDone:     {"поток апстрима завершился без [DONE]", "upstream stream ended before [DONE]"},
+	MsgStreamInterrupte: {"поток апстрима прерван: %v", "upstream stream interrupted: %v"},
+	MsgProxyAuthReject:  {"аутентификация отклонена: %s %s (токен не совпадает или отсутствует)", "auth rejected: %s %s (token mismatch or missing)"},
+	MsgProxyUsage:       {"← использование: input_tokens=%d, output_tokens=%d", "← usage: input_tokens=%d, output_tokens=%d"},
 	MsgUpstreamErr:      {"llama-server: %v", "llama-server: %v"},
 	MsgUpstreamOpenai:   {"openai: %v", "openai: %v"},
-	MsgStreamingUnsupp:  {"streaming unsupported", "streaming unsupported"},
-	MsgStreamNoDone:     {"upstream stream ended before [DONE]", "upstream stream ended before [DONE]"},
-	MsgStreamInterrupte: {"upstream stream interrupted: %v", "upstream stream interrupted: %v"},
-	MsgProxyAuthReject:  {"auth rejected: %s %s (token mismatch or missing)", "auth rejected: %s %s (token mismatch or missing)"},
 	MsgProxyUpstream:    {"→ апстрим: %s", "→ upstream: %s"},
-	MsgProxyUsage:       {"← usage: input_tokens=%d, output_tokens=%d", "← usage: input_tokens=%d, output_tokens=%d"},
 	MsgProxyDropped:     {"отброшено блоков: %s (thinking не имеет аналога в OpenAI, image требует -mmproj)", "dropped blocks: %s (thinking has no OpenAI equivalent, image requires -mmproj)"},
 	MsgSummaryUnknown:   {"%d неизвестных", "%d unknown"},
 	MsgSummaryMessages:  {"%d сообщений: system=%v, assistant с tool_calls=%d, tool-ответов=%d, схем инструментов=%d", "%d messages: system=%v, assistant with tool_calls=%d, tool replies=%d, tool schemas=%d"},

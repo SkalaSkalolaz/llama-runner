@@ -36,8 +36,12 @@ go build -o llama-runner ./cmd/llama-runner
 - **Speculative decoding:** `-spec-type`, `-spec-draft-model`, `-spec-draft-n-max`,
   `-spec-draft-ngl`.
 - **Multimodality:** `-mmproj` attaches a vision projector.
-- **Model alias:** `-alias` sets `--alias` in llama-server and
-  `ANTHROPIC_DEFAULT_*_MODEL` in Claude Code.
+- **Model alias:** `-alias` sets `--alias` in llama-server (its WebUI card) and
+  `ANTHROPIC_DEFAULT_*_MODEL` in Claude Code (its `/model` entry). Without
+  `-alias` the name follows the model actually chosen: derived from the GGUF
+  file name given on the command line (`gpt-oss-20b-Q5_K_M.gguf` →
+  `gpt-oss-20b-Q5_K_M`), else the config file/profile alias, else `local`.
+  A profile keeps its own alias, since it brings its own model too.
 - **Chat template:** `-chat-template "auto"` (picked by model file name, e.g.
   `qwen-fixed-chat-template.jinja`), an explicit path, or `""`.
 - **Reasoning control:** `-reasoning` and `-reasoning-budget` (works only for models
@@ -62,7 +66,7 @@ go build -o llama-runner ./cmd/llama-runner
 | `-model` | `~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf` | Path to the GGUF file |
 | `-bin` | `~/.local/bin/llama-server` | Path to llama-server |
 | `-host` / `-port` | `127.0.0.1` / `8080` | Server address and port |
-| `-alias` | `local` (in Claude Code mode) | Model alias |
+| `-alias` | derived from `-model`, else config file/profile, else `local` | Model alias — llama-server's `--alias` and `ANTHROPIC_DEFAULT_*_MODEL` |
 | `-c`, `-b`, `-ub` | `65536` / `2048` / `1024` | Context / batch / micro-batch |
 | `-fa` | `auto` | Flash attention |
 | `-parallel` | `1` | Number of parallel slots |
@@ -273,9 +277,14 @@ Notes:
 `ANTHROPIC_BASE_URL` (server or proxy address),
 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` — the value of `-proxy-token`,
 or `local-llama` if no token is set,
-`ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL` (in local mode — from `-alias`,
-in hybrid mode — the external model, with `llama-server` added via
+`ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL` (in local mode — from the effective
+alias, in hybrid mode — the external model, with `llama-server` added via
 `ANTHROPIC_CUSTOM_MODEL_OPTION`), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+
+The alias behind those three variables is resolved once per run (`cli.ResolveAlias`),
+so llama-server's `--alias`, its WebUI card and Claude Code's `/model` entry can
+never name different models. `-doctor` prints the resolved value together with its
+origin: `CLI`, `derived from model`, `profile`, `config file` or `default`.
 
 Note: if llama-runner's stdout/stderr is not a TTY (started from a pipe,
 `… | tee`), Claude Code's stdio is redirected to `/dev/tty` so the TUI stays

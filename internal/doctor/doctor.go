@@ -14,8 +14,9 @@ import (
 )
 
 // RunDoctor implements -doctor: it prints a read-only diagnostic report —
-// version, effective config file and profile, resolved existence-checked
-// paths for the model, llama-server, mmproj, draft model and chat template,
+// version, effective config file and profile, the effective model alias with
+// its origin, resolved existence-checked paths for the model, llama-server,
+// mmproj, draft model and chat template,
 // the claude executable (PATH lookup or absolute path), and where the OpenAI
 // key came from — and finally the exact llama-server command line that would
 // be executed, with paths normalised the same way run() normalises them
@@ -43,6 +44,15 @@ func RunDoctor(cfg *config.Config, home string, cmdRunner runner.CommandRunner, 
 	if cfg.Profile != "" {
 		fmt.Fprint(stdout, i18n.TF(i18n.MsgDoctorProfile, cfg.Profile))
 	}
+
+	// The name llama-server will advertise (--alias, and with it the card in
+	// its WebUI) and the name Claude Code will show in /model come from one
+	// place, so the report states both the value and where it came from.
+	// Resolving here rather than trusting cfg.Alias keeps a standalone
+	// -doctor (tests, or any future caller that skips Run's resolution)
+	// honest: the printed value is the one the printed command line uses.
+	alias, aliasSrc := cli.ResolveAlias(cfg)
+	fmt.Fprint(stdout, i18n.TF(i18n.MsgDoctorAlias, alias, i18n.T(aliasSrc)))
 
 	if err := cli.ValidateConfig(cfg); err != nil {
 		fmt.Fprint(stderr, i18n.TF(i18n.MsgErrDoctorConfig, err))
@@ -122,7 +132,12 @@ func RunDoctor(cfg *config.Config, home string, cmdRunner runner.CommandRunner, 
 		}
 		return expanded
 	}
-	serverArgs := cli.BuildServerArgs(cfg, cli.ServerPaths{
+	// BuildServerArgs reads cfg.Alias, so the report must show the resolved
+	// name, not whatever the file happened to contain. The copy keeps
+	// doctor read-only: the caller's cfg is left untouched.
+	aliasCfg := *cfg
+	aliasCfg.Alias = alias
+	serverArgs := cli.BuildServerArgs(&aliasCfg, cli.ServerPaths{
 		Model:    expandAbs(cfg.Model),
 		Mmproj:   expandAbs(cfg.Mmproj),
 		Draft:    expandAbs(cfg.SpecDraftModel),

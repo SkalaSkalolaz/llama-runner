@@ -61,7 +61,7 @@ go build -o llama-runner ./cmd/llama-runner
 | `-model` | `~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf` | Путь к GGUF |
 | `-bin` | `~/.local/bin/llama-server` | Путь к llama-server |
 | `-host` / `-port` | `127.0.0.1` / `8080` | Адрес и порт сервера |
-| `-alias` | `local` (в режиме Claude Code) | Алиас модели |
+| `-alias` | из `-model`, иначе конфиг/профиль, иначе `local` | Алиас модели — `--alias` llama-server и `ANTHROPIC_DEFAULT_*_MODEL` |
 | `-c`, `-b`, `-ub` | `65536` / `2048` / `1024` | Контекст / батч / микро-батч |
 | `-fa` | `auto` | Flash attention |
 | `-parallel` | `1` | Кол-во параллельных слотов |
@@ -274,6 +274,11 @@ OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, �
 `ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL` (в локальном режиме — из `-alias`,
 в гибридном — внешняя модель, а `llama-server` добавляется через
 `ANTHROPIC_CUSTOM_MODEL_OPTION`), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+
+Алиас за этими тремя переменными разрешается один раз за запуск (`cli.ResolveAlias`),
+поэтому `--alias` llama-server, его карточка WebUI и запись `/model` Claude Code
+никогда не укажут на разные модели. `-doctor` выводит разрешённое значение вместе
+с его источником: `CLI`, `из модели`, `профиль`, `конфиг-файл` или `по умолчанию`.
 
 Примечание: если stdout/stderr llama-runner — не TTY (запуск из пайпа,
 `… | tee`), stdio Claude Code перенаправляется в `/dev/tty`, чтобы TUI остался

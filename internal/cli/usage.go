@@ -50,7 +50,10 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
   -port string
         порт сервера (по умолчанию "8080")
   -alias string
-        алиас модели (--alias для llama-server и ANTHROPIC_DEFAULT_*_MODEL)
+        алиас модели (--alias для llama-server и ANTHROPIC_DEFAULT_*_MODEL).
+        По умолчанию: при -model на CLI — выводится из имени GGUF-файла
+        (gpt-oss-20b-Q5_K_M.gguf → gpt-oss-20b-Q5_K_M); иначе — из конфиг-файла
+        или профиля; если не задан нигде — "local"
   -v    печатать команду перед запуском
   -version
         показать версию и выйти
@@ -173,7 +176,10 @@ Main flags:
   -port string
         server port (default "8080")
   -alias string
-        model alias (--alias for llama-server and ANTHROPIC_DEFAULT_*_MODEL)
+        model alias (--alias for llama-server and ANTHROPIC_DEFAULT_*_MODEL).
+        Default: derived from the GGUF file name when -model is given on the
+        command line (gpt-oss-20b-Q5_K_M.gguf -> gpt-oss-20b-Q5_K_M);
+        otherwise the config file/profile alias, otherwise "local"
   -v    print the command before launch
   -version
         show version and exit

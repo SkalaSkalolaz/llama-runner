@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
+	"github.com/SkalaSkalolaz/llama-runner/internal/i18n"
 )
 
 func TestParseFlags_Defaults(t *testing.T) {
@@ -132,5 +135,75 @@ func TestResolveChatTemplate(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// --- naming provenance flags ---
+
+func TestParseFlags_CLIModelSetsModelSet(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var buf bytes.Buffer
+	cfg, err := ParseFlags([]string{"-model", "/m/gpt-oss-20b-Q5_K_M.gguf"}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Model != "/m/gpt-oss-20b-Q5_K_M.gguf" {
+		t.Errorf("Model = %q", cfg.Model)
+	}
+	if !cfg.ModelSet {
+		t.Error("ModelSet = false — ResolveAlias would keep a stale file alias")
+	}
+	if cfg.AliasFromCLI {
+		t.Error("AliasFromCLI = true, want false (-model is not -alias)")
+	}
+}
+
+func TestParseFlags_CLIAliasSetsAliasFromCLI(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var buf bytes.Buffer
+	cfg, err := ParseFlags([]string{"-alias", "Z"}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Alias != "Z" {
+		t.Errorf("Alias = %q, want Z", cfg.Alias)
+	}
+	if !cfg.AliasFromCLI {
+		t.Error("AliasFromCLI = false — a CLI -alias must outrank naming derived from -model")
+	}
+	if !cfg.AliasSet {
+		t.Error("AliasSet = false, want true (backward-compatible meaning)")
+	}
+	if cfg.ModelSet {
+		t.Error("ModelSet = true, want false (-alias is not -model)")
+	}
+}
+
+func TestParseFlags_ProfileModelDoesNotSetModelSet(t *testing.T) {
+	// A profile is self-contained: it supplies its own model AND alias, so
+	// ModelSet must stay false — otherwise ResolveAlias rule 2 would re-derive
+	// the name from the path and throw the profile's alias away.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"profiles": {"coder": {` +
+		`"model": "/m/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00001-of-00002.gguf",` +
+		`"alias": "qwen3.8-coder"}}}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg, err := ParseFlagsWithHome([]string{"-config", cfgPath, "-p", "coder"}, &buf, dir)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.ModelSet {
+		t.Error("ModelSet = true — a profile's model must not trigger name derivation")
+	}
+	if !cfg.AliasSet || !cfg.AliasFromProfile {
+		t.Errorf("AliasSet = %v, AliasFromProfile = %v; want both true",
+			cfg.AliasSet, cfg.AliasFromProfile)
+	}
+	if alias, src := ResolveAlias(cfg); alias != "qwen3.8-coder" || src != i18n.MsgAliasSrcProfile {
+		t.Errorf("ResolveAlias = (%q, %q), want (qwen3.8-coder, profile)", alias, src)
 	}
 }

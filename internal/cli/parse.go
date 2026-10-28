@@ -42,9 +42,12 @@ func ParseFlags(args []string, stderr io.Writer) (*config.Config, error) {
 //  3. -p without a loaded file is an error — silently ignoring it would make
 //     -doctor report a profile that run() never applied;
 //  4. alias and chat-template are special: being set by the file counts as
-//     "explicit" too (AliasSet/ChatTemplateSet), otherwise run() would
-//     overwrite the alias with "local" and a file-provided template would not
-//     be validated as explicit.
+//     "explicit" too (AliasSet/ChatTemplateSet), otherwise a file-provided
+//     alias would be replaced by derived/default naming and a file-provided
+//     template would not be validated as explicit. Flags additionally record
+//     their own origin: -model sets ModelSet (which invalidates a stale
+//     file/profile alias in favour of a name derived from the chosen GGUF)
+//     and -alias sets AliasFromCLI (which outranks that derivation).
 //
 // Returns flag.ErrHelp (after printing localized usage to stderr) when the
 // user asks for help, and a descriptive error for bad flag syntax or missing
@@ -107,6 +110,7 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 			}
 			if p.Alias != nil {
 				cfg.AliasSet = true
+				cfg.AliasFromProfile = true
 			}
 			if p.ChatTemplate != nil {
 				cfg.ChatTemplateSet = true
@@ -196,7 +200,16 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 		case "chat-template":
 			cfg.ChatTemplateSet = true
 		case "alias":
+			// Recorded twice on purpose: AliasSet keeps the value from being
+			// treated as unset, AliasFromCLI puts it on top of the
+			// ResolveAlias precedence chain (rule 1).
 			cfg.AliasSet = true
+			cfg.AliasFromCLI = true
+		case "model":
+			// A command-line -model is a deliberate model choice, so the
+			// visible alias must follow it rather than keep the config file's
+			// name (rule 2 of ResolveAlias).
+			cfg.ModelSet = true
 		}
 	})
 	return cfg, nil

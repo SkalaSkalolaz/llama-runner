@@ -7,7 +7,89 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/SkalaSkalolaz/llama-runner/internal/i18n"
 )
+
+// --- model naming provenance (see cli.ResolveAlias) ---
+
+func TestParseFlags_CLIModelOverridesProfileAlias(t *testing.T) {
+	// -p coder -model Y: the profile brings both a model and a name, but the
+	// model chosen on the command line is the deliberate choice, so the visible
+	// name follows it.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"profiles": {"coder": {` +
+		`"model": "~/GGUF/Qwen3.8-Flash.gguf", "alias": "qwen3.8-coder"}}}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg, err := ParseFlagsWithHome(
+		[]string{"-config", cfgPath, "-p", "coder",
+			"-model", "~/GGUF/gpt-oss-20b-Q5_K_M.gguf"}, &buf, dir)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if !cfg.ModelSet {
+		t.Error("ModelSet = false, want true (-model given on the CLI)")
+	}
+	if cfg.Model != "~/GGUF/gpt-oss-20b-Q5_K_M.gguf" {
+		t.Errorf("Model = %q, want the CLI value (CLI > profile)", cfg.Model)
+	}
+	alias, src := ResolveAlias(cfg)
+	if alias != "gpt-oss-20b-Q5_K_M" {
+		t.Errorf("effective alias = %q, want gpt-oss-20b-Q5_K_M", alias)
+	}
+	if src != i18n.MsgAliasSrcDerived {
+		t.Errorf("origin = %q, want the derived-from-model label", src)
+	}
+}
+
+func TestRegression_CLIModelBeatsStaleFileAlias(t *testing.T) {
+	// The reported bug. config.json pins model=Qwen3.8-35B-A3B-Q4_K_M and
+	// alias=qwen3.8-35b; the user picks gpt-oss on the command line. The GGUF
+	// really was loaded, yet llama-server's --alias (hence its WebUI card)
+	// and ANTHROPIC_DEFAULT_*_MODEL (hence Claude Code's /model) still named
+	// the Qwen model. Both names must now describe the chosen file.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf", "alias": "qwen3.8-35b"}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg, err := ParseFlagsWithHome(
+		[]string{"-config", cfgPath, "-model", "~/GGUF/gpt-oss-20b-Q5_K_M.gguf"},
+		&buf, dir)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.Alias != "qwen3.8-35b" || !cfg.AliasSet {
+		t.Errorf("parse layer: Alias = %q, AliasSet = %v; want qwen3.8-35b, true",
+			cfg.Alias, cfg.AliasSet)
+	}
+
+	// What run() does before building the command line and the environment.
+	cfg.Alias, _ = ResolveAlias(cfg)
+
+	args := BuildServerArgs(cfg, ServerPaths{Model: "/home/u/GGUF/gpt-oss-20b-Q5_K_M.gguf"})
+	if !strings.Contains(strings.Join(args, " "), "--alias gpt-oss-20b-Q5_K_M") {
+		t.Errorf("llama-server args miss --alias gpt-oss-20b-Q5_K_M: %s",
+			strings.Join(args, " "))
+	}
+	env := strings.Join(BuildClaudeEnv(cfg, "http://127.0.0.1:8080",
+		[]string{"PATH=/usr/bin"}), "\n")
+	for _, key := range []string{"SONNET", "HAIKU", "OPUS"} {
+		want := "ANTHROPIC_DEFAULT_" + key + "_MODEL=gpt-oss-20b-Q5_K_M"
+		if !strings.Contains(env, want) {
+			t.Errorf("claude environment misses %q: %s", want, env)
+		}
+	}
+	if strings.Contains(env, "qwen3.8-35b") {
+		t.Errorf("stale alias qwen3.8-35b still published: %s", env)
+	}
+}
 
 func TestParseFlags_ConfigDefaults(t *testing.T) {
 	dir := t.TempDir()

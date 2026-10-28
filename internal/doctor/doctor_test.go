@@ -10,6 +10,83 @@ import (
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 )
 
+// --- effective alias line ---
+
+func TestRunDoctor_ReportsAliasDerivedFromCLIModel(t *testing.T) {
+	// The reported bug, as seen in -doctor: a CLI model choice with a stale
+	// file alias must be reported as derived, and the printed command line must
+	// agree with that report.
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
+	dir := t.TempDir()
+	model := filepath.Join(dir, "gpt-oss-20b-Q5_K_M.gguf")
+	if err := os.WriteFile(model, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "llama-server")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Model = model
+	cfg.ServerBin = bin
+	cfg.ServerOnly = true
+	cfg.ChatTemplate = ""
+	cfg.Alias = "qwen3.8-35b" // из config-file
+	cfg.AliasSet = true
+	cfg.ModelSet = true // из flag -model на CLI
+
+	var stdout, stderr bytes.Buffer
+	if code := RunDoctor(cfg, dir, fakeRunner{}, "9.9.9", &stdout, &stderr); code != 0 {
+		t.Fatalf("code = %d, want 0\nstdout=%s\nstderr=%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "gpt-oss-20b-Q5_K_M (выведен из модели)") {
+		t.Errorf("alias line missing in: %s", out)
+	}
+	if !strings.Contains(out, "--alias gpt-oss-20b-Q5_K_M") {
+		t.Errorf("printed command line keeps a different name: %s", out)
+	}
+	if strings.Contains(out, "qwen3.8-35b") {
+		t.Errorf("stale file alias still published: %s", out)
+	}
+}
+
+func TestRunDoctor_ReportsProfileAlias(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
+	dir := t.TempDir()
+	model := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(model, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "llama-server")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Model = model
+	cfg.ServerBin = bin
+	cfg.ServerOnly = true
+	cfg.ChatTemplate = ""
+	cfg.Profile = "coder"
+	cfg.Alias = "qwen3.8-coder"
+	cfg.AliasSet = true
+	cfg.AliasFromProfile = true
+
+	var stdout, stderr bytes.Buffer
+	if code := RunDoctor(cfg, dir, fakeRunner{}, "9.9.9", &stdout, &stderr); code != 0 {
+		t.Fatalf("code = %d, want 0\nstdout=%s\nstderr=%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "qwen3.8-coder (профиль)") {
+		t.Errorf("profile alias line missing in: %s", out)
+	}
+	if !strings.Contains(out, "--alias qwen3.8-coder") {
+		t.Errorf("printed command line misses the profile alias: %s", out)
+	}
+}
+
 func TestRunDoctor_OK(t *testing.T) {
 	t.Setenv("LC_ALL", "ru_RU.UTF-8") // вывод локализзован, проверяем русские подписи
 	dir := t.TempDir()

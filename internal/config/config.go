@@ -99,8 +99,23 @@ type Config struct {
 	// "auto" default. Explicit templates that are missing are an error;
 	// auto-detected ones degrade to the template embedded in the GGUF.
 	ChatTemplateSet bool
-	// AliasSet reports whether -alias (or the file field alias) was provided
-	// explicitly. When it was not, run substitutes the default alias "local"
-	// for Claude Code mode.
+	// AliasSet reports whether -alias (or the file/profile field alias) was
+	// provided explicitly. It is what keeps a file-provided alias from being
+	// replaced by the derived/default naming (see cli.ResolveAlias rule 3).
 	AliasSet bool
+	// AliasFromCLI reports whether -alias was given on the command line. It
+	// outranks every other naming source, including a CLI -model override
+	// (see cli.ResolveAlias rule 1).
+	AliasFromCLI bool
+	// AliasFromProfile reports whether the selected -p profile supplied the
+	// alias itself. Only the origin label changes: without it a root-file
+	// alias would be reported as "profile" in -doctor when a profile that
+	// sets no alias is active.
+	AliasFromProfile bool
+	// ModelSet reports whether -model was given on the command line. A
+	// command-line model choice invalidates a stale alias coming from the
+	// config file, so the visible model name is derived from the chosen
+	// GGUF instead (see cli.ResolveAlias rule 2). A profile's model does
+	// NOT set this flag: a profile is self-contained and brings its own alias.
+	ModelSet bool
 }
