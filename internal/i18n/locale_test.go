@@ -30,7 +30,7 @@ func TestIsRussianLocale(t *testing.T) {
 		{"LC_ALL ru", "ru_RU.UTF-8", "en_US.UTF-8", "ru_RU:ru", true},
 		{"LANG=en, LANGUAGE=ru (ignored)", "en_US.UTF-8", "", "ru_RU:ru", false},
 		{"LANGUAGE=ru only (not locale)", "", "", "ru_RU:ru", false},
-        {"LC_ALL=en beats LANG=ru (POSIX)", "en_US.UTF-8", "ru_RU.UTF-8", "", false},
+		{"LC_ALL=en beats LANG=ru (POSIX)", "en_US.UTF-8", "ru_RU.UTF-8", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
