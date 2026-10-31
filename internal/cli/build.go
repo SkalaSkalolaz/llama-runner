@@ -104,6 +104,12 @@ func BuildServerArgs(cfg *config.Config, paths ServerPaths) []string {
 	return args
 }
 
+// openaiSlotPlaceholder is the value published in the Opus slot of the
+// Claude Code /model menu when no external OpenAI-compatible provider is
+// configured. The Opus slot is reserved for OpenAI-API models; this literal
+// marks the slot as "OpenAI provider not configured".
+const openaiSlotPlaceholder = "openai"
+
 // BuildClaudeEnv returns a fresh environment slice (KEY=VALUE strings) for
 // the Claude Code child process. baseEnv is copied, never mutated.
 //
@@ -115,12 +121,15 @@ func BuildServerArgs(cfg *config.Config, paths ServerPaths) []string {
 //     x-api-key and the proxy accepts either;
 //   - sets CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 to keep a local
 //     deployment from phoning home;
-//   - maps the standard model aliases: in hybrid mode (external provider
-//     configured) SONNET/HAIKU/OPUS all resolve to the external model and the
-//     local llama-server is exposed as the single custom entry in the /model
-//     menu; in local mode they resolve to cfg.Alias when one is configured
+//   - maps the standard model aliases. The OPUS slot is reserved for models
+//     served through the OpenAI-compatible API: it carries cfg.OpenAIModel in
+//     hybrid mode (external provider configured) and the literal "openai"
+//     (openaiSlotPlaceholder) otherwise — always, even when no alias is
+//     configured. SONNET/HAIKU keep their historical mapping: the external
+//     model in hybrid mode, cfg.Alias in local mode when one is configured
 //     (run() supplies the default "local" unless the alias was set
-//     explicitly).
+//     explicitly). In hybrid mode the local llama-server is additionally
+//     exposed as the single custom entry in the /model menu.
 func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []string {
 	env := append([]string{}, baseEnv...)
 
@@ -138,13 +147,9 @@ func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []stri
 		"ANTHROPIC_API_KEY="+authToken,
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 	)
-	// Local model name: cfg.Alias (already "local" by default from run())
-	localModel := cfg.Alias
-	if localModel == "" {
-		localModel = "local"
-	}
 	if cfg.OpenAIBaseURL != "" && cfg.OpenAIModel != "" {
-		// In hybrid mode all standard aliases point to the external provider.
+		// In hybrid mode all standard aliases point to the external provider;
+		// the Opus slot carries the external model as its OpenAI-model slot.
 		env = append(env,
 			"ANTHROPIC_DEFAULT_SONNET_MODEL="+cfg.OpenAIModel,
 			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+cfg.OpenAIModel,
@@ -154,12 +159,17 @@ func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []stri
 			"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=llama-server (local)",
 			"ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION=Route to local llama-server",
 		)
-	} else if cfg.Alias != "" {
-		env = append(env,
-			"ANTHROPIC_DEFAULT_SONNET_MODEL="+cfg.Alias,
-			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+cfg.Alias,
-			"ANTHROPIC_DEFAULT_OPUS_MODEL="+cfg.Alias,
-		)
+	} else {
+		// Local mode: Sonnet/Haiku keep the local alias, while the Opus slot
+		// stays reserved for an OpenAI-API model and shows the placeholder
+		// because no external provider is configured.
+		if cfg.Alias != "" {
+			env = append(env,
+				"ANTHROPIC_DEFAULT_SONNET_MODEL="+cfg.Alias,
+				"ANTHROPIC_DEFAULT_HAIKU_MODEL="+cfg.Alias,
+			)
+		}
+		env = append(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="+openaiSlotPlaceholder)
 	}
 	return env
 }

@@ -80,11 +80,16 @@ func TestRegression_CLIModelBeatsStaleFileAlias(t *testing.T) {
 	}
 	env := strings.Join(BuildClaudeEnv(cfg, "http://127.0.0.1:8080",
 		[]string{"PATH=/usr/bin"}), "\n")
-	for _, key := range []string{"SONNET", "HAIKU", "OPUS"} {
+	for _, key := range []string{"SONNET", "HAIKU"} {
 		want := "ANTHROPIC_DEFAULT_" + key + "_MODEL=gpt-oss-20b-Q5_K_M"
 		if !strings.Contains(env, want) {
 			t.Errorf("claude environment misses %q: %s", want, env)
 		}
+	}
+	// The Opus slot is reserved for OpenAI-API models: no external provider
+	// is configured here, so it must show the placeholder.
+	if want := "ANTHROPIC_DEFAULT_OPUS_MODEL=openai"; !strings.Contains(env, want) {
+		t.Errorf("claude environment misses %q: %s", want, env)
 	}
 	if strings.Contains(env, "qwen3.8-35b") {
 		t.Errorf("stale alias qwen3.8-35b still published: %s", env)

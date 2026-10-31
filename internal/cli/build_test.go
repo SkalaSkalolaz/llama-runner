@@ -68,7 +68,9 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"ANTHROPIC_API_KEY":              "local-llama",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL": "local",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "local",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL":   "local",
+		// The Opus slot is reserved for OpenAI-API models: without an
+		// external provider it shows the placeholder, not the local alias.
+		"ANTHROPIC_DEFAULT_OPUS_MODEL": "openai",
 	}
 	for k, v := range checks {
 		if m[k] != v {
@@ -80,10 +82,45 @@ func TestBuildClaudeEnv(t *testing.T) {
 func TestBuildClaudeEnv_NoAlias(t *testing.T) {
 	cfg := &config.Config{}
 	env := BuildClaudeEnv(cfg, "http://h:1", nil)
+	m := map[string]string{}
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "ANTHROPIC_DEFAULT_") {
-			t.Errorf("unexpected %q", kv)
-		}
+		parts := strings.SplitN(kv, "=", 2)
+		m[parts[0]] = parts[1]
+	}
+	// Sonnet/Haiku stay unpublished without an alias, but the reserved Opus
+	// slot always carries the OpenAI placeholder.
+	if _, ok := m["ANTHROPIC_DEFAULT_SONNET_MODEL"]; ok {
+		t.Errorf("unexpected ANTHROPIC_DEFAULT_SONNET_MODEL=%q", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
+	}
+	if _, ok := m["ANTHROPIC_DEFAULT_HAIKU_MODEL"]; ok {
+		t.Errorf("unexpected ANTHROPIC_DEFAULT_HAIKU_MODEL=%q", m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
+	}
+	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "openai" {
+		t.Errorf("ANTHROPIC_DEFAULT_OPUS_MODEL = %q, want openai", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+	}
+}
+
+func TestBuildClaudeEnv_OpenAIWithoutModelKeepsPlaceholder(t *testing.T) {
+	// -openai alone (no -model-openai) is not a configured provider: the Opus
+	// slot must keep the placeholder and no custom entry is added.
+	cfg := &config.Config{Alias: "local", OpenAIBaseURL: "https://api.example.com/v1"}
+	env := BuildClaudeEnv(cfg, "http://h:1", nil)
+	m := map[string]string{}
+	for _, kv := range env {
+		parts := strings.SplitN(kv, "=", 2)
+		m[parts[0]] = parts[1]
+	}
+	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "openai" {
+		t.Errorf("opus = %q, want openai", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+	}
+	if m["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "local" {
+		t.Errorf("sonnet = %q, want local", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
+	}
+	if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "local" {
+		t.Errorf("haiku = %q, want local", m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
+	}
+	if _, ok := m["ANTHROPIC_CUSTOM_MODEL_OPTION"]; ok {
+		t.Errorf("unexpected custom option %q", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
 	}
 }
 
