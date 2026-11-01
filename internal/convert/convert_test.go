@@ -68,6 +68,111 @@ func TestConvertRequest_SystemBlocks(t *testing.T) {
 	}
 }
 
+// Claude Code иногда кладёт role=system внутрь массива messages. Строгие
+// OpenAI-совместимые бэкенды (vLLM и шлюзы над ним) отклоняют такой запрос с
+// 400 "System message must be at the beginning.", поэтому system-текст
+// поднимается из диалога и объединяется в одно первое role=system сообщение.
+
+func TestConvertRequest_SystemInConversationHoistedFirst(t *testing.T) {
+	// system только в середине диалога (без топ-поля) → первое сообщение.
+	out, _, err := ConvertRequest(map[string]any{
+		"model": "remote",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "hi"},
+			map[string]any{"role": "system", "content": "context notice"},
+			map[string]any{"role": "assistant", "content": "hello"},
+			map[string]any{"role": "user", "content": "again"},
+		},
+	}, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := msgs(t, out)
+	if len(m) != 4 {
+		t.Fatalf("messages = %v", m)
+	}
+	if m[0]["role"] != "system" || m[0]["content"] != "context notice" {
+		t.Fatalf("первое сообщение должно быть system: %v", m)
+	}
+	if m[1]["content"] != "hi" || m[2]["content"] != "hello" || m[3]["content"] != "again" {
+		t.Errorf("порядок диалога нарушен: %v", m)
+	}
+}
+
+func TestConvertRequest_SystemTopAndInConversationMerged(t *testing.T) {
+	// system есть и в топ-поле, и в диалоге → одно сообщение, топ-поле раньше.
+	out, _, err := ConvertRequest(map[string]any{
+		"model":  "remote",
+		"system": "you are helpful",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "hi"},
+			map[string]any{"role": "system", "content": "notice A"},
+			map[string]any{"role": "assistant", "content": "hello"},
+			map[string]any{"role": "system", "content": "notice B"},
+		},
+	}, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := msgs(t, out)
+	if len(m) != 3 {
+		t.Fatalf("system-сообщения должны объединиться в одно: %v", m)
+	}
+	sys, ok := m[0]["content"].(string)
+	if !ok || m[0]["role"] != "system" {
+		t.Fatalf("первое сообщение = %v", m[0])
+	}
+	if want := "you are helpful\n\nnotice A\n\nnotice B"; sys != want {
+		t.Errorf("system = %q, want %q", sys, want)
+	}
+	if m[1]["role"] != "user" || m[2]["role"] != "assistant" {
+		t.Errorf("диалог испорчен: %v", m)
+	}
+}
+
+func TestConvertRequest_SystemBlocksInConversationFlattened(t *testing.T) {
+	// system внутри диалога массивом блоков → расплющивается как топ-поле.
+	out, _, err := ConvertRequest(map[string]any{
+		"model": "remote",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "hi"},
+			map[string]any{"role": "system", "content": []any{
+				map[string]any{"type": "text", "text": "block one"},
+				map[string]any{"type": "text", "text": "block two", "cache_control": map[string]any{"type": "ephemeral"}},
+			}},
+		},
+	}, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := msgs(t, out)
+	if len(m) != 2 || m[0]["role"] != "system" {
+		t.Fatalf("messages = %v", m)
+	}
+	sys, _ := m[0]["content"].(string)
+	if !strings.Contains(sys, "block one") || !strings.Contains(sys, "block two") {
+		t.Errorf("system потерял блоки: %q", sys)
+	}
+	if strings.Contains(sys, "ephemeral") {
+		t.Errorf("cache_control просочился в текст: %q", sys)
+	}
+}
+
+func TestConvertRequest_NoSystemStaysClean(t *testing.T) {
+	// Регрессия: без system вывод не обрастает пустым system-сообщением.
+	out, _, err := ConvertRequest(map[string]any{
+		"model":    "remote",
+		"messages": []any{map[string]any{"role": "user", "content": "hi"}},
+	}, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := msgs(t, out)
+	if len(m) != 1 || m[0]["role"] != "user" {
+		t.Errorf("messages = %v", m)
+	}
+}
+
 // --- tool_result ---
 
 func TestConvertRequest_ToolResultString(t *testing.T) {

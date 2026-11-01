@@ -41,7 +41,10 @@ import (
 //	                   concatenated via "\n"); is_error:true → "Error: " prefix.
 //	                   In M0 array content was dropped entirely — on a local
 //	                   model tool use broke (STATE.md, defects #1 and #3).
-//	system           → string or block array → single role=system (defect #2)
+//	system           → string or block array → single role=system (defect #2);
+//	                   role=system entries found inside the conversation array
+//	                   are merged into that first message too — strict vLLM-style
+//	                   backends reject a system message anywhere else
 //	image            → on -mmproj (ConvertOptions.ImagesToOpenAI) → OpenAI
 //	                   image_url data-URL; otherwise the block is dropped but NOT silently:
 //	                   it's counted in ConvertStats.DroppedImages and visible at -v
@@ -119,7 +122,10 @@ func AnthropicToOpenAI(anthropic map[string]any) (map[string]any, error) {
 // content blocks that could not be carried over.
 //
 // Mapping: the system prompt (string or block array) becomes the first
-// role=system message; each conversation message goes through
+// role=system message; role=system entries inside the conversation array are
+// lifted out of it and appended to that first message (in encounter order),
+// so the outgoing payload always has its system text — if any — in exactly
+// one message at position 0. Each remaining conversation message goes through
 // convertMessage, which may yield several OpenAI messages from one Anthropic
 // one. Sampling parameters pass through where an equivalent exists
 // (max_tokens, temperature, top_p; stop_sequences → stop), and Anthropic
@@ -138,13 +144,21 @@ func ConvertRequest(anthropic map[string]any, opts ConvertOptions) (map[string]a
 		"model": anthropic["model"],
 	}
 
-	// system → first role=system message.
-	var messages []map[string]any
+	// system → single first role=system message. Strict OpenAI-compatible
+	// backends (vLLM and the gateways in front of it) reject a request whose
+	// role=system message is not the first one ("System message must be at
+	// the beginning."), and Claude Code does put role=system entries inside
+	// the conversation array. So every system text — the top-level field
+	// first, then in-conversation entries in their original order — is
+	// collected here and emitted as one merged role=system message at index 0.
+	var sysParts []string
 	if sys := systemText(anthropic["system"]); sys != "" {
-		messages = append(messages, map[string]any{"role": "system", "content": sys})
+		sysParts = append(sysParts, sys)
 	}
 
-	// messages: content can be a string or block array.
+	// messages: content can be a string or block array; role=system entries
+	// are lifted out of the conversation instead of being passed through.
+	var messages []map[string]any
 	if inMsgs, ok := anthropic["messages"].([]any); ok {
 		for _, m := range inMsgs {
 			msg, ok := m.(map[string]any)
@@ -152,8 +166,17 @@ func ConvertRequest(anthropic map[string]any, opts ConvertOptions) (map[string]a
 				continue
 			}
 			role, _ := msg["role"].(string)
+			if role == "system" {
+				if sys := systemText(msg["content"]); sys != "" {
+					sysParts = append(sysParts, sys)
+				}
+				continue
+			}
 			messages = append(messages, convertMessage(role, msg["content"], opts, &st)...)
 		}
+	}
+	if sys := strings.Join(sysParts, "\n\n"); sys != "" {
+		messages = append([]map[string]any{{"role": "system", "content": sys}}, messages...)
 	}
 	openAI["messages"] = messages
 
