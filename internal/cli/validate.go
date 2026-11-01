@@ -64,7 +64,11 @@ func ValidateConfig(cfg *config.Config) error {
 		if cfg.OpenAIBaseURL == "" {
 			return i18n.Errorv(i18n.MsgErrOpenaiRequired)
 		}
-		if cfg.OpenAIKey == "" {
+		// A key is expected — unless the user explicitly asked to go without
+		// one (-key none / -key "", resolved into OpenAIKeyless before
+		// validation). An unresolved empty key still means "nothing was
+		// provided anywhere", which stays an error in hybrid mode.
+		if cfg.OpenAIKey == "" && !cfg.OpenAIKeyless {
 			return i18n.Errorv(i18n.MsgErrKeyRequired)
 		}
 		if cfg.OpenAIModel == "" {

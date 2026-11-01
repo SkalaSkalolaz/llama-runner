@@ -89,12 +89,14 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 	// would get "-openai is required when using -key" on a local
 	// launch (including `-update`), even though OpenAI isn't needed at all.
 	if cfg.OpenAIBaseURL != "" || cfg.OpenAIModel != "" || cfg.OpenAIKey != "" {
-		resolvedKey, keyErr := cli.ResolveOpenAIKey(cfg.OpenAIKey, os.Getenv, home, stderr)
+		resolvedKey, keyless, keyErr := cli.ResolveOpenAIKey(
+			cfg.OpenAIKey, cfg.OpenAIKeyFromCLI, os.Getenv, home, stderr)
 		if keyErr != nil {
 			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrResolved, keyErr))
 			return 2
 		}
 		cfg.OpenAIKey = resolvedKey
+		cfg.OpenAIKeyless = keyless
 	}
 
 	if err := cli.ValidateConfig(cfg); err != nil {
@@ -275,7 +277,7 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 
 	// --- Local proxy for switching between llama-server and OpenAI ---
 	var proxySrv *http.Server
-	if cfg.OpenAIBaseURL != "" && cfg.OpenAIKey != "" && cfg.OpenAIModel != "" {
+	if cfg.OpenAIProviderConfigured() {
 		llamaTargetURL := "http://" + net.JoinHostPort(strings.Trim(healthHost, "[]"), cfg.Port)
 		proxyAddr := cfg.ProxyAddr
 		if proxyAddr == "" {

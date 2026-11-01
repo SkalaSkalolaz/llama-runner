@@ -204,6 +204,7 @@ const (
 	MsgKeySrcEnvRunner    = "key_src_env_runner"
 	MsgKeySrcEnvOpenai    = "key_src_env_openai"
 	MsgKeySrcSet          = "key_src_set"
+	MsgKeySrcNone         = "key_src_none"
 	MsgDoctorServerCmd    = "doctor_server_cmd"
 	MsgDoctorAlias        = "doctor_alias"
 	MsgAliasSrcCLI        = "alias_src_cli"
@@ -321,7 +322,7 @@ var messages = map[string]i18nMessage{
 	MsgFlagMcpStrict:       {"strict-mcp-config", "strict-mcp-config"},
 	MsgFlagVersion:         {"показать версию", "show version"},
 	MsgFlagOpenai:          {"URL OpenAI-совместимого API", "OpenAI-compatible API URL"},
-	MsgFlagKey:             {"API-ключ для внешнего провайдера", "API key for the external provider"},
+	MsgFlagKey:             {"API-ключ для внешнего провайдера (\"none\" или \"\" — работать без ключа)", "API key for the external provider (\"none\" or \"\" = no authentication)"},
 	MsgFlagModelOpenai:     {"Название модели у внешнего провайдера", "model name at the external provider"},
 	MsgFlagProxyAddr:       {"адрес локального прокси (гибридный режим)", "local proxy address (hybrid mode)"},
 	MsgFlagProxyToken:      {"токен для аутентификации входящих запросов прокси (пусто — без проверки)", "token for incoming proxy requests (empty = no check)"},
@@ -433,6 +434,7 @@ var messages = map[string]i18nMessage{
 	MsgKeySrcEnvRunner:    {"задан (env LLAMA_RUNNER_OPENAI_KEY)", "set (env LLAMA_RUNNER_OPENAI_KEY)"},
 	MsgKeySrcEnvOpenai:    {"задан (env OPENAI_API_KEY)", "set (env OPENAI_API_KEY)"},
 	MsgKeySrcSet:          {"задан", "set"},
+	MsgKeySrcNone:         {"не требуется (ключ не передаётся)", "not required (no key sent)"},
 	MsgDoctorServerCmd:    {"\nКоманда llama-server:\n  %s %s", "\nllama-server command:\n  %s %s"},
 	MsgDoctorAlias:        {"  эффективный алиас:  %s (%s)", "  effective alias:  %s (%s)"},
 	MsgAliasSrcCLI:        {"CLI", "CLI"},

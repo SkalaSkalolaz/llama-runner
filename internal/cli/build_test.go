@@ -207,10 +207,14 @@ func TestBuildClaudeEnv_NoProxyToken_KeepsDefault(t *testing.T) {
 	}
 }
 func TestBuildClaudeEnv_WithOpenAI(t *testing.T) {
+	// A fully configured provider: run() has already resolved a key by this
+	// point (hybrid mode is keyed on OpenAIProviderConfigured, which needs URL
+	// + model + key-or-keyless), so the test states the key explicitly.
 	cfg := &config.Config{
 		Alias:         "local",
 		OpenAIBaseURL: "https://api.example.com/v1",
 		OpenAIModel:   "gpt-4",
+		OpenAIKey:     "sk-test",
 	}
 	env := BuildClaudeEnv(cfg, "http://proxy:8082", nil)
 	m := map[string]string{}

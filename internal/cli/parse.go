@@ -117,6 +117,11 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 			}
 		}
 	}
+	// The whole profile list travels with the config, in file order: -p picks
+	// which one runs, but the /model menu and -doctor have to show all of
+	// them. Taken from the root file, so a profile's nested "profiles" (if
+	// any) are deliberately not promoted here.
+	cfg.Profiles = config.OrderedProfiles(fc)
 	cfg.ConfigPath = configPath
 	cfg.Profile = profileName
 
@@ -210,6 +215,11 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 			// visible alias must follow it rather than keep the config file's
 			// name (rule 2 of ResolveAlias).
 			cfg.ModelSet = true
+		case "key":
+			// Only the fact that the flag was given matters: it is what lets
+			// -key "" mean "no authentication" instead of "no key provided".
+			// The value itself is interpreted by ResolveOpenAIKey.
+			cfg.OpenAIKeyFromCLI = true
 		}
 	})
 	return cfg, nil

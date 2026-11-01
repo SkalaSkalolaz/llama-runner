@@ -144,7 +144,8 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 // forwardToOpenAI converts the Anthropic request to OpenAI chat/completions
 // format and forwards it to the configured external provider
 // (cfg.OpenAIBaseURL + /chat/completions), authenticating with
-// Authorization: Bearer cfg.OpenAIKey. Like forwardToLlama it requests usage
+// Authorization: Bearer cfg.OpenAIKey — or with no Authorization header when
+// the provider was configured without a key (cfg.OpenAIKeyless). Like forwardToLlama it requests usage
 // accounting for streams, maps transport/upstream failures to Anthropic error
 // responses, and converts successful responses — streaming or not — back to
 // the Anthropic format.
@@ -162,7 +163,13 @@ func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, r
 	body, _ := json.Marshal(openAIReq)
 	proxyReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, target, bytes.NewReader(body))
 	proxyReq.Header.Set("Content-Type", "application/json")
-	proxyReq.Header.Set("Authorization", "Bearer "+h.cfg.OpenAIKey)
+	// The key is the only credential this client knows, and an unauthenticated
+	// provider (cfg.OpenAIKeyless) must see NO Authorization header at all —
+	// not an empty one and not "Bearer ": exactly the request a bare
+	// `curl -H 'Content-Type: application/json' …/chat/completions` makes.
+	if h.cfg.OpenAIKey != "" {
+		proxyReq.Header.Set("Authorization", "Bearer "+h.cfg.OpenAIKey)
+	}
 
 	resp, err := h.client.Do(proxyReq)
 	if err != nil {

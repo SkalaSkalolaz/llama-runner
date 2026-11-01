@@ -107,7 +107,11 @@ func RunDoctor(cfg *config.Config, home string, cmdRunner runner.CommandRunner, 
 	}
 
 	keySrc := i18n.T(i18n.MsgNotSet)
-	if cfg.OpenAIKey != "" {
+	if cfg.OpenAIKeyless {
+		// A deliberate choice, not a missing key: say so, so -doctor is not
+		// read as "forgot to configure the key".
+		keySrc = i18n.T(i18n.MsgKeySrcNone)
+	} else if cfg.OpenAIKey != "" {
 		switch {
 		case os.Getenv("LLAMA_RUNNER_OPENAI_KEY") != "":
 			keySrc = i18n.T(i18n.MsgKeySrcEnvRunner)

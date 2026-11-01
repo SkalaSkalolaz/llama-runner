@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"strconv"
+
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 )
 
@@ -125,11 +127,15 @@ const openaiSlotPlaceholder = "openai"
 //     served through the OpenAI-compatible API: it carries cfg.OpenAIModel in
 //     hybrid mode (external provider configured) and the literal "openai"
 //     (openaiSlotPlaceholder) otherwise — always, even when no alias is
-//     configured. SONNET/HAIKU keep their historical mapping: the external
-//     model in hybrid mode, cfg.Alias in local mode when one is configured
-//     (run() supplies the default "local" unless the alias was set
-//     explicitly). In hybrid mode the local llama-server is additionally
-//     exposed as the single custom entry in the /model menu.
+//     configured. In hybrid mode SONNET/HAIKU also carry the external model,
+//     and the local llama-server is exposed as the single custom entry.
+//   - in LOCAL mode the whole menu comes from BuildModelMenu: SONNET/HAIKU
+//     take the aliases of the first two config profiles, the first custom
+//     entry takes the model actually loaded (cfg.Alias, which run() has
+//     already resolved — see cli.ResolveAlias; without one nothing is
+//     published for these slots, as before), further custom entries take the
+//     remaining profiles, and a standard slot with no profile behind it
+//     publishes the "unused" marker instead of a model.
 func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []string {
 	env := append([]string{}, baseEnv...)
 
@@ -147,9 +153,11 @@ func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []stri
 		"ANTHROPIC_API_KEY="+authToken,
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 	)
-	if cfg.OpenAIBaseURL != "" && cfg.OpenAIModel != "" {
+	if cfg.OpenAIProviderConfigured() {
 		// In hybrid mode all standard aliases point to the external provider;
 		// the Opus slot carries the external model as its OpenAI-model slot.
+		// A keyless provider (OpenAIKeyless) is the same menu: what varies is
+		// only whether the proxy authenticates upstream.
 		env = append(env,
 			"ANTHROPIC_DEFAULT_SONNET_MODEL="+cfg.OpenAIModel,
 			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+cfg.OpenAIModel,
@@ -160,18 +168,77 @@ func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []stri
 			"ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION=Route to local llama-server",
 		)
 	} else {
-		// Local mode: Sonnet/Haiku keep the local alias, while the Opus slot
-		// stays reserved for an OpenAI-API model and shows the placeholder
-		// because no external provider is configured.
-		if cfg.Alias != "" {
-			env = append(env,
-				"ANTHROPIC_DEFAULT_SONNET_MODEL="+cfg.Alias,
-				"ANTHROPIC_DEFAULT_HAIKU_MODEL="+cfg.Alias,
-			)
+		// Local mode: the menu is whatever BuildModelMenu says it is, so this
+		// loop is the only place the /model layout is turned into environment
+		// variables.
+		for _, slot := range BuildModelMenu(cfg) {
+			env = append(env, modelSlotEnvVars(slot)...)
 		}
-		env = append(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="+openaiSlotPlaceholder)
 	}
 	return env
+}
+
+// modelSlotEnvVars serialises one menu slot into the variables Claude Code
+// reads it from.
+//
+// The three standard positions have one variable each. A custom position has
+// a set: the model identifier plus, when present, a display name and a
+// description. The first custom position keeps the documented, singular names
+// (ANTHROPIC_CUSTOM_MODEL_OPTION and friends); further positions number the
+// family itself: ANTHROPIC_CUSTOM_MODEL_OPTION_2,
+// ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME, ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION.
+//
+// The numbered form is the one part of this design not confirmed against
+// Claude Code: only the singular set is documented, and whether numbered
+// variants are read has to be checked against a live /model menu (see the note
+// in README). It is used because it is the only shape that can express extra
+// positions at all, and it degrades harmlessly: if Claude Code ignores the
+// numbered variables the first two profiles still appear (they ride on
+// Sonnet/Haiku) and the loaded model still appears in the singular custom
+// entry — the user simply sees no entries from the third profile onwards.
+func modelSlotEnvVars(slot ModelSlot) []string {
+	if slot.ModelValue == "" {
+		return nil
+	}
+	if slot.Kind != SlotCustom {
+		name := standardSlotVar(slot)
+		if name == "" {
+			return nil
+		}
+		return []string{name + "=" + slot.ModelValue}
+	}
+	prefix := customSlotVarPrefix(slot.CustomIndex)
+	vars := []string{prefix + "=" + slot.ModelValue}
+	if slot.Name != "" {
+		vars = append(vars, prefix+"_NAME="+slot.Name)
+	}
+	if slot.Description != "" {
+		vars = append(vars, prefix+"_DESCRIPTION="+slot.Description)
+	}
+	return vars
+}
+
+// standardSlotVar names the variable behind a standard menu position. An
+// unknown position yields "" and the caller publishes nothing for it.
+func standardSlotVar(slot ModelSlot) string {
+	switch slot.Kind {
+	case SlotOpus:
+		return "ANTHROPIC_DEFAULT_OPUS_MODEL"
+	case SlotSonnet:
+		return "ANTHROPIC_DEFAULT_SONNET_MODEL"
+	case SlotHaiku:
+		return "ANTHROPIC_DEFAULT_HAIKU_MODEL"
+	}
+	return ""
+}
+
+// customSlotVarPrefix names the variable family behind custom position
+// number index (1-based; index <= 1 is the singular, documented entry).
+func customSlotVarPrefix(index int) string {
+	if index <= 1 {
+		return "ANTHROPIC_CUSTOM_MODEL_OPTION"
+	}
+	return "ANTHROPIC_CUSTOM_MODEL_OPTION_" + strconv.Itoa(index)
 }
 
 // BuildClaudeArgs returns the command-line arguments for the claude child

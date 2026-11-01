@@ -1,0 +1,232 @@
+package cli
+
+import (
+	"fmt"
+
+	"github.com/SkalaSkalolaz/llama-runner/internal/config"
+)
+
+// This module owns one responsibility: deciding WHAT the Claude Code /model
+// menu contains — which model fills which slot, and what a slot says when
+// nothing is behind it. It deliberately does not know how a slot is
+// serialised: BuildClaudeEnv turns a []ModelSlot into environment variables
+// (see modelmenuEnv naming in build.go), which is the only place that knows
+// Claude Code reads its menu from the environment. Keeping the two apart is
+// what lets a later change to model switching reuse this list as-is: at that
+// point the menu stops being a description of one launch and becomes state
+// the user moves through, and only the renderer has to follow.
+
+// SlotKind names a position in the /model menu.
+type SlotKind int
+
+const (
+	// SlotOpus is the Opus position. It is reserved for models reached
+	// through the OpenAI-compatible API (see openaiSlotPlaceholder) and is
+	// never filled from a local profile.
+	SlotOpus SlotKind = iota
+	// SlotSonnet is the Sonnet position, filled from the first profile.
+	SlotSonnet
+	// SlotHaiku is the Haiku position, filled from the second profile.
+	SlotHaiku
+	// SlotCustom is an extra position Claude Code shows below the standard
+	// ones. The first carries the model that is actually loaded (CustomIndex
+	// 1); further ones carry the remaining profiles.
+	SlotCustom
+)
+
+// ModelSlot is one entry of the /model menu.
+type ModelSlot struct {
+	// Kind is the menu position this slot occupies.
+	Kind SlotKind
+	// CustomIndex numbers the SlotCustom entries, 1-based: 1 is the model
+	// llama-server really serves, 2..N are the extra profiles. Unused for the
+	// standard positions.
+	CustomIndex int
+	// ModelValue is the model identifier Claude Code will put into its
+	// requests for this slot.
+	ModelValue string
+	// Name is the human-readable label shown instead of ModelValue. Only
+	// SlotCustom supports one; it is empty for the standard positions, which
+	// display the bare identifier.
+	Name string
+	// Description is the explanatory line shown under Name (SlotCustom only).
+	Description string
+	// Filled reports whether a real model stands behind the slot, as opposed
+	// to a placeholder telling the user the position is not usable.
+	Filled bool
+	// Profile is the config-file profile behind this slot, "" when the slot
+	// comes from somewhere else (the root section, or nothing at all). It is
+	// what a future model switch has to re-select.
+	Profile string
+}
+
+// Placeholder texts for menu positions with no profile behind them. They are
+// English on purpose: they are rendered by Claude Code, whose interface this
+// launcher does not localise (unlike its own messages, which go through i18n),
+// and the user asked for an English marker in the empty places.
+const (
+	// unusedStandardSlotValue fills a Sonnet/Haiku position that has no
+	// profile. Those positions show the bare identifier — there is no
+	// name/description variable for them — so the identifier itself has to
+	// carry the message.
+	unusedStandardSlotValue = "unused (no profile)"
+	// unusedCustomSlotValue formats the identifier of an unused extra slot;
+	// the number keeps two such slots distinct, and Claude Code sees a
+	// readable label in UnusedCustomSlotNameFormat instead of this token.
+	unusedCustomSlotValue = "unused-slot-%d"
+	// unusedCustomSlotName formats the label of an unused extra slot.
+	unusedCustomSlotName = "unused - slot %d (no profile)"
+	// unusedCustomSlotDescription explains how to make the slot usable.
+	unusedCustomSlotDescription = "No model behind this slot: add a profile to ~/.config/llama-runner/config.json"
+
+	// defaultSlotName labels the first extra slot, which is the model the
+	// server actually loaded — the one entry whose requests are guaranteed to
+	// be served today.
+	defaultSlotName = "local default (running)"
+	// defaultSlotDescription names the loaded model behind that slot. The
+	// profile list can name models the server did not load, so this is the
+	// entry the user checks to see what is really answering.
+	defaultSlotDescription = "Model llama-server loaded for this session: %s"
+	// profileSlotName labels an extra slot filled from a config profile, and
+	// profileSlotDescription states plainly that picking it does nothing yet —
+	// the entry is a placeholder for model switching, which is not
+	// implemented: the server holds one model, and a request naming another
+	// cannot be served.
+	profileSlotName         = "profile %s - %s"
+	profileSlotDescription  = "Config profile %q (model %s). Not loaded in this session: switching models while running is not implemented yet."
+	profileSlotModelUnknown = "unknown"
+)
+
+// BuildModelMenu computes the /model menu for LOCAL mode — the case where
+// Claude Code talks to llama-server and every entry names a local model.
+//
+// Layout, top to bottom:
+//
+//	Opus     reserved for OpenAI-compatible models: it carries the
+//	         openaiSlotPlaceholder, unchanged from before profiles existed.
+//	Sonnet   alias of the first profile in the config file.
+//	Haiku    alias of the second profile.
+//	custom 1 alias of the model that is actually loaded (cfg.Alias, already
+//	         resolved by the caller — see ResolveAlias), labelled as the
+//	         running one.
+//	custom 2..N aliases of the remaining profiles, in file order.
+//
+// Two deviations from that shape, both deliberate:
+//
+//   - No profiles at all keeps the historical menu: Sonnet and Haiku show the
+//     effective alias and there is no extra slot. A single-model setup is the
+//     common case and has nothing to choose between, so leaving it exactly as
+//     it was is friendlier than two "unused" markers.
+//   - Fewer than two profiles leaves the remaining standard slot showing the
+//     unused marker, so the user sees the position exists and what would
+//     fill it.
+//
+// Hybrid mode (-openai with a key and a model) is NOT handled here: there the
+// standard slots belong to the external provider, and the proxy forwards
+// everything it does not recognise to it, so a menu entry naming a local
+// profile would silently be answered by the external service. BuildClaudeEnv
+// keeps that branch as it was.
+func BuildModelMenu(cfg *config.Config) []ModelSlot {
+	if cfg == nil {
+		return nil
+	}
+	// The alias is resolved once, early in run(), so here it is simply the
+	// name of whatever the server loaded.
+	loaded := cfg.Alias
+
+	if len(cfg.Profiles) == 0 {
+		// Historical single-model menu. Without a name to show there is
+		// nothing to publish: the empty alias case is left untouched, exactly
+		// as before, so Claude Code keeps its own default label.
+		slots := []ModelSlot{{Kind: SlotOpus, ModelValue: openaiSlotPlaceholder}}
+		if loaded != "" {
+			slots = append(slots,
+				ModelSlot{Kind: SlotSonnet, ModelValue: loaded, Filled: true},
+				ModelSlot{Kind: SlotHaiku, ModelValue: loaded, Filled: true},
+			)
+		}
+		return slots
+	}
+
+	slots := []ModelSlot{{Kind: SlotOpus, ModelValue: openaiSlotPlaceholder}}
+	slots = append(slots, profileSlot(SlotSonnet, cfg.Profiles, 0))
+	slots = append(slots, profileSlot(SlotHaiku, cfg.Profiles, 1))
+	slots = append(slots, loadedModelSlot(loaded))
+	// Extra profiles continue the custom numbering where loadedModelSlot left
+	// it, so the published variables form a gapless sequence.
+	for i, index := 2, 2; i < len(cfg.Profiles); i++ {
+		slots = append(slots, extraProfileSlot(index, cfg.Profiles[i]))
+		index++
+	}
+	return slots
+}
+
+// profileSlot fills one of the standard positions from the profile at index i
+// of the file-ordered list, or marks the position unused when the list is too
+// short.
+func profileSlot(kind SlotKind, profiles []config.Profile, i int) ModelSlot {
+	if i >= len(profiles) {
+		return ModelSlot{Kind: kind, ModelValue: unusedStandardSlotValue}
+	}
+	p := profiles[i]
+	return ModelSlot{
+		Kind:       kind,
+		ModelValue: ProfileDisplayName(p),
+		Filled:     true,
+		Profile:    p.Name,
+	}
+}
+
+// loadedModelSlot builds the first extra slot: the model the server actually
+// holds. Its identifier is cfg.Alias, so this is the one menu entry whose
+// requests are served today. An unresolved alias leaves the slot unused
+// rather than publishing an empty model name.
+func loadedModelSlot(alias string) ModelSlot {
+	if alias == "" {
+		return unusedCustomSlot(1)
+	}
+	return ModelSlot{
+		Kind:        SlotCustom,
+		CustomIndex: 1,
+		ModelValue:  alias,
+		Name:        defaultSlotName,
+		Description: fmt.Sprintf(defaultSlotDescription, alias),
+		Filled:      true,
+	}
+}
+
+// unusedCustomSlot builds placeholder slot number index.
+func unusedCustomSlot(index int) ModelSlot {
+	return ModelSlot{
+		Kind:        SlotCustom,
+		CustomIndex: index,
+		ModelValue:  fmt.Sprintf(unusedCustomSlotValue, index),
+		Name:        fmt.Sprintf(unusedCustomSlotName, index),
+		Description: unusedCustomSlotDescription,
+	}
+}
+
+// extraProfileSlot builds custom position number index (1-based, continuing
+// after the slot that carries the loaded model) for one profile.
+func extraProfileSlot(index int, p config.Profile) ModelSlot {
+	alias := ProfileDisplayName(p)
+	return ModelSlot{
+		Kind:        SlotCustom,
+		CustomIndex: index,
+		ModelValue:  alias,
+		Name:        fmt.Sprintf(profileSlotName, p.Name, alias),
+		Description: fmt.Sprintf(profileSlotDescription, p.Name, profileModelLabel(p)),
+		Filled:      true,
+		Profile:     p.Name,
+	}
+}
+
+// profileModelLabel describes which model file a profile points at, falling
+// back to a neutral word when it names none and therefore inherits the root
+// model (whose name the menu does not know at this layer).
+func profileModelLabel(p config.Profile) string {
+	if p.Model != "" {
+		return p.Model
+	}
+	return profileSlotModelUnknown
+}

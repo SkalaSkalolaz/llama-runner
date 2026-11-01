@@ -92,3 +92,28 @@ func ResolveAlias(cfg *config.Config) (string, string) {
 	}
 	return DefaultAlias, i18n.MsgAliasSrcDefault
 }
+
+// ProfileDisplayName computes the name a profile is shown under, independently
+// of which profile is running. The same precedence idea as ResolveAlias,
+// narrowed to one profile and with one extra rung:
+//
+//  1. the profile's own alias, when it sets one;
+//  2. otherwise the name derived from the profile's model file;
+//  3. otherwise the profile key itself.
+//
+// Rule 3 covers a profile that sets neither alias nor model (it inherits the
+// root model): naming such a profile after the ROOT model would describe it
+// wrongly in the /model menu, where the root model has its own entry, so the
+// key the user typed is the honest label.
+//
+// The result is never empty for a real profile — a map key is a non-empty
+// string — which is what lets the menu publish a model name for every profile.
+func ProfileDisplayName(p config.Profile) string {
+	if p.AliasSet && p.Alias != "" {
+		return p.Alias
+	}
+	if derived := DeriveAliasFromModel(p.Model); derived != "" {
+		return derived
+	}
+	return p.Name
+}

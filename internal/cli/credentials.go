@@ -19,6 +19,19 @@ func CredentialsPath(home string) string {
 	return filepath.Join(home, ".config", "llama-runner", "credentials")
 }
 
+// NoKeySentinel is the -key (or config "openaiKey") value that states the
+// external provider needs NO authentication. Requests then carry no
+// Authorization header at all, exactly like an unauthenticated curl call to
+// /chat/completions.
+//
+// It is compared case-insensitively and after trimming spaces, because the
+// value is typed by hand into a command line or a JSON file. A provider key
+// that literally reads "none" cannot be expressed this way; that is an
+// accepted trade-off, and it is why the sentinel is only honoured on values
+// the user set for llama-runner (flag, config file, profile) and never on
+// OPENAI_API_KEY / LLAMA_RUNNER_OPENAI_KEY, which are shared global state.
+const NoKeySentinel = "none"
+
 // ResolveOpenAIKey selects the external provider's API key, checking sources
 // in strict priority order and returning the first non-empty hit:
 //
@@ -34,16 +47,26 @@ func CredentialsPath(home string) string {
 // A missing, unreadable or malformed file is not fatal — it simply means
 // "no key found" — though read failures do produce a stderr warning.
 //
+// The second result says the provider was explicitly asked to run WITHOUT a
+// key: -key none (see NoKeySentinel, which also works from the config file) or
+// -key with an empty value on a flag that was actually given (keyFlagSet).
+// That is a decision, not missing data, so neither the environment nor the
+// credentials file is consulted on this path — a machine with OPENAI_API_KEY
+// exported still talks to the provider unauthenticated when told to.
+//
 // env and the file system are accessed through injected dependencies
 // (env is a lookup function; in production os.Getenv is passed) so tests can
 // exercise every priority branch without touching the real home directory.
-func ResolveOpenAIKey(keyFlag string, env func(string) string, home string, stderr io.Writer) (string, error) {
+func ResolveOpenAIKey(keyFlag string, keyFlagSet bool, env func(string) string, home string, stderr io.Writer) (string, bool, error) {
+	if wantsKeyless(keyFlag, keyFlagSet) {
+		return "", true, nil
+	}
 	if keyFlag != "" {
-		return keyFlag, nil
+		return keyFlag, false, nil
 	}
 	for _, name := range []string{"LLAMA_RUNNER_OPENAI_KEY", "OPENAI_API_KEY"} {
 		if v := strings.TrimSpace(env(name)); v != "" {
-			return v, nil
+			return v, false, nil
 		}
 	}
 	path := CredentialsPath(home)
@@ -51,7 +74,7 @@ func ResolveOpenAIKey(keyFlag string, env func(string) string, home string, stde
 		if !errors.Is(err, os.ErrNotExist) {
 			fmt.Fprint(stderr, i18n.TF(i18n.MsgWarnCredCheck, path, err))
 		}
-		return "", nil
+		return "", false, nil
 	}
 	info, err := os.Stat(path)
 	if err == nil && info.Mode().Perm() != 0o600 {
@@ -60,7 +83,7 @@ func ResolveOpenAIKey(keyFlag string, env func(string) string, home string, stde
 	data, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprint(stderr, i18n.TF(i18n.MsgWarnCredRead, path, err))
-		return "", nil
+		return "", false, nil
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -78,8 +101,31 @@ func ResolveOpenAIKey(keyFlag string, env func(string) string, home string, stde
 		val := strings.TrimSpace(line[eq+1:])
 		val = strings.Trim(val, `"'`)
 		if val != "" {
-			return val, nil
+			return val, false, nil
 		}
 	}
-	return "", nil
+	return "", false, nil
+}
+
+// wantsKeyless reports whether the key value expresses the deliberate choice
+// "this provider needs no authentication": the sentinel (NoKeySentinel), or an
+// empty value on a -key flag that was actually given.
+//
+// The two halves differ on purpose. A sentinel is a word, so it means what it
+// says wherever the user wrote it for llama-runner — on the command line or in
+// the config file / profile, whose "openaiKey" arrives here the same way. An
+// EMPTY value carries no meaning by itself: -key "" and "no -key at all" look
+// identical by value, which is why keyFlagSet is required to tell them apart.
+// Without that distinction an empty value would keep silently meaning "look in
+// the environment", and -key "" would be indistinguishable from omitting -key.
+//
+// Values found in the environment or in the credentials file are not examined
+// here: they are stores of keys, not per-run intent, so a value that happens to
+// read "none" is passed through as the key it claims to be.
+func wantsKeyless(keyFlag string, keyFlagSet bool) bool {
+	trimmed := strings.TrimSpace(keyFlag)
+	if strings.EqualFold(trimmed, NoKeySentinel) {
+		return true
+	}
+	return keyFlagSet && trimmed == ""
 }

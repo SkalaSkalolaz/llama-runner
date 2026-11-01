@@ -98,7 +98,7 @@ Claude Code:
   -mcp-strict          передать --strict-mcp-config
   -chat-template str   шаблон чата ("auto" | "" | путь)
   -openai string       URL OpenAI-совместимого API
-  -key string          API-ключ внешнего провайдера
+  -key string          API-ключ внешнего провайдера ("none" или "" — работать без ключа)
   -model-openai str    имя модели у внешнего провайдера
   -proxy-addr string   адрес локального прокси (по умолчанию 127.0.0.1:8082)
   -proxy-token string  токен для проверки входящих запросов прокси (пусто — без проверки)
@@ -224,7 +224,7 @@ Claude Code:
   -mcp-strict          pass --strict-mcp-config
   -chat-template str   chat template ("auto" | "" | path)
   -openai string       OpenAI-compatible API URL
-  -key string          external provider API key
+  -key string          external provider API key ("none" or "" = no authentication)
   -model-openai str    model name at external provider
   -proxy-addr string   local proxy address (default 127.0.0.1:8082)
   -proxy-token string  proxy auth token for incoming requests (empty = no check)

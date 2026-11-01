@@ -51,7 +51,9 @@ go build -o llama-runner ./cmd/llama-runner
 - **Config file:** `~/.config/llama-runner/config.json` (or `-config <path>`). Priority:
   CLI > file > built-in defaults. `-config ""` disables reading it. Secrets (`openaiKey`,
   `proxyToken`) are supported in the file, but env / `credentials` / a flag are recommended.
-- **Profiles:** `-p coder` — short presets from `profiles: {…}` in the config file.
+- **Profiles:** `-p coder` — short presets from `profiles: {…}` in the config
+  file. In local mode all of them also show up as entries in Claude Code's
+  `/model` menu (see «Profiles and the `/model` menu»).
 - **`-doctor`:** show resolved paths, version and the final command without spawning
   any processes.
 - **Clean shutdown:** Ctrl-C/SIGTERM stops claude, the server and MCP with
@@ -109,7 +111,7 @@ go build -o llama-runner ./cmd/llama-runner
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-openai` | | URL of the OpenAI-compatible API |
-| `-key` | | API key for the external provider (see «Getting the provider key») |
+| `-key` | | API key for the external provider (see «Getting the provider key»); `none` or `""` — use the provider **without** a key |
 | `-model-openai` | | Model name at the external provider |
 | `-proxy-addr` | `127.0.0.1:8082` | Address of the local routing proxy |
 | `-proxy-token` | _(empty — no check)_ | Token for incoming proxy requests |
@@ -154,6 +156,9 @@ Routing by model name in Claude Code (`/model`):
   -model-openai deepseek/deepseek-v4-flash-free
 ```
 
+A provider that needs no authentication works the same way — pass `-key none`
+(see «Running the provider without a key»).
+
 ### Proxy protection
 
 - `-proxy-token <token>` — the proxy checks incoming requests via
@@ -176,6 +181,38 @@ Key source priority:
 
 The key is resolved only when the external provider is actually requested
 (at least one of `-openai` / `-key` / `-model-openai` is set).
+
+### Running the provider without a key
+
+Some OpenAI-compatible endpoints need no authentication. Say so explicitly:
+
+```bash
+./llama-runner \
+  -openai https://oai.endpoints.kepler.ai.cloud.ovh.net/v1 \
+  -model-openai Qwen3.6-27B \
+  -key none
+```
+
+- `-key none` (any case, spaces ignored) and `-key ""` make the request to the
+  provider carry **no `Authorization` header at all** — not an empty one, not
+  `Bearer ` — the same request a bare `curl -H 'Content-Type: application/json'
+  …/chat/completions` sends. Everything else (Anthropic ↔ OpenAI conversion,
+  streaming, routing by model name, the local proxy and its `-proxy-token`)
+  works unchanged.
+- This is a decision, not missing data: with `-key none` neither
+  `LLAMA_RUNNER_OPENAI_KEY`, `OPENAI_API_KEY` nor the credentials file is
+  consulted, so a machine that has a key exported still calls the provider
+  unauthenticated when told to.
+- `"openaiKey": "none"` in the config file or in a profile does the same thing —
+  that is how a keyless provider is stored as a preset. An **empty** `openaiKey`
+  in the file still means "not configured, look in the environment".
+- A value reading `none` found in the environment or in the credentials file is
+  used verbatim as the key: those hold keys, not per-run intent. The trade-off
+  is that a provider key which literally reads `none` cannot be passed on the
+  command line.
+- Omitting `-key` keeps its old meaning (search the environment, then the
+  credentials file); `-doctor` prints `OpenAI key: not required (no key sent)`
+  for the keyless mode, so it is never mistaken for a forgotten key.
 
 ## Config file
 
@@ -224,6 +261,40 @@ Notes:
 - `-p <name>` without a config file or with an unknown name is an error (not silent);
 - secrets (`openaiKey`, `proxyToken`) in the file are technically supported, but
   env or `~/.config/llama-runner/credentials` is recommended.
+
+### Profiles and the `/model` menu
+
+In local mode the config profiles become the model choices in Claude Code's
+`/model` menu, in the order they are written in the file:
+
+| Menu entry | Filled from |
+|---|---|
+| Opus | reserved for OpenAI-compatible models — shows `openai` |
+| Sonnet | alias of the 1st profile |
+| Haiku | alias of the 2nd profile |
+| `local default (running)` | the model llama-server actually loaded (its effective alias) |
+| `profile <name> - <alias>` | the 3rd profile and further ones |
+
+- The name shown for a profile is its `alias`, else a name derived from its
+  model file, else the profile key itself.
+- **One model is loaded at a time.** Only the entry naming the loaded model
+  gets served today; the other entries describe models that exist in the
+  config, and their description says so. Choosing a different model means
+  restarting llama-runner with `-p <profile>` — switching models inside a
+  running session is not implemented yet.
+- A standard slot with no profile behind it shows `unused (no profile)`; an
+  unused extra slot shows `unused - slot N (no profile)`.
+- With **no profiles at all** the menu stays exactly as it was before: Sonnet
+  and Haiku carry the effective alias and there are no extra entries.
+- Hybrid mode (`-openai` + key + `-model-openai`) is unchanged: the proxy
+  forwards every model name it does not recognise to the external provider, so
+  local profile entries there would be answered remotely.
+- Extra slots (3rd profile and up) are published as numbered variables
+  (`ANTHROPIC_CUSTOM_MODEL_OPTION_2`, `ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME`,
+  `ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION`, …). Claude Code documents only
+  the singular set, so **this part is unverified**: if the numbered variables
+  are ignored, the first two profiles and the loaded model still appear and the
+  rest simply do not. Worth checking once in a live `/model` menu.
 
 ## Logs
 
@@ -277,9 +348,11 @@ Notes:
 `ANTHROPIC_BASE_URL` (server or proxy address),
 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` — the value of `-proxy-token`,
 or `local-llama` if no token is set,
-`ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL` (in local mode — from the effective
-alias, in hybrid mode — the external model, with `llama-server` added via
-`ANTHROPIC_CUSTOM_MODEL_OPTION`), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+`ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL` (in local mode — the config
+profiles on Sonnet/Haiku and the loaded model in the custom entry, see
+«Profiles and the `/model` menu»; in hybrid mode — the external model, with
+`llama-server` added via `ANTHROPIC_CUSTOM_MODEL_OPTION`),
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
 
 The alias behind those three variables is resolved once per run (`cli.ResolveAlias`),
 so llama-server's `--alias`, its WebUI card and Claude Code's `/model` entry can
