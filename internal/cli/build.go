@@ -2,6 +2,7 @@ package cli
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 )
@@ -113,7 +114,10 @@ func BuildServerArgs(cfg *config.Config, paths ServerPaths) []string {
 const openaiSlotPlaceholder = "openai"
 
 // BuildClaudeEnv returns a fresh environment slice (KEY=VALUE strings) for
-// the Claude Code child process. baseEnv is copied, never mutated.
+// the Claude Code child process. baseEnv is never mutated: it is copied with
+// the model-menu variables it may carry from an outer llama-runner session
+// removed (see scrubModelMenuVars), then this launcher's own values are
+// appended.
 //
 // The returned environment:
 //   - points Claude Code at baseURL via ANTHROPIC_BASE_URL;
@@ -123,21 +127,18 @@ const openaiSlotPlaceholder = "openai"
 //     x-api-key and the proxy accepts either;
 //   - sets CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 to keep a local
 //     deployment from phoning home;
-//   - maps the standard model aliases. The OPUS slot is reserved for models
-//     served through the OpenAI-compatible API: it carries cfg.OpenAIModel in
-//     hybrid mode (external provider configured) and the literal "openai"
-//     (openaiSlotPlaceholder) otherwise — always, even when no alias is
-//     configured. In hybrid mode SONNET/HAIKU also carry the external model,
-//     and the local llama-server is exposed as the single custom entry.
-//   - in LOCAL mode the whole menu comes from BuildModelMenu: SONNET/HAIKU
-//     take the aliases of the first two config profiles, the first custom
-//     entry takes the model actually loaded (cfg.Alias, which run() has
-//     already resolved — see cli.ResolveAlias; without one nothing is
-//     published for these slots, as before), further custom entries take the
-//     remaining profiles, and a standard slot with no profile behind it
-//     publishes the "unused" marker instead of a model.
+//   - publishes the whole /model menu from BuildModelMenu(cfg), which is the
+//     single source of truth for the layout and is mode-aware: the OPUS slot
+//     is reserved for models served through the OpenAI-compatible API and
+//     carries cfg.OpenAIModel in hybrid mode, the openaiSlotPlaceholder
+//     otherwise; SONNET/HAIKU take the aliases of the first two config
+//     profiles (or the "unused" marker when a profile is missing), the first
+//     custom entry takes the model actually loaded in local mode (cfg.Alias,
+//     which run() has already resolved — see cli.ResolveAlias) or the proxy's
+//     "llama-server" local-route token in hybrid mode, and further custom
+//     entries take the remaining profiles.
 func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []string {
-	env := append([]string{}, baseEnv...)
+	env := scrubModelMenuVars(baseEnv)
 
 	// Proxy token: -proxy-token if set, otherwise historical
 	// local-llama. We put it in both fields — different versions of Claude Code send
@@ -153,29 +154,31 @@ func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []stri
 		"ANTHROPIC_API_KEY="+authToken,
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 	)
-	if cfg.OpenAIProviderConfigured() {
-		// In hybrid mode all standard aliases point to the external provider;
-		// the Opus slot carries the external model as its OpenAI-model slot.
-		// A keyless provider (OpenAIKeyless) is the same menu: what varies is
-		// only whether the proxy authenticates upstream.
-		env = append(env,
-			"ANTHROPIC_DEFAULT_SONNET_MODEL="+cfg.OpenAIModel,
-			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+cfg.OpenAIModel,
-			"ANTHROPIC_DEFAULT_OPUS_MODEL="+cfg.OpenAIModel,
-			// llama-server added as the sole custom option in the /model menu.
-			"ANTHROPIC_CUSTOM_MODEL_OPTION=llama-server",
-			"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=llama-server (local)",
-			"ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION=Route to local llama-server",
-		)
-	} else {
-		// Local mode: the menu is whatever BuildModelMenu says it is, so this
-		// loop is the only place the /model layout is turned into environment
-		// variables.
-		for _, slot := range BuildModelMenu(cfg) {
-			env = append(env, modelSlotEnvVars(slot)...)
-		}
+	// One loop for both modes: the /model layout lives in BuildModelMenu,
+	// and this is the only place it is turned into environment variables.
+	for _, slot := range BuildModelMenu(cfg) {
+		env = append(env, modelSlotEnvVars(slot)...)
 	}
 	return env
+}
+
+// scrubModelMenuVars removes the variables that publish the /model menu —
+// the standard aliases and every custom entry, numbered or not — from a base
+// environment. The launcher always publishes the complete menu itself, so an
+// inherited value (typically from an outer llama-runner session when the tool
+// is nested) is stale: it would survive as a ghost entry the user never
+// configured for this run. Entries without '=' are passed through untouched.
+func scrubModelMenuVars(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(k, "ANTHROPIC_DEFAULT_") ||
+			strings.HasPrefix(k, "ANTHROPIC_CUSTOM_MODEL_OPTION") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // modelSlotEnvVars serialises one menu slot into the variables Claude Code

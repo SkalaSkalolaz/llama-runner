@@ -141,12 +141,82 @@ func TestBuildClaudeEnv_NoProfilesKeepsHistoricalEnv(t *testing.T) {
 	}
 }
 
-func TestBuildClaudeEnv_HybridModeIsUnchangedByProfiles(t *testing.T) {
-	// The proxy forwards every unknown model name to the external provider,
-	// so local profile entries must not appear in hybrid mode at all.
+func TestBuildClaudeEnv_HybridModeKeepsProfileLayout(t *testing.T) {
+	// Hybrid mode shares the local layout, so the positions never shift:
+	// the Opus slot carries the external model (the entry through which the
+	// gateway is picked — the proxy forwards every unknown name upstream),
+	// the first extra slot is the proxy's "llama-server" local-route token,
+	// and Sonnet/Haiku/extras fill from the profiles like in local mode.
 	cfg := &config.Config{
 		Alias:         "local",
 		Profiles:      []config.Profile{coderProfile(), bigProfile(), tinyProfile()},
+		OpenAIBaseURL: "https://api.example.com/v1",
+		OpenAIKey:     "k",
+		OpenAIModel:   "ext/model-x",
+	}
+	m := envMap(t, BuildClaudeEnv(cfg, "http://h:1", nil))
+
+	want := map[string]string{
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":              "ext/model-x",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL":            "qwen3-coder",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":             "qwen3.8-flash",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION":             localRouteSlotValue,
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME":        localRouteSlotName,
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION": localRouteSlotDescription,
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_2":           "tiny-alias",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME":      "profile tiny - tiny-alias",
+	}
+	for k, v := range want {
+		if m[k] != v {
+			t.Errorf("%s = %q, want %q", k, m[k], v)
+		}
+	}
+	// The loaded local alias must not shadow the gateway or the local route:
+	// in hybrid mode no standard slot and no first custom entry carries it.
+	for _, k := range []string{
+		"ANTHROPIC_DEFAULT_SONNET_MODEL",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION",
+	} {
+		if m[k] == cfg.Alias {
+			t.Errorf("%s = %q, want the hybrid value, not the loaded alias", k, m[k])
+		}
+	}
+}
+
+func TestBuildClaudeEnv_HybridModeMarksMissingProfilesUnused(t *testing.T) {
+	cfg := &config.Config{
+		Alias:         "local",
+		Profiles:      []config.Profile{coderProfile()},
+		OpenAIBaseURL: "https://api.example.com/v1",
+		OpenAIKey:     "k",
+		OpenAIModel:   "ext/model-x",
+	}
+	m := envMap(t, BuildClaudeEnv(cfg, "http://h:1", nil))
+
+	if m["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "qwen3-coder" {
+		t.Errorf("sonnet = %q, want qwen3-coder", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
+	}
+	if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != unusedStandardSlotValue {
+		t.Errorf("haiku = %q, want the unused marker %q",
+			m["ANTHROPIC_DEFAULT_HAIKU_MODEL"], unusedStandardSlotValue)
+	}
+	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "ext/model-x" {
+		t.Errorf("opus = %q, want the external model", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+	}
+	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != localRouteSlotValue {
+		t.Errorf("custom = %q, want the local route token %q",
+			m["ANTHROPIC_CUSTOM_MODEL_OPTION"], localRouteSlotValue)
+	}
+}
+
+func TestBuildClaudeEnv_HybridModeWithoutProfilesKeepsGatewayOnAllSlots(t *testing.T) {
+	// Historical hybrid menu: with no profiles there is nothing to lay out,
+	// so every standard slot keeps pointing at the gateway and no unused
+	// marker appears.
+	cfg := &config.Config{
+		Alias:         "local",
 		OpenAIBaseURL: "https://api.example.com/v1",
 		OpenAIKey:     "k",
 		OpenAIModel:   "ext/model-x",
@@ -159,15 +229,51 @@ func TestBuildClaudeEnv_HybridModeIsUnchangedByProfiles(t *testing.T) {
 		"ANTHROPIC_DEFAULT_OPUS_MODEL",
 	} {
 		if m[k] != "ext/model-x" {
-			t.Errorf("%s = %q, want ext/model-x in hybrid mode", k, m[k])
+			t.Errorf("%s = %q, want ext/model-x in a profile-less hybrid menu", k, m[k])
 		}
 	}
-	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "llama-server" {
-		t.Errorf("custom = %q, want llama-server", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
+	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != localRouteSlotValue {
+		t.Errorf("custom = %q, want the local route token", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
 	}
 	for k, v := range m {
-		if strings.Contains(v, "qwen") || strings.Contains(v, "unused") {
-			t.Errorf("%s = %q leaks a local profile or an unused marker into hybrid mode", k, v)
+		if strings.Contains(v, "unused") {
+			t.Errorf("%s = %q carries an unused marker in a single-model setup", k, v)
 		}
+	}
+}
+
+func TestBuildClaudeEnv_ScrubsInheritedMenuVars(t *testing.T) {
+	// A nested llama-runner must not leak the outer session's menu into the
+	// child: every model-menu variable is dropped from the base environment
+	// before the launcher publishes its own, and no key ends up duplicated.
+	base := []string{
+		"PATH=/usr/bin",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=ghost-haiku",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION=ghost-custom",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_2=ghost-profile",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME=Ghost profile",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_3_DESCRIPTION=ghost description",
+	}
+	cfg := &config.Config{
+		Alias:    "qwen3.8-distil",
+		Profiles: []config.Profile{coderProfile(), bigProfile()},
+	}
+	m := envMap(t, BuildClaudeEnv(cfg, "http://127.0.0.1:8082", base))
+
+	for k, v := range m {
+		if strings.Contains(v, "ghost") {
+			t.Errorf("%s = %q leaks an inherited menu value", k, v)
+		}
+	}
+	if m["PATH"] != "/usr/bin" {
+		t.Errorf("PATH = %q, want the base environment preserved", m["PATH"])
+	}
+	// The launcher's own menu still lands on top of the scrubbed base.
+	if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "qwen3.8-flash" {
+		t.Errorf("haiku = %q, want the profile alias to be published",
+			m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
+	}
+	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "qwen3.8-distil" {
+		t.Errorf("custom = %q, want the loaded model", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
 	}
 }

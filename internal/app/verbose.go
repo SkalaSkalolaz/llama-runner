@@ -15,11 +15,10 @@ import (
 // environment.
 //
 // The model variables are read back from claudeEnv rather than derived from
-// cfg.Alias, because in hybrid mode (external provider configured) all three
-// ANTHROPIC_DEFAULT_* point at the external model while the local alias stays
-// only in ANTHROPIC_CUSTOM_MODEL_OPTION — printing cfg.Alias there would make
-// -v lie about what the child process really sees. The proxy token is never
-// echoed, only its presence.
+// cfg.Alias, because what fills the slots depends on the launch mode and on
+// the config profiles (see cli.BuildModelMenu) — printing cfg.Alias would
+// make -v lie about what the child process really sees. The proxy token is
+// never echoed, only its presence.
 func PrintClaudeDiagnostics(stdout io.Writer, cfg *config.Config, claudePath, workDir, baseURL string, claudeEnv []string) {
 	fmt.Fprint(stdout, i18n.TF(i18n.MsgClaudeRunLine, claudePath, workDir))
 	fmt.Fprint(stdout, "  ", i18n.TF(i18n.MsgAnthropicBaseURL, baseURL))

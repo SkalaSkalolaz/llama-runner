@@ -21,7 +21,8 @@ type SlotKind int
 
 const (
 	// SlotOpus is the Opus position. It is reserved for models reached
-	// through the OpenAI-compatible API (see openaiSlotPlaceholder) and is
+	// through the OpenAI-compatible API — the openaiSlotPlaceholder in local
+	// mode, the configured external model itself in hybrid mode — and is
 	// never filled from a local profile.
 	SlotOpus SlotKind = iota
 	// SlotSonnet is the Sonnet position, filled from the first profile.
@@ -97,38 +98,60 @@ const (
 	profileSlotModelUnknown = "unknown"
 )
 
-// BuildModelMenu computes the /model menu for LOCAL mode — the case where
-// Claude Code talks to llama-server and every entry names a local model.
+// The hybrid extra entry that keeps the local server reachable while the
+// external gateway is the default target. The identifier is the token the
+// proxy recognises and routes to llama-server; it must stay in sync with
+// proxy.localModelName.
+const (
+	localRouteSlotValue       = "llama-server"
+	localRouteSlotName        = "llama-server (local)"
+	localRouteSlotDescription = "Route to local llama-server"
+)
+
+// BuildModelMenu computes the /model menu: which model fills which position
+// and what an empty position says. It is mode-aware — local and hybrid share
+// one layout so the positions never shift between launch modes — and the
+// mode decides only what stands behind a position.
 //
 // Layout, top to bottom:
 //
-//	Opus     reserved for OpenAI-compatible models: it carries the
-//	         openaiSlotPlaceholder, unchanged from before profiles existed.
+//	Opus     reserved for OpenAI-compatible models: the openaiSlotPlaceholder
+//	         in local mode (unchanged from before profiles existed), the
+//	         configured external model in hybrid mode — the entry through
+//	         which the gateway itself is picked.
 //	Sonnet   alias of the first profile in the config file.
 //	Haiku    alias of the second profile.
-//	custom 1 alias of the model that is actually loaded (cfg.Alias, already
-//	         resolved by the caller — see ResolveAlias), labelled as the
-//	         running one.
+//	custom 1 local: alias of the model that is actually loaded (cfg.Alias,
+//	         already resolved by the caller — see ResolveAlias), labelled as
+//	         the running one. Hybrid: the proxy's local-route token
+//	         ("llama-server"), the entry that reaches llama-server while the
+//	         gateway is the default target.
 //	custom 2..N aliases of the remaining profiles, in file order.
 //
 // Two deviations from that shape, both deliberate:
 //
-//   - No profiles at all keeps the historical menu: Sonnet and Haiku show the
-//     effective alias and there is no extra slot. A single-model setup is the
-//     common case and has nothing to choose between, so leaving it exactly as
-//     it was is friendlier than two "unused" markers.
+//   - No profiles at all keeps the historical menu of each mode: in local
+//     mode Sonnet and Haiku show the effective alias and there is no extra
+//     slot; in hybrid mode all three standard slots carry the external
+//     model. A single-model setup is the common case and has nothing to
+//     choose between, so leaving it exactly as it was is friendlier than
+//     "unused" markers.
 //   - Fewer than two profiles leaves the remaining standard slot showing the
 //     unused marker, so the user sees the position exists and what would
 //     fill it.
 //
-// Hybrid mode (-openai with a key and a model) is NOT handled here: there the
-// standard slots belong to the external provider, and the proxy forwards
-// everything it does not recognise to it, so a menu entry naming a local
-// profile would silently be answered by the external service. BuildClaudeEnv
-// keeps that branch as it was.
+// In hybrid mode a profile entry is descriptive: the proxy recognises only
+// its local-route token, so a request naming a profile alias goes to the
+// external provider until profile-name routing is implemented (the same
+// "switching is not implemented" status local-mode profile entries have).
+// The gateway keeps working: selecting the Opus slot sends the external
+// model's name, which the proxy forwards upstream.
 func BuildModelMenu(cfg *config.Config) []ModelSlot {
 	if cfg == nil {
 		return nil
+	}
+	if cfg.OpenAIProviderConfigured() {
+		return hybridModelMenu(cfg)
 	}
 	// The alias is resolved once, early in run(), so here it is simply the
 	// name of whatever the server loaded.
@@ -159,6 +182,47 @@ func BuildModelMenu(cfg *config.Config) []ModelSlot {
 		index++
 	}
 	return slots
+}
+
+// hybridModelMenu lays out the menu for hybrid mode (-openai with a key or a
+// keyless provider): the same positions as local mode, with the external
+// model in the Opus slot it is reserved for and the proxy's local-route
+// token in the first extra slot, so both the gateway and the local server
+// stay selectable. Profile entries follow the file order exactly as in local
+// mode; see BuildModelMenu for what choosing one currently does.
+func hybridModelMenu(cfg *config.Config) []ModelSlot {
+	slots := []ModelSlot{{Kind: SlotOpus, ModelValue: cfg.OpenAIModel, Filled: true}}
+	if len(cfg.Profiles) == 0 {
+		// Historical hybrid menu: with nothing to lay out, every standard
+		// slot keeps pointing at the gateway, exactly as before profiles.
+		slots = append(slots,
+			ModelSlot{Kind: SlotSonnet, ModelValue: cfg.OpenAIModel, Filled: true},
+			ModelSlot{Kind: SlotHaiku, ModelValue: cfg.OpenAIModel, Filled: true},
+		)
+	} else {
+		slots = append(slots, profileSlot(SlotSonnet, cfg.Profiles, 0))
+		slots = append(slots, profileSlot(SlotHaiku, cfg.Profiles, 1))
+	}
+	slots = append(slots, localRouteSlot())
+	for i, index := 2, 2; i < len(cfg.Profiles); i++ {
+		slots = append(slots, extraProfileSlot(index, cfg.Profiles[i]))
+		index++
+	}
+	return slots
+}
+
+// localRouteSlot is the first extra entry in hybrid mode: it carries the
+// token the proxy routes to the local llama-server (see proxy.localModelName
+// — the two literals must stay in sync).
+func localRouteSlot() ModelSlot {
+	return ModelSlot{
+		Kind:        SlotCustom,
+		CustomIndex: 1,
+		ModelValue:  localRouteSlotValue,
+		Name:        localRouteSlotName,
+		Description: localRouteSlotDescription,
+		Filled:      true,
+	}
 }
 
 // profileSlot fills one of the standard positions from the profile at index i

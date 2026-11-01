@@ -305,10 +305,14 @@ OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, �
 `ANTHROPIC_BASE_URL` (адрес сервера или прокси),
 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` — значение `-proxy-token`,
 или `local-llama` если токен не задан,
-`ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL` (в локальном режиме — из профилей `-p`
-на Sonnet/Haiku и загруженной модели в кастомной записи, см.
-«Профили и меню `/model``; в гибридном — внешняя модель, а `llama-server`
-добавляется через `ANTHROPIC_CUSTOM_MODEL_OPTION`),
+`ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL` и `ANTHROPIC_CUSTOM_MODEL_OPTION*`
+(всё меню `/model`: в локальном режиме — из профилей `-p` на Sonnet/Haiku и
+загруженной модели в кастомной записи, см. «Профили и меню `/model`»; в
+гибридном — та же раскладка, но Opus несёт внешнюю модель (переключение на
+внешний шлюз работает через этот слот), а первой кастомной записью добавляется
+`llama-server` — токен, по которому прокси маршрутирует запросы на локальный
+сервер). Унаследованные из окружения переменные этих семейств сначала
+удаляются, так что от внешней сессии llama-runner ничего не протечёт.
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
 
 Алиас за этими тремя переменными разрешается один раз за запуск (`cli.ResolveAlias`),

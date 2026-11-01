@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
@@ -153,10 +152,11 @@ func TestKeylessFlow(t *testing.T) {
 	}
 }
 
-func TestBuildClaudeEnv_KeylessProviderKeepsHybridMenu(t *testing.T) {
-	// Keyless changes only whether the proxy authenticates upstream; the menu
-	// must keep pointing at the external provider, or local profile entries
-	// would be answered remotely.
+func TestBuildClaudeEnv_KeylessProviderSharesHybridMenu(t *testing.T) {
+	// Keyless changes only whether the proxy authenticates upstream; the
+	// menu is laid out exactly like the keyed hybrid one: the external model
+	// holds the Opus slot it is reserved for, the profiles fill Sonnet (and
+	// mark Haiku unused here), and llama-server stays the local-route entry.
 	cfg := &config.Config{
 		Alias:         "local",
 		OpenAIBaseURL: "https://oai.example.com/v1",
@@ -166,18 +166,16 @@ func TestBuildClaudeEnv_KeylessProviderKeepsHybridMenu(t *testing.T) {
 	}
 	m := envMap(t, BuildClaudeEnv(cfg, "http://proxy:8082", nil))
 
-	if m["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "Qwen3.6-27B" {
-		t.Errorf("sonnet = %q, want the external model", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
-	}
 	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "Qwen3.6-27B" {
 		t.Errorf("opus = %q, want the external model", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
 	}
+	if m["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "qwen3-coder" {
+		t.Errorf("sonnet = %q, want the profile alias", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
+	}
+	if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != unusedStandardSlotValue {
+		t.Errorf("haiku = %q, want the unused marker", m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
+	}
 	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "llama-server" {
 		t.Errorf("custom = %q, want llama-server", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
-	}
-	for k, v := range m {
-		if strings.Contains(v, "qwen3-coder") {
-			t.Errorf("%s = %q leaks a local profile into hybrid mode", k, v)
-		}
 	}
 }
