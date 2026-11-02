@@ -122,6 +122,11 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	// them. Taken from the root file, so a profile's nested "profiles" (if
 	// any) are deliberately not promoted here.
 	cfg.Profiles = config.OrderedProfiles(fc)
+	if fc != nil {
+		// The raw overlays travel with the config so a profile can also be
+		// applied mid-session (see config.ApplyProfileOverlay).
+		cfg.ProfileOverlays = fc.Profiles
+	}
 	cfg.ConfigPath = configPath
 	cfg.Profile = profileName
 

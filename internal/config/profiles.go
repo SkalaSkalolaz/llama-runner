@@ -2,6 +2,8 @@ package config
 
 import (
 	"sort"
+
+	"github.com/SkalaSkalolaz/llama-runner/internal/i18n"
 )
 
 // This module owns one responsibility: presenting the config file's
@@ -67,6 +69,43 @@ func OrderedProfiles(fc *FileConfig) []Profile {
 		out = append(out, prof)
 	}
 	return out
+}
+
+// ApplyProfileOverlay returns a copy of cfg with the named profile's file
+// overlay applied — the exact same overlay -p applies at launch, through the
+// same ApplyFileConfig rules. It is what a mid-session model switch builds
+// the new server's configuration from.
+//
+// Origin flags follow the overlay: a profile that sets alias or chat-template
+// marks them explicit (and alias as profile-sourced); a profile that sets no
+// alias clears the inherited one instead of keeping the previous model's
+// name — the caller resolves the visible name afterwards (see
+// cli.ResolveAlias / cli.ProfileDisplayName), and a stale alias naming the
+// model being replaced is exactly what must never survive a switch.
+//
+// The receiver is not modified. Unknown names are an error, never a silent
+// no-op. Nested "profiles" inside a profile are deliberately not promoted.
+func ApplyProfileOverlay(cfg *Config, name string) (*Config, error) {
+	fc, ok := cfg.ProfileOverlays[name]
+	if !ok {
+		return nil, i18n.Errorv(i18n.MsgErrProfileNotFound, name)
+	}
+	out := *cfg
+	if err := ApplyFileConfig(&out, fc); err != nil {
+		return nil, err
+	}
+	out.Profile = name
+	if fc.Alias != nil {
+		out.AliasSet = true
+		out.AliasFromProfile = true
+	} else {
+		out.Alias = ""
+		out.AliasFromProfile = false
+	}
+	if fc.ChatTemplate != nil {
+		out.ChatTemplateSet = true
+	}
+	return &out, nil
 }
 
 // sortedProfileNames returns the profile keys in lexical order — the stable

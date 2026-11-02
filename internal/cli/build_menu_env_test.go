@@ -112,10 +112,10 @@ func TestBuildClaudeEnv_ThirdProfileAddsNumberedCustomSlot(t *testing.T) {
 		t.Errorf("slot 2 description = %q, want it to name the profile",
 			m["ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION"])
 	}
-	// The description must not promise a working switch: only the loaded
-	// model can answer requests today.
-	if !strings.Contains(m["ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION"], "not implemented") {
-		t.Errorf("slot 2 description should say switching is not implemented: %q",
+	// The description states what picking the slot does: the proxy switches
+	// the local model before the next message goes through.
+	if !strings.Contains(m["ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION"], "Switches the local model") {
+		t.Errorf("slot 2 description should say picking it switches the local model: %q",
 			m["ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION"])
 	}
 }

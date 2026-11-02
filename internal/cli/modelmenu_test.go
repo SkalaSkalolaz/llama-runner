@@ -121,8 +121,8 @@ func TestBuildModelMenu_MoreThanTwoProfilesAddCustomSlots(t *testing.T) {
 	if fourth.Name != "profile four - four" {
 		t.Errorf("slot for an alias-less profile = %q, want its derived name", fourth.Name)
 	}
-	if !strings.Contains(fourth.Description, "not implemented") {
-		t.Errorf("extra slot should say the model is not loaded: %q", fourth.Description)
+	if !strings.Contains(fourth.Description, "Switches the local model") {
+		t.Errorf("extra slot should say picking it switches the local model: %q", fourth.Description)
 	}
 }
 

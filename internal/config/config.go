@@ -110,6 +110,13 @@ type Config struct {
 	// needs the whole list, while everything else in Config describes the one
 	// profile that is actually running. Empty when no config file was read.
 	Profiles []Profile
+	// ProfileOverlays keeps the raw file overlay of every profile, keyed by
+	// name, exactly as the config file provided them. Profiles is identity
+	// only; a mid-session profile switch needs the full overlay (context
+	// size, chat template, …) — everything -p applied at launch — so the
+	// overlays travel with the config instead of being re-read from disk.
+	// Nil when no config file was read.
+	ProfileOverlays map[string]FileConfig
 	// ChatTemplateSet reports whether -chat-template (or the file field
 	// chatTemplate) was provided explicitly, as opposed to coming from the
 	// "auto" default. Explicit templates that are missing are an error;

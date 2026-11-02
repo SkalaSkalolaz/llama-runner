@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -16,6 +17,65 @@ import (
 // other model name received by the proxy is forwarded to the external
 // OpenAI-compatible provider.
 const localModelName = "llama-server"
+
+// ModelSwitcher is the launcher's mid-session model switching hook. The
+// proxy asks it before forwarding a local request: Handles decides whether a
+// model name refers to one of the configured local models, and EnsureLoaded
+// makes the local llama-server actually serve it (which may stop the old
+// model and start a new one, taking as long as a model load). It is
+// implemented in internal/app and wired only when the config has profiles;
+// a nil switcher leaves the local route a plain passthrough.
+type ModelSwitcher interface {
+	// Handles reports whether model names one of the local models the
+	// switcher can load (a profile display name or the as-launched model).
+	Handles(model string) bool
+	// EnsureLoaded makes the local llama-server serve model and returns the
+	// alias the upstream expects in the forwarded request — the caller
+	// rewrites the body's model field to it before sending.
+	EnsureLoaded(ctx context.Context, model string) (servedAlias string, err error)
+	// ModelNames lists the model identifiers the local route can serve
+	// (advertised on GET /v1/models when a switcher is active).
+	ModelNames() []string
+}
+
+// Options bundles everything StartProxyServer needs. Switcher is optional
+// (nil keeps the local route a verbatim passthrough).
+type Options struct {
+	// ProxyAddr is the listen address (host:port) for Claude Code.
+	ProxyAddr string
+	// LlamaServerURL is the base URL (no trailing slash) of the local
+	// llama-server.
+	LlamaServerURL string
+	// Cfg supplies provider settings, proxy token and verbosity.
+	Cfg *config.Config
+	// LogWriter receives [proxy]-prefixed diagnostics under -v.
+	LogWriter io.Writer
+	// Switcher enables name-based local switching; nil disables it.
+	Switcher ModelSwitcher
+}
+
+// Start starts the proxy from Options. See StartProxyServer.
+func Start(opts Options) (*http.Server, error) {
+	h := &proxyHandler{
+		llamaServerURL: strings.TrimRight(opts.LlamaServerURL, "/"),
+		cfg:            opts.Cfg,
+		client:         newProxyClient(),
+		logWriter:      opts.LogWriter,
+		switcher:       opts.Switcher,
+	}
+
+	mux := newProxyMux(h)
+
+	ln, err := net.Listen("tcp", opts.ProxyAddr)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось занять %s: %w", opts.ProxyAddr, err)
+	}
+	srv := &http.Server{Handler: h.authMiddleware(mux)}
+	go func() {
+		_ = srv.Serve(ln) // http.ErrServerClosed при Shutdown — нормально
+	}()
+	return srv, nil
+}
 
 // maxRequestBodyBytes is the hard limit on incoming request bodies, enforced
 // with http.MaxBytesReader. Real Claude Code payloads stay below 10 MB; the
@@ -39,6 +99,9 @@ type proxyHandler struct {
 	// logWriter receives [proxy]-prefixed diagnostic lines when -v is set;
 	// nil disables logging entirely.
 	logWriter io.Writer
+	// switcher is the optional mid-session model switch for the local route
+	// (see ModelSwitcher); nil keeps local traffic a verbatim passthrough.
+	switcher ModelSwitcher
 }
 
 // StartProxyServer binds an HTTP listener on proxyAddr and starts serving the
@@ -54,24 +117,21 @@ type proxyHandler struct {
 // llama-server log file in interactive mode (to avoid corrupting the TUI).
 // nil disables proxy logging.
 func StartProxyServer(proxyAddr, llamaServerURL string, cfg *config.Config, logWriter io.Writer) (*http.Server, error) {
-	h := &proxyHandler{
-		llamaServerURL: strings.TrimRight(llamaServerURL, "/"),
-		cfg:            cfg,
-		client:         newProxyClient(),
-		logWriter:      logWriter,
-	}
+	return Start(Options{
+		ProxyAddr:      proxyAddr,
+		LlamaServerURL: llamaServerURL,
+		Cfg:            cfg,
+		LogWriter:      logWriter,
+	})
+}
 
-	mux := newProxyMux(h)
-
-	ln, err := net.Listen("tcp", proxyAddr)
-	if err != nil {
-		return nil, fmt.Errorf("не удалось занять %s: %w", proxyAddr, err)
-	}
-	srv := &http.Server{Handler: h.authMiddleware(mux)}
-	go func() {
-		_ = srv.Serve(ln) // http.ErrServerClosed при Shutdown — нормально
-	}()
-	return srv, nil
+// externalMode reports whether the proxy runs in hybrid mode: an external
+// OpenAI-compatible provider is fully configured, so requests are routed by
+// model name and converted between the API dialects. Without it the proxy is
+// a local-only passthrough: every request goes to llama-server unchanged
+// (see passthrough.go).
+func (h *proxyHandler) externalMode() bool {
+	return h.cfg != nil && h.cfg.OpenAIProviderConfigured()
 }
 
 // newProxyMux assembles the proxy's routing table:

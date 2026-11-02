@@ -52,25 +52,41 @@ func ApplyLdLibraryPath(cmd *exec.Cmd, serverBin string, stdout io.Writer, verbo
 	}
 }
 
-// SetWorkDir decides which working directory llama-server starts in and stores
-// it on cmd.Dir: an explicit -dir (expanded "~", made absolute, must be an
-// existing directory — otherwise this is a hard launch error) or, when unset,
-// the launcher's own directory. Returns 0 on success, otherwise the exit code
-// run() must return.
-func SetWorkDir(cmd *exec.Cmd, cfg *config.Config, home string, stderr io.Writer) int {
+// resolveServerWorkDir decides which working directory llama-server starts
+// in: an explicit -dir (expanded "~", made absolute, must be an existing
+// directory — otherwise this is a hard launch error) or, when unset, the
+// launcher's own directory ("" when even that cannot be determined, which
+// leaves exec.Cmd with its inherit-the-parent behavior). Returns 0 on
+// success, otherwise the exit code run() must return.
+func resolveServerWorkDir(cfg *config.Config, home string, stderr io.Writer) (string, int) {
 	if cfg.WorkDir != "" {
 		absDir, dirErr := filepath.Abs(config.ExpandHome(cfg.WorkDir, home))
 		if dirErr != nil {
 			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrWorkDirAbs, dirErr))
-			return 1
+			return "", 1
 		}
 		if info, statErr := os.Stat(absDir); statErr != nil || !info.IsDir() {
 			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrWorkDirUnavail, absDir, statErr))
-			return 1
+			return "", 1
 		}
-		cmd.Dir = absDir
-	} else if wd, wdErr := os.Getwd(); wdErr == nil {
-		cmd.Dir = wd
+		return absDir, 0
+	}
+	if wd, wdErr := os.Getwd(); wdErr == nil {
+		return wd, 0
+	}
+	return "", 0
+}
+
+// SetWorkDir resolves the working directory for llama-server (see
+// resolveServerWorkDir) and stores it on cmd.Dir. Returns 0 on success,
+// otherwise the exit code run() must return.
+func SetWorkDir(cmd *exec.Cmd, cfg *config.Config, home string, stderr io.Writer) int {
+	dir, code := resolveServerWorkDir(cfg, home, stderr)
+	if code != 0 {
+		return code
+	}
+	if dir != "" {
+		cmd.Dir = dir
 	}
 	return 0
 }

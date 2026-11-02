@@ -45,8 +45,9 @@ import (
 //  4. register everything with the shutdown coordinator and start the
 //     escalating signal handler;
 //  5. -server mode: wait for the server and exit with its status;
-//     default mode: wait for /health, optionally start the local proxy when
-//     an external provider is configured (routing llama-server vs OpenAI),
+//     default mode: wait for /health, start the local proxy (always: routing
+//     llama-server vs OpenAI when an external provider is configured, a
+//     verbatim passthrough to llama-server otherwise),
 //     wait for the MCP server and write its config, then launch Claude Code
 //     with the ANTHROPIC_* environment — reconnecting its stdio to /dev/tty
 //     when the parent's streams were redirected. When Claude Code exits,
@@ -118,30 +119,10 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		return 0
 	}
 
-	// --- Paths ---
-	paths, code := ResolvePaths(cfg, home, stdout, stderr)
-	if code != 0 {
-		return code
-	}
-
-	// --- Build args ---
-	serverArgs := cli.BuildServerArgs(cfg, cli.ServerPaths{
-		Model: paths.Model, Mmproj: paths.Mmproj,
-		Draft: paths.Draft, Template: paths.Template,
-	})
-
-	cmd := cmdRunner.Command(paths.ServerBin, serverArgs...)
-	// Setpgid — only for server and mcp (red zone #1):
-	// they don't read the terminal, the group is needed for group kill.
-	// For claude — we do NOT set it (see shutdown.SetClaude).
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// --- LD_LIBRARY_PATH for llama-server ---
-	ApplyLdLibraryPath(cmd, paths.ServerBin, stdout, cfg.Verbose)
-	// --- Working directory ---
-	wdCode := SetWorkDir(cmd, cfg, home, stderr)
-	if wdCode != 0 {
-		return wdCode
+	// --- Launch plan: resolved paths, server args, working directory ---
+	spec, specCode := SpecForConfig(cfg, home, stdout, stderr)
+	if specCode != 0 {
+		return specCode
 	}
 
 	// --- Log file (Claude Code mode) ---
@@ -150,18 +131,20 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		return sinkCode
 	}
 	defer sink.Close()
-	if sink.Writer != nil {
-		cmd.Stdout = sink.Writer
-		cmd.Stderr = sink.Writer
-	} else {
-		cmd.Stdout = stdout
-		cmd.Stderr = stderr
-	}
-	cmd.Stdin = os.Stdin
+	spec.Log = sink.Writer // nil → the manager inherits stdout/stderr
+
+	// --- Centralized shutdown ---
+	// Built before the first Start so the manager can register the process
+	// the moment it exists. Setpgid is set by the manager for the server (and
+	// below for mcp) — red zone #1: they don't read the terminal, the group
+	// is needed for group kill. For claude — we do NOT set it (see
+	// shutdown.SetClaude).
+	shut := NewShutdown()
+	mgr := NewServerManager(cmdRunner, shut, stdout, stderr)
 
 	if cfg.Verbose {
-		fmt.Fprint(stdout, i18n.TF(i18n.MsgWorkDirLine, cmd.Dir))
-		fmt.Fprint(stdout, i18n.TF(i18n.MsgCommandLine, paths.ServerBin, strings.Join(serverArgs, " ")), "\n")
+		fmt.Fprint(stdout, i18n.TF(i18n.MsgWorkDirLine, spec.WorkDir))
+		fmt.Fprint(stdout, i18n.TF(i18n.MsgCommandLine, spec.Bin, strings.Join(spec.Args, " ")), "\n")
 		if sink.Name != "" {
 			fmt.Fprint(stdout, i18n.TF(i18n.MsgServerLogFile, sink.Name))
 		}
@@ -188,8 +171,8 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 			mcpCmd.Stdout = stdout
 			mcpCmd.Stderr = stderr
 		}
-		if cmd.Dir != "" {
-			mcpCmd.Dir = cmd.Dir
+		if spec.WorkDir != "" {
+			mcpCmd.Dir = spec.WorkDir
 		}
 		if cfg.Verbose {
 			fmt.Fprint(stdout, i18n.TF(i18n.MsgMcpCommandLine, cfg.McpAddr), "\n")
@@ -204,7 +187,7 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 	}
 
 	// --- Launch llama-server ---
-	if startErr := cmd.Start(); startErr != nil {
+	if startErr := mgr.Start(spec); startErr != nil {
 		fmt.Fprint(stderr, i18n.TF(i18n.MsgErrServerStart, startErr))
 		if mcpCmd != nil && mcpCmd.Process != nil {
 			_ = mcpCmd.Process.Signal(syscall.SIGINT)
@@ -212,11 +195,7 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		}
 		return 1
 	}
-	serverProcess := proc.Track(cmd)
-
-	// --- Centralized shutdown ---
-	shut := NewShutdown()
-	shut.SetServer(cmd)
+	serverProcess := mgr.Current()
 	if mcpCmd != nil {
 		shut.SetMCP(mcpCmd)
 	}
@@ -261,11 +240,7 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 	// =================================================================
 	// MODE 2 (default): llama-server + Claude Code
 	// =================================================================
-	healthHost := cfg.Host
-	if healthHost == "" || healthHost == "0.0.0.0" || healthHost == "::" {
-		healthHost = "127.0.0.1"
-	}
-	baseURL := "http://" + net.JoinHostPort(strings.Trim(healthHost, "[]"), cfg.Port)
+	baseURL := ServerBaseURL(cfg)
 	healthURL := baseURL + "/health"
 
 	fmt.Fprint(stdout, i18n.TF(i18n.MsgWaitingReady, healthURL, cfg.ReadyTimeout))
@@ -275,10 +250,16 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 	}
 	fmt.Fprint(stdout, i18n.TF(i18n.MsgServerReady))
 
-	// --- Local proxy for switching between llama-server and OpenAI ---
+	// --- Local proxy: always in front of Claude Code ---
+	// Hybrid mode routes by model name between llama-server and the external
+	// provider; without a provider the proxy is a verbatim passthrough to
+	// llama-server, so Claude Code sees exactly what a direct connection
+	// would have served. The proxy is always there because it is the single
+	// place that observes which model name Claude Code picked — the hook
+	// model switching builds on.
 	var proxySrv *http.Server
-	if cfg.OpenAIProviderConfigured() {
-		llamaTargetURL := "http://" + net.JoinHostPort(strings.Trim(healthHost, "[]"), cfg.Port)
+	{
+		llamaTargetURL := ServerBaseURL(cfg)
 		proxyAddr := cfg.ProxyAddr
 		if proxyAddr == "" {
 			proxyAddr = "127.0.0.1:8082"
@@ -287,7 +268,11 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		if proxy.ShouldWarnProxyExposure(proxyAddr, cfg) {
 			fmt.Fprint(stderr, i18n.TF(i18n.MsgWarnProxyExposure, proxyAddr))
 		}
-		fmt.Fprint(stdout, i18n.TF(i18n.MsgStartingProxy, proxyAddr, llamaTargetURL, cfg.OpenAIBaseURL))
+		if cfg.OpenAIProviderConfigured() {
+			fmt.Fprint(stdout, i18n.TF(i18n.MsgStartingProxy, proxyAddr, llamaTargetURL, cfg.OpenAIBaseURL))
+		} else {
+			fmt.Fprint(stdout, i18n.TF(i18n.MsgStartingProxyLocal, proxyAddr, llamaTargetURL))
+		}
 
 		var proxyLogWriter io.Writer
 		if sink.Writer != nil {
@@ -303,7 +288,23 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 			fmt.Fprint(stdout, i18n.TF(i18n.MsgWarnProxyLogDisabled))
 		}
 
-		srv, err := proxy.StartProxyServer(proxyAddr, llamaTargetURL, cfg, proxyLogWriter)
+		// With profiles configured, the local route gains name-based
+		// switching: the proxy hands requests naming another local model to
+		// the switcher, which restarts llama-server with that profile before
+		// the request goes through. Without profiles the local route stays a
+		// verbatim passthrough.
+		var switcher proxy.ModelSwitcher
+		if len(cfg.Profiles) > 0 {
+			switcher = NewModelSwitch(cfg, spec, mgr, home, proxyLogWriter)
+		}
+
+		srv, err := proxy.Start(proxy.Options{
+			ProxyAddr:      proxyAddr,
+			LlamaServerURL: llamaTargetURL,
+			Cfg:            cfg,
+			LogWriter:      proxyLogWriter,
+			Switcher:       switcher,
+		})
 		if err != nil {
 			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrProxyStart, err))
 			return 1

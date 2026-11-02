@@ -14,7 +14,7 @@ import (
 )
 
 func TestHandleModels_HasFirstLastID(t *testing.T) {
-	h := &proxyHandler{cfg: &config.Config{OpenAIModel: "gpt-4"}}
+	h := &proxyHandler{cfg: hybridCfg()}
 	w := httptest.NewRecorder()
 	h.handleModels(w, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
 
@@ -31,7 +31,7 @@ func TestHandleModels_HasFirstLastID(t *testing.T) {
 }
 
 func TestHandleModels_AlwaysHasLocal(t *testing.T) {
-	h := &proxyHandler{cfg: &config.Config{OpenAIModel: "gpt-4"}}
+	h := &proxyHandler{cfg: hybridCfg()}
 	w := httptest.NewRecorder()
 	h.handleModels(w, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
 
@@ -97,7 +97,7 @@ func TestNewProxyClient_Timeout(t *testing.T) {
 func TestHandleMessages_TooLarge(t *testing.T) {
 	// Огромное тело: 100 МБ + 1 байт.
 	// Собираем не целиком в памяти, а через io.LimitReader от "бесконечного" читателя.
-	h := &proxyHandler{cfg: &config.Config{}}
+	h := &proxyHandler{cfg: hybridCfg()}
 	w := httptest.NewRecorder()
 
 	huge := io.LimitReader(infiniteReader(' '), maxRequestBodyBytes+1)

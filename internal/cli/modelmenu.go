@@ -81,20 +81,19 @@ const (
 	unusedCustomSlotDescription = "No model behind this slot: add a profile to ~/.config/llama-runner/config.json"
 
 	// defaultSlotName labels the first extra slot, which is the model the
-	// server actually loaded — the one entry whose requests are guaranteed to
-	// be served today.
+	// server actually loaded — picking it needs no restart when nothing has
+	// switched since, and switches back to the as-launched model otherwise.
 	defaultSlotName = "local default (running)"
 	// defaultSlotDescription names the loaded model behind that slot. The
 	// profile list can name models the server did not load, so this is the
 	// entry the user checks to see what is really answering.
 	defaultSlotDescription = "Model llama-server loaded for this session: %s"
 	// profileSlotName labels an extra slot filled from a config profile, and
-	// profileSlotDescription states plainly that picking it does nothing yet —
-	// the entry is a placeholder for model switching, which is not
-	// implemented: the server holds one model, and a request naming another
-	// cannot be served.
+	// profileSlotDescription tells what picking it does: the proxy restarts
+	// the local llama-server with this profile before the next message goes
+	// through, so the first reply after the pick is slow (see ModelSwitch).
 	profileSlotName         = "profile %s - %s"
-	profileSlotDescription  = "Config profile %q (model %s). Not loaded in this session: switching models while running is not implemented yet."
+	profileSlotDescription  = "Config profile %q (model %s). Switches the local model on the next message (takes up to the ready timeout)."
 	profileSlotModelUnknown = "unknown"
 )
 
@@ -140,12 +139,12 @@ const (
 //     unused marker, so the user sees the position exists and what would
 //     fill it.
 //
-// In hybrid mode a profile entry is descriptive: the proxy recognises only
-// its local-route token, so a request naming a profile alias goes to the
-// external provider until profile-name routing is implemented (the same
-// "switching is not implemented" status local-mode profile entries have).
-// The gateway keeps working: selecting the Opus slot sends the external
-// model's name, which the proxy forwards upstream.
+// Picking a profile entry switches the local llama-server to that profile on
+// the next message (see ModelSwitch): in both modes the proxy recognises the
+// profile display names and routes them to the local switcher. In hybrid
+// mode the gateway keeps working too: selecting the Opus slot sends the
+// external model's name, which the proxy forwards upstream, and the
+// "llama-server" token reaches whatever local model is loaded right now.
 func BuildModelMenu(cfg *config.Config) []ModelSlot {
 	if cfg == nil {
 		return nil
@@ -242,9 +241,10 @@ func profileSlot(kind SlotKind, profiles []config.Profile, i int) ModelSlot {
 }
 
 // loadedModelSlot builds the first extra slot: the model the server actually
-// holds. Its identifier is cfg.Alias, so this is the one menu entry whose
-// requests are served today. An unresolved alias leaves the slot unused
-// rather than publishing an empty model name.
+// holds. Its identifier is cfg.Alias, which the switcher recognises as the
+// as-launched model (switch back to it reloads the original GGUF). An
+// unresolved alias leaves the slot unused rather than publishing an empty
+// model name.
 func loadedModelSlot(alias string) ModelSlot {
 	if alias == "" {
 		return unusedCustomSlot(1)
