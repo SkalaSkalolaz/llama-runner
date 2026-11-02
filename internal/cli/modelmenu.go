@@ -29,9 +29,16 @@ const (
 	SlotSonnet
 	// SlotHaiku is the Haiku position, filled from the second profile.
 	SlotHaiku
+	// SlotFable is the Fable position — the built-in top-tier entry Claude
+	// Code shows between Opus and Sonnet. It is filled from the third
+	// profile, so a session with three or more profiles has no unreachable
+	// channel; with fewer it shows the same "unused" marker as Sonnet/Haiku
+	// do when their profile is missing.
+	SlotFable
 	// SlotCustom is an extra position Claude Code shows below the standard
 	// ones. The first carries the model that is actually loaded (CustomIndex
-	// 1); further ones carry the remaining profiles.
+	// 1); further ones carry the remaining profiles (the fourth and on,
+	// since the first three fill Sonnet/Haiku/Fable).
 	SlotCustom
 )
 
@@ -120,12 +127,16 @@ const (
 //	         which the gateway itself is picked.
 //	Sonnet   alias of the first profile in the config file.
 //	Haiku    alias of the second profile.
+//	Fable    alias of the third profile — the built-in top-tier entry is
+//	         occupied like the others, so no menu channel goes to a model
+//	         the launcher cannot serve.
 //	custom 1 local: alias of the model that is actually loaded (cfg.Alias,
 //	         already resolved by the caller — see ResolveAlias), labelled as
 //	         the running one. Hybrid: the proxy's local-route token
 //	         ("llama-server"), the entry that reaches llama-server while the
 //	         gateway is the default target.
-//	custom 2..N aliases of the remaining profiles, in file order.
+//	custom 2..N aliases of the remaining profiles (fourth onward), in file
+//	         order.
 //
 // Two deviations from that shape, both deliberate:
 //
@@ -135,9 +146,9 @@ const (
 //     model. A single-model setup is the common case and has nothing to
 //     choose between, so leaving it exactly as it was is friendlier than
 //     "unused" markers.
-//   - Fewer than two profiles leaves the remaining standard slot showing the
-//     unused marker, so the user sees the position exists and what would
-//     fill it.
+//   - One or two profiles leave the remaining standard slots (Haiku, Fable)
+//     showing the unused marker, so the user sees the position exists and
+//     what would fill it.
 //
 // Picking a profile entry switches the local llama-server to that profile on
 // the next message (see ModelSwitch): in both modes the proxy recognises the
@@ -173,10 +184,12 @@ func BuildModelMenu(cfg *config.Config) []ModelSlot {
 	slots := []ModelSlot{{Kind: SlotOpus, ModelValue: openaiSlotPlaceholder}}
 	slots = append(slots, profileSlot(SlotSonnet, cfg.Profiles, 0))
 	slots = append(slots, profileSlot(SlotHaiku, cfg.Profiles, 1))
+	slots = append(slots, profileSlot(SlotFable, cfg.Profiles, 2))
 	slots = append(slots, loadedModelSlot(loaded))
 	// Extra profiles continue the custom numbering where loadedModelSlot left
-	// it, so the published variables form a gapless sequence.
-	for i, index := 2, 2; i < len(cfg.Profiles); i++ {
+	// it, so the published variables form a gapless sequence. The first three
+	// profiles are already on Sonnet/Haiku/Fable.
+	for i, index := 3, 2; i < len(cfg.Profiles); i++ {
 		slots = append(slots, extraProfileSlot(index, cfg.Profiles[i]))
 		index++
 	}
@@ -201,9 +214,11 @@ func hybridModelMenu(cfg *config.Config) []ModelSlot {
 	} else {
 		slots = append(slots, profileSlot(SlotSonnet, cfg.Profiles, 0))
 		slots = append(slots, profileSlot(SlotHaiku, cfg.Profiles, 1))
+		slots = append(slots, profileSlot(SlotFable, cfg.Profiles, 2))
 	}
 	slots = append(slots, localRouteSlot())
-	for i, index := 2, 2; i < len(cfg.Profiles); i++ {
+	// Profiles 1..3 ride on Sonnet/Haiku/Fable; the rest get custom slots.
+	for i, index := 3, 2; i < len(cfg.Profiles); i++ {
 		slots = append(slots, extraProfileSlot(index, cfg.Profiles[i]))
 		index++
 	}

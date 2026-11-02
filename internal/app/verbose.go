@@ -28,6 +28,7 @@ func PrintClaudeDiagnostics(stdout io.Writer, cfg *config.Config, claudePath, wo
 	for _, want := range []string{
 		"ANTHROPIC_DEFAULT_SONNET_MODEL",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL",
 		"ANTHROPIC_CUSTOM_MODEL_OPTION",
 	} {

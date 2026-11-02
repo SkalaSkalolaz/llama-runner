@@ -56,6 +56,7 @@ func TestBuildClaudeEnv_TwoProfilesFillMenu(t *testing.T) {
 		"ANTHROPIC_DEFAULT_OPUS_MODEL":             "openai",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL":           "qwen3-coder",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL":            "qwen3.8-flash",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL":            unusedStandardSlotValue,
 		"ANTHROPIC_CUSTOM_MODEL_OPTION":            "qwen3.8-distil",
 		"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME":       defaultSlotName,
 	}
@@ -75,7 +76,7 @@ func TestBuildClaudeEnv_TwoProfilesFillMenu(t *testing.T) {
 	}
 }
 
-func TestBuildClaudeEnv_OneProfileMarksHaikuUnused(t *testing.T) {
+func TestBuildClaudeEnv_OneProfileMarksHaikuAndFableUnused(t *testing.T) {
 	cfg := &config.Config{Alias: "root-alias", Profiles: []config.Profile{coderProfile()}}
 	m := envMap(t, BuildClaudeEnv(cfg, "http://h:1", nil))
 
@@ -86,15 +87,45 @@ func TestBuildClaudeEnv_OneProfileMarksHaikuUnused(t *testing.T) {
 		t.Errorf("haiku = %q, want the unused marker %q",
 			m["ANTHROPIC_DEFAULT_HAIKU_MODEL"], unusedStandardSlotValue)
 	}
+	if m["ANTHROPIC_DEFAULT_FABLE_MODEL"] != unusedStandardSlotValue {
+		t.Errorf("fable = %q, want the unused marker %q",
+			m["ANTHROPIC_DEFAULT_FABLE_MODEL"], unusedStandardSlotValue)
+	}
 	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "root-alias" {
 		t.Errorf("custom = %q, want root-alias", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
 	}
 }
 
-func TestBuildClaudeEnv_ThirdProfileAddsNumberedCustomSlot(t *testing.T) {
+func TestBuildClaudeEnv_ThirdProfileFillsFableSlot(t *testing.T) {
+	// The third profile occupies the built-in Fable channel, so no custom
+	// slot is needed and the numbered family stays closed.
 	cfg := &config.Config{
 		Alias:    "root-alias",
 		Profiles: []config.Profile{coderProfile(), bigProfile(), tinyProfile()},
+	}
+	m := envMap(t, BuildClaudeEnv(cfg, "http://h:1", nil))
+
+	if m["ANTHROPIC_DEFAULT_FABLE_MODEL"] != "tiny-alias" {
+		t.Errorf("fable = %q, want tiny-alias", m["ANTHROPIC_DEFAULT_FABLE_MODEL"])
+	}
+	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "root-alias" {
+		t.Errorf("first custom slot = %q, want the loaded model root-alias",
+			m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
+	}
+	for k := range m {
+		if strings.Contains(k, "ANTHROPIC_CUSTOM_MODEL_OPTION_2") {
+			t.Errorf("unexpected numbered custom slot %q with exactly three profiles", k)
+		}
+	}
+}
+
+func TestBuildClaudeEnv_FourthProfileAddsNumberedCustomSlot(t *testing.T) {
+	// Profiles beyond the third return to the numbered custom family (the
+	// first three ride on Sonnet/Haiku/Fable), with the switching hint in
+	// the description.
+	cfg := &config.Config{
+		Alias:    "root-alias",
+		Profiles: []config.Profile{coderProfile(), bigProfile(), tinyProfile(), coderProfile()},
 	}
 	m := envMap(t, BuildClaudeEnv(cfg, "http://h:1", nil))
 
@@ -102,18 +133,9 @@ func TestBuildClaudeEnv_ThirdProfileAddsNumberedCustomSlot(t *testing.T) {
 		t.Errorf("first custom slot = %q, want the loaded model root-alias",
 			m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
 	}
-	if m["ANTHROPIC_CUSTOM_MODEL_OPTION_2"] != "tiny-alias" {
-		t.Errorf("slot 2 = %q, want tiny-alias", m["ANTHROPIC_CUSTOM_MODEL_OPTION_2"])
+	if m["ANTHROPIC_CUSTOM_MODEL_OPTION_2"] != "qwen3-coder" {
+		t.Errorf("slot 2 = %q, want qwen3-coder", m["ANTHROPIC_CUSTOM_MODEL_OPTION_2"])
 	}
-	if m["ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME"] != "profile tiny - tiny-alias" {
-		t.Errorf("slot 2 name = %q", m["ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME"])
-	}
-	if !strings.Contains(m["ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION"], "tiny") {
-		t.Errorf("slot 2 description = %q, want it to name the profile",
-			m["ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION"])
-	}
-	// The description states what picking the slot does: the proxy switches
-	// the local model before the next message goes through.
 	if !strings.Contains(m["ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION"], "Switches the local model") {
 		t.Errorf("slot 2 description should say picking it switches the local model: %q",
 			m["ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION"])
@@ -131,6 +153,9 @@ func TestBuildClaudeEnv_NoProfilesKeepsHistoricalEnv(t *testing.T) {
 	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "openai" {
 		t.Errorf("opus = %q, want openai", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
 	}
+	if _, ok := m["ANTHROPIC_DEFAULT_FABLE_MODEL"]; ok {
+		t.Error("fable must stay untouched (built-in) when there are no profiles")
+	}
 	if _, ok := m["ANTHROPIC_CUSTOM_MODEL_OPTION"]; ok {
 		t.Error("no custom slot expected when there is nothing to choose between")
 	}
@@ -146,7 +171,8 @@ func TestBuildClaudeEnv_HybridModeKeepsProfileLayout(t *testing.T) {
 	// the Opus slot carries the external model (the entry through which the
 	// gateway is picked — the proxy forwards every unknown name upstream),
 	// the first extra slot is the proxy's "llama-server" local-route token,
-	// and Sonnet/Haiku/extras fill from the profiles like in local mode.
+	// and Sonnet/Haiku/Fable/extras fill from the profiles like in local
+	// mode.
 	cfg := &config.Config{
 		Alias:         "local",
 		Profiles:      []config.Profile{coderProfile(), bigProfile(), tinyProfile()},
@@ -160,11 +186,10 @@ func TestBuildClaudeEnv_HybridModeKeepsProfileLayout(t *testing.T) {
 		"ANTHROPIC_DEFAULT_OPUS_MODEL":              "ext/model-x",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL":            "qwen3-coder",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL":             "qwen3.8-flash",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL":             "tiny-alias",
 		"ANTHROPIC_CUSTOM_MODEL_OPTION":             localRouteSlotValue,
 		"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME":        localRouteSlotName,
 		"ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION": localRouteSlotDescription,
-		"ANTHROPIC_CUSTOM_MODEL_OPTION_2":           "tiny-alias",
-		"ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME":      "profile tiny - tiny-alias",
 	}
 	for k, v := range want {
 		if m[k] != v {
@@ -176,6 +201,7 @@ func TestBuildClaudeEnv_HybridModeKeepsProfileLayout(t *testing.T) {
 	for _, k := range []string{
 		"ANTHROPIC_DEFAULT_SONNET_MODEL",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL",
 		"ANTHROPIC_CUSTOM_MODEL_OPTION",
 	} {
@@ -201,6 +227,10 @@ func TestBuildClaudeEnv_HybridModeMarksMissingProfilesUnused(t *testing.T) {
 	if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != unusedStandardSlotValue {
 		t.Errorf("haiku = %q, want the unused marker %q",
 			m["ANTHROPIC_DEFAULT_HAIKU_MODEL"], unusedStandardSlotValue)
+	}
+	if m["ANTHROPIC_DEFAULT_FABLE_MODEL"] != unusedStandardSlotValue {
+		t.Errorf("fable = %q, want the unused marker %q",
+			m["ANTHROPIC_DEFAULT_FABLE_MODEL"], unusedStandardSlotValue)
 	}
 	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "ext/model-x" {
 		t.Errorf("opus = %q, want the external model", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
@@ -232,6 +262,9 @@ func TestBuildClaudeEnv_HybridModeWithoutProfilesKeepsGatewayOnAllSlots(t *testi
 			t.Errorf("%s = %q, want ext/model-x in a profile-less hybrid menu", k, m[k])
 		}
 	}
+	if _, ok := m["ANTHROPIC_DEFAULT_FABLE_MODEL"]; ok {
+		t.Error("fable must stay untouched (built-in) in a profile-less hybrid menu")
+	}
 	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != localRouteSlotValue {
 		t.Errorf("custom = %q, want the local route token", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
 	}
@@ -249,6 +282,7 @@ func TestBuildClaudeEnv_ScrubsInheritedMenuVars(t *testing.T) {
 	base := []string{
 		"PATH=/usr/bin",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL=ghost-haiku",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL=ghost-fable",
 		"ANTHROPIC_CUSTOM_MODEL_OPTION=ghost-custom",
 		"ANTHROPIC_CUSTOM_MODEL_OPTION_2=ghost-profile",
 		"ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME=Ghost profile",

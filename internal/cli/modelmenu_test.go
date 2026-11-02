@@ -23,6 +23,8 @@ func menuShape(slots []ModelSlot) string {
 			label = "sonnet:" + s.ModelValue
 		case SlotHaiku:
 			label = "haiku:" + s.ModelValue
+		case SlotFable:
+			label = "fable:" + s.ModelValue
 		case SlotCustom:
 			label = "custom" + strconv.Itoa(s.CustomIndex) + ":" + s.ModelValue
 		}
@@ -62,7 +64,10 @@ func TestBuildModelMenu_TwoProfiles(t *testing.T) {
 			config.Profile{Name: "big", Model: "~/G/big.gguf", Alias: "qwen3.8-flash", AliasSet: true},
 		),
 	}
-	want := "opus:openai|sonnet:qwen3-coder|haiku:qwen3.8-flash|custom1:qwen3.8-distil"
+	// Two profiles fill Sonnet and Haiku; the Fable position has no profile
+	// behind it and shows the marker, the loaded model keeps custom 1.
+	want := "opus:openai|sonnet:qwen3-coder|haiku:qwen3.8-flash|fable:" +
+		unusedStandardSlotValue + "|custom1:qwen3.8-distil"
 	if got := menuShape(BuildModelMenu(cfg)); got != want {
 		t.Errorf("menu = %s, want %s", got, want)
 	}
@@ -71,31 +76,54 @@ func TestBuildModelMenu_TwoProfiles(t *testing.T) {
 	if slots[1].Profile != "coder" || slots[2].Profile != "big" {
 		t.Errorf("profile back-references = %q/%q, want coder/big", slots[1].Profile, slots[2].Profile)
 	}
-	if slots[0].Profile != "" || slots[3].Profile != "" {
+	if slots[0].Profile != "" || slots[4].Profile != "" {
 		t.Errorf("opus/loaded slots should not reference a profile, got %q/%q",
-			slots[0].Profile, slots[3].Profile)
+			slots[0].Profile, slots[4].Profile)
 	}
-	if !slots[3].Filled || slots[3].Name != defaultSlotName {
-		t.Errorf("loaded slot = %+v, want filled and labelled %q", slots[3], defaultSlotName)
+	if slots[3].Filled {
+		t.Error("the unfilled Fable slot must not report Filled")
 	}
-	if !strings.Contains(slots[3].Description, "qwen3.8-distil") {
-		t.Errorf("loaded slot description does not name the loaded model: %q", slots[3].Description)
+	if !slots[4].Filled || slots[4].Name != defaultSlotName {
+		t.Errorf("loaded slot = %+v, want filled and labelled %q", slots[4], defaultSlotName)
+	}
+	if !strings.Contains(slots[4].Description, "qwen3.8-distil") {
+		t.Errorf("loaded slot description does not name the loaded model: %q", slots[4].Description)
 	}
 }
 
-func TestBuildModelMenu_OneProfilesMarksHaikuUnused(t *testing.T) {
+func TestBuildModelMenu_ThreeProfilesFillFable(t *testing.T) {
+	cfg := &config.Config{
+		Alias: "qwen3.8-distil",
+		Profiles: profiles(
+			config.Profile{Name: "coder", Alias: "qwen3-coder", AliasSet: true},
+			config.Profile{Name: "big", Alias: "qwen3.8-flash", AliasSet: true},
+			config.Profile{Name: "tiny", Alias: "tiny-alias", AliasSet: true},
+		),
+	}
+	want := "opus:openai|sonnet:qwen3-coder|haiku:qwen3.8-flash|fable:tiny-alias|custom1:qwen3.8-distil"
+	if got := menuShape(BuildModelMenu(cfg)); got != want {
+		t.Errorf("menu = %s, want %s", got, want)
+	}
+	slots := BuildModelMenu(cfg)
+	if !slots[3].Filled || slots[3].Profile != "tiny" {
+		t.Errorf("Fable slot = %+v, want filled from profile tiny", slots[3])
+	}
+}
+
+func TestBuildModelMenu_OneProfileMarksHaikuAndFableUnused(t *testing.T) {
 	cfg := &config.Config{
 		Alias:    "root-alias",
 		Profiles: profiles(config.Profile{Name: "coder", Alias: "qwen3-coder", AliasSet: true}),
 	}
 	slots := BuildModelMenu(cfg)
-	want := "opus:openai|sonnet:qwen3-coder|haiku:" + unusedStandardSlotValue + "|custom1:root-alias"
+	want := "opus:openai|sonnet:qwen3-coder|haiku:" + unusedStandardSlotValue +
+		"|fable:" + unusedStandardSlotValue + "|custom1:root-alias"
 	if got := menuShape(slots); got != want {
 		t.Errorf("menu = %s, want %s", got, want)
 	}
 	for _, s := range slots {
-		if s.Kind == SlotHaiku && s.Filled {
-			t.Error("the unused Haiku slot must not report Filled")
+		if (s.Kind == SlotHaiku || s.Kind == SlotFable) && s.Filled {
+			t.Errorf("the unused %v slot must not report Filled", s.Kind)
 		}
 	}
 }
@@ -111,9 +139,10 @@ func TestBuildModelMenu_MoreThanTwoProfilesAddCustomSlots(t *testing.T) {
 		),
 	}
 	slots := BuildModelMenu(cfg)
-	// The loaded model takes custom position 1 and the extra profiles follow
-	// it in file order with no gaps in the numbering.
-	want := "opus:openai|sonnet:a1|haiku:a2|custom1:root-alias|custom2:a3|custom3:four"
+	// Profiles 1..3 fill Sonnet/Haiku/Fable; the loaded model takes custom
+	// position 1 and the extra profiles follow it in file order with no gaps
+	// in the numbering.
+	want := "opus:openai|sonnet:a1|haiku:a2|fable:a3|custom1:root-alias|custom2:four"
 	if got := menuShape(slots); got != want {
 		t.Errorf("menu = %s, want %s", got, want)
 	}
@@ -164,19 +193,19 @@ func TestBuildModelMenu_ProfilesWithUnresolvedAliasMarkCustomUnused(t *testing.T
 		),
 	}
 	slots := BuildModelMenu(cfg)
-	want := "opus:openai|sonnet:qwen3-coder|haiku:qwen3.8-flash|custom1:" +
-		fmt.Sprintf(unusedCustomSlotValue, 1)
+	want := "opus:openai|sonnet:qwen3-coder|haiku:qwen3.8-flash|fable:" +
+		unusedStandardSlotValue + "|custom1:" + fmt.Sprintf(unusedCustomSlotValue, 1)
 	if got := menuShape(slots); got != want {
 		t.Errorf("menu = %s, want %s", got, want)
 	}
-	if slots[3].Filled {
+	if slots[4].Filled {
 		t.Error("the unused custom slot must not report Filled")
 	}
-	if !strings.Contains(slots[3].Name, "unused") {
-		t.Errorf("custom slot name = %q, want an unused marker", slots[3].Name)
+	if !strings.Contains(slots[4].Name, "unused") {
+		t.Errorf("custom slot name = %q, want an unused marker", slots[4].Name)
 	}
-	if !strings.Contains(slots[3].Description, "config.json") {
-		t.Errorf("custom slot should say how to fill it: %q", slots[3].Description)
+	if !strings.Contains(slots[4].Description, "config.json") {
+		t.Errorf("custom slot should say how to fill it: %q", slots[4].Description)
 	}
 }
 

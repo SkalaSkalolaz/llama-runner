@@ -131,9 +131,10 @@ const openaiSlotPlaceholder = "openai"
 //     single source of truth for the layout and is mode-aware: the OPUS slot
 //     is reserved for models served through the OpenAI-compatible API and
 //     carries cfg.OpenAIModel in hybrid mode, the openaiSlotPlaceholder
-//     otherwise; SONNET/HAIKU take the aliases of the first two config
-//     profiles (or the "unused" marker when a profile is missing), the first
-//     custom entry takes the model actually loaded in local mode (cfg.Alias,
+//     otherwise; SONNET/HAIKU/FABLE take the aliases of the first three
+//     config profiles (or the "unused" marker when a profile is missing),
+//     the first custom entry takes the model actually loaded in local mode
+//     (cfg.Alias,
 //     which run() has already resolved — see cli.ResolveAlias) or the proxy's
 //     "llama-server" local-route token in hybrid mode, and further custom
 //     entries take the remaining profiles.
@@ -184,9 +185,10 @@ func scrubModelMenuVars(env []string) []string {
 // modelSlotEnvVars serialises one menu slot into the variables Claude Code
 // reads it from.
 //
-// The three standard positions have one variable each. A custom position has
-// a set: the model identifier plus, when present, a display name and a
-// description. The first custom position keeps the documented, singular names
+// The four standard positions (Opus/Sonnet/Haiku/Fable) have one variable
+// each. A custom position has a set: the model identifier plus, when
+// present, a display name and a description. The first custom position keeps
+// the documented, singular names
 // (ANTHROPIC_CUSTOM_MODEL_OPTION and friends); further positions number the
 // family itself: ANTHROPIC_CUSTOM_MODEL_OPTION_2,
 // ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME, ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION.
@@ -196,9 +198,10 @@ func scrubModelMenuVars(env []string) []string {
 // variants are read has to be checked against a live /model menu (see the note
 // in README). It is used because it is the only shape that can express extra
 // positions at all, and it degrades harmlessly: if Claude Code ignores the
-// numbered variables the first two profiles still appear (they ride on
-// Sonnet/Haiku) and the loaded model still appears in the singular custom
-// entry — the user simply sees no entries from the third profile onwards.
+// numbered variables the first three profiles still appear (they ride on
+// Sonnet/Haiku/Fable) and the loaded model still appears in the singular
+// custom entry — the user simply sees no entries from the fourth profile
+// onwards.
 func modelSlotEnvVars(slot ModelSlot) []string {
 	if slot.ModelValue == "" {
 		return nil
@@ -231,6 +234,8 @@ func standardSlotVar(slot ModelSlot) string {
 		return "ANTHROPIC_DEFAULT_SONNET_MODEL"
 	case SlotHaiku:
 		return "ANTHROPIC_DEFAULT_HAIKU_MODEL"
+	case SlotFable:
+		return "ANTHROPIC_DEFAULT_FABLE_MODEL"
 	}
 	return ""
 }

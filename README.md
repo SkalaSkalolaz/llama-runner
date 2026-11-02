@@ -272,40 +272,43 @@ In local mode the config profiles become the model choices in Claude Code's
 | Opus | reserved for OpenAI-compatible models — shows `openai` |
 | Sonnet | alias of the 1st profile |
 | Haiku | alias of the 2nd profile |
+| Fable | alias of the 3rd profile (the built-in top-tier entry is occupied too) |
 | `local default (running)` | the model llama-server actually loaded (its effective alias) |
-| `profile <name> - <alias>` | the 3rd profile and further ones |
+| `profile <name> - <alias>` | the 4th profile and further ones |
 
 - The name shown for a profile is its `alias`, else a name derived from its
   model file, else the profile key itself.
-- **One model is loaded at a time.** Only the entry naming the loaded model
-  gets served today; the other entries describe models that exist in the
-  config, and their description says so. Choosing a different model means
-  restarting llama-runner with `-p <profile>` — switching models inside a
-  running session is not implemented yet.
+- **One model is loaded at a time, switching is live.** Picking another
+  profile entry makes the proxy restart llama-server with that profile
+  (same address, full profile settings) before the next message goes
+  through — Claude Code just experiences a slow first reply, the dialogue
+  continues with the new model. A failed switch rolls back to the previous
+  model and the error is reported.
 - A standard slot with no profile behind it shows `unused (no profile)`; an
   unused extra slot shows `unused - slot N (no profile)`.
 - With **no profiles at all** the menu stays exactly as it was before: in
-  local mode Sonnet and Haiku carry the effective alias and there are no
-  extra entries; in hybrid mode all three standard slots carry the external
-  model.
+  local mode Sonnet and Haiku carry the effective alias, Fable stays the
+  built-in entry, and there are no extra entries; in hybrid mode the three
+  standard gateway slots carry the external model.
 - Hybrid mode (`-openai` + key + `-model-openai`) follows **the same layout**,
   so the positions never shift between modes: the Opus slot carries the
   external model (picking it routes through the proxy to the gateway — the
   gateway keeps working when switched to), the first extra entry is
-  `llama-server (local)` — the token the proxy routes to llama-server — and
-  Sonnet/Haiku/extra entries fill from the profiles exactly as above. A
-  profile entry is descriptive there: the proxy recognises only the
-  `llama-server` token, so choosing a profile alias sends it to the external
-  provider until profile-name routing is implemented.
+  `llama-server (local)` — the token the proxy routes to whatever local
+  model is loaded right now — and Sonnet/Haiku/Fable/extra entries fill
+  from the profiles exactly as above. Choosing a profile entry switches the
+  local model just like in local mode; only names the launcher does not
+  recognise go to the external provider.
 - Menu variables inherited from the environment (`ANTHROPIC_DEFAULT_*_MODEL`,
   `ANTHROPIC_CUSTOM_MODEL_OPTION*`) are removed before the launcher publishes
   its own, so a nested run never shows ghost entries from an outer session.
-- Extra slots (3rd profile and up) are published as numbered variables
+- Extra slots (4th profile and up) are published as numbered variables
   (`ANTHROPIC_CUSTOM_MODEL_OPTION_2`, `ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME`,
   `ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION`, …). Claude Code documents only
   the singular set, so **this part is unverified**: if the numbered variables
-  are ignored, the first two profiles and the loaded model still appear and the
-  rest simply do not. Worth checking once in a live `/model` menu.
+  are ignored, the first three profiles (Sonnet/Haiku/Fable) and the loaded
+  model still appear and the rest simply do not. Worth checking once in a
+  live `/model` menu.
 
 ## Logs
 
