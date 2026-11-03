@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -15,6 +16,33 @@ import (
 )
 
 func sp(s string) *string { return &s }
+
+// Регрессия на артефакты в TUI Claude Code: спек, собранный для профиля при
+// переключении, обязан нести лог-сток запущенного спека (run() присваивает
+// spec.Log до создания switcher). С Log == nil ServerManager.Start
+// наследует stdout/stderr лаунчера — терминал, в который рисует TUI, —
+// и логи llama-server (tok/s, слоты) сыплются поверх интерфейса.
+func TestModelSwitch_ProfileSpecKeepsLogSink(t *testing.T) {
+	cfg, home, mgr, baseSpec := switchTestSetup(t)
+	fastModel := filepath.Join(home, "fast.gguf")
+	if err := os.WriteFile(fastModel, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Profiles = []config.Profile{{Name: "fast", Alias: "fasty", AliasSet: true, Model: fastModel}}
+	cfg.ProfileOverlays = map[string]config.FileConfig{
+		"fast": {Model: sp(fastModel), Alias: sp("fasty")},
+	}
+	var logSink io.Writer = new(bytes.Buffer)
+	baseSpec.Log = logSink
+	sw := NewModelSwitch(cfg, baseSpec, mgr, home, io.Discard)
+
+	if _, err := sw.EnsureLoaded(context.Background(), "fasty"); err != nil {
+		t.Fatalf("переключение: %v", err)
+	}
+	if sw.curSpec.Log != logSink {
+		t.Error("спек профиля потерял лог-сток: перезапущенный сервер унаследует терминал")
+	}
+}
 
 // healthStub — фейковый /health: healthy=true отвечает 200 на /health,
 // иначе 404 (сервер «поднялся, но нездоров»). Возвращает порт для cfg.Port.

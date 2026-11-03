@@ -196,6 +196,13 @@ func (s *ModelSwitch) resolveSpec(model string) (string, ServerSpec, error) {
 		if code != 0 {
 			return "", ServerSpec{}, fmt.Errorf("профиль %q нельзя запустить (код %d, подробности в логе прокси)", p.Name, code)
 		}
+		// SpecForConfig builds a bare spec; the log sink is
+		// attached to the launched one by run(). It must travel
+		// over, or Start would inherit the launcher's
+		// stdout/stderr — the terminal Claude Code's TUI renders
+		// into — and every server log line would corrupt the
+		// interface.
+		spec.Log = s.origSpec.Log
 		return name, spec, nil
 	}
 	return "", ServerSpec{}, fmt.Errorf("неизвестная локальная модель %q", model)
