@@ -93,6 +93,34 @@ func ResolveAlias(cfg *config.Config) (string, string) {
 	return DefaultAlias, i18n.MsgAliasSrcDefault
 }
 
+// RootDisplayName computes the name the config file's ROOT model is shown
+// under — the /model entry that switches back to the config default. The same
+// precedence idea as ProfileDisplayName, narrowed to the root section:
+//
+//  1. the root section's own alias, when it sets one;
+//  2. otherwise the name derived from the root model file;
+//  3. otherwise "" — there is no root model to advertise (no config file, or
+//     a root naming neither model nor alias), so the menu publishes no root
+//     entry and the switcher claims no root name.
+//
+// The result deliberately does NOT fall back to cfg.Alias: launched with -p,
+// cfg.Alias names the running profile, not the root model — conflating the
+// two is exactly what would make the root entry switch to the wrong GGUF.
+func RootDisplayName(cfg *config.Config) string {
+	if cfg == nil || cfg.RootSection == nil {
+		return ""
+	}
+	if cfg.RootSection.Alias != nil && *cfg.RootSection.Alias != "" {
+		return *cfg.RootSection.Alias
+	}
+	if cfg.RootSection.Model != nil {
+		if derived := DeriveAliasFromModel(*cfg.RootSection.Model); derived != "" {
+			return derived
+		}
+	}
+	return ""
+}
+
 // ProfileDisplayName computes the name a profile is shown under, independently
 // of which profile is running. The same precedence idea as ResolveAlias,
 // narrowed to one profile and with one extra rung:

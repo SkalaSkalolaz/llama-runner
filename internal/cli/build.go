@@ -107,12 +107,6 @@ func BuildServerArgs(cfg *config.Config, paths ServerPaths) []string {
 	return args
 }
 
-// openaiSlotPlaceholder is the value published in the Opus slot of the
-// Claude Code /model menu when no external OpenAI-compatible provider is
-// configured. The Opus slot is reserved for OpenAI-API models; this literal
-// marks the slot as "OpenAI provider not configured".
-const openaiSlotPlaceholder = "openai"
-
 // BuildClaudeEnv returns a fresh environment slice (KEY=VALUE strings) for
 // the Claude Code child process. baseEnv is never mutated: it is copied with
 // the model-menu variables it may carry from an outer llama-runner session
@@ -128,16 +122,11 @@ const openaiSlotPlaceholder = "openai"
 //   - sets CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 to keep a local
 //     deployment from phoning home;
 //   - publishes the whole /model menu from BuildModelMenu(cfg), which is the
-//     single source of truth for the layout and is mode-aware: the OPUS slot
-//     is reserved for models served through the OpenAI-compatible API and
-//     carries cfg.OpenAIModel in hybrid mode, the openaiSlotPlaceholder
-//     otherwise; SONNET/HAIKU/FABLE take the aliases of the first three
-//     config profiles (or the "unused" marker when a profile is missing),
-//     the first custom entry takes the model actually loaded in local mode
-//     (cfg.Alias,
-//     which run() has already resolved — see cli.ResolveAlias) or the proxy's
-//     "llama-server" local-route token in hybrid mode, and further custom
-//     entries take the remaining profiles.
+//     single source of truth for the layout and is mode-aware: in local mode
+//     every position carries the local model alias (cfg.Alias, which run()
+//     has already resolved — see cli.ResolveAlias); in hybrid mode the four
+//     standard positions carry the external model and the custom entry
+//     carries the local alias.
 func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []string {
 	env := scrubModelMenuVars(baseEnv)
 
@@ -173,7 +162,12 @@ func scrubModelMenuVars(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
 		k, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(k, "ANTHROPIC_DEFAULT_") ||
+		// ANTHROPIC_MODEL names the CURRENT model, not a menu entry, but it
+		// belongs here: an inherited value (outer llama-runner session, user
+		// shell) would fight this launcher's --model pin and could point the
+		// session at a model the freshly started server does not serve.
+		if k == "ANTHROPIC_MODEL" ||
+			strings.HasPrefix(k, "ANTHROPIC_DEFAULT_") ||
 			strings.HasPrefix(k, "ANTHROPIC_CUSTOM_MODEL_OPTION") {
 			continue
 		}
@@ -250,12 +244,22 @@ func customSlotVarPrefix(index int) string {
 }
 
 // BuildClaudeArgs returns the command-line arguments for the claude child
-// process. When mcpConfigPath is set, Claude Code is pointed at that MCP
+// process. In local mode it pins the model Claude Code starts with to the
+// alias llama-server actually loaded (--model): without the pin Claude Code
+// resumes the model persisted from an earlier session, names it in the very
+// first request, and the proxy switches the server to it before the user
+// asked for anything — the menu cursor then sits on a model that is not the
+// one running. Hybrid mode is exempt: there the session is expected to start
+// at the external gateway and local models are opt-in through the menu.
+// When mcpConfigPath is set, Claude Code is pointed at that MCP
 // configuration file, and --strict-mcp-config is appended when
 // cfg.McpStrict is set (restricting Claude Code to exactly the servers in
-// that file). With no MCP config the result is an empty slice.
+// that file).
 func BuildClaudeArgs(cfg *config.Config, mcpConfigPath string) []string {
 	args := []string{}
+	if !cfg.OpenAIProviderConfigured() && cfg.Alias != "" {
+		args = append(args, "--model", cfg.Alias)
+	}
 	if mcpConfigPath != "" {
 		args = append(args, "--mcp-config", mcpConfigPath)
 		if cfg.McpStrict {

@@ -124,8 +124,13 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	cfg.Profiles = config.OrderedProfiles(fc)
 	if fc != nil {
 		// The raw overlays travel with the config so a profile can also be
-		// applied mid-session (see config.ApplyProfileOverlay).
+		// applied mid-session (see config.ApplyProfileOverlay). The root
+		// section travels alongside them: it is what a switch back to the
+		// config default re-applies (see config.ApplyRootOverlay), and the
+		// profile overlay has already overwritten those fields in cfg.
 		cfg.ProfileOverlays = fc.Profiles
+		root := *fc
+		cfg.RootSection = &root
 	}
 	cfg.ConfigPath = configPath
 	cfg.Profile = profileName

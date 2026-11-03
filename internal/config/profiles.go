@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/SkalaSkalolaz/llama-runner/internal/i18n"
@@ -103,6 +104,45 @@ func ApplyProfileOverlay(cfg *Config, name string) (*Config, error) {
 		out.AliasFromProfile = false
 	}
 	if fc.ChatTemplate != nil {
+		out.ChatTemplateSet = true
+	}
+	return &out, nil
+}
+
+// ApplyRootOverlay returns a copy of cfg with the config file's root section
+// re-applied on top — the mirror of ApplyProfileOverlay for the "back to the
+// config default" entry of the /model menu. A mid-session switch to the root
+// model starts from the launch config, which already carries the selected
+// profile, so the root section travels with the config (Config.RootSection)
+// and is applied here exactly like a profile overlay.
+//
+// Fields the root section does not set keep their current (launch-resolved)
+// values — the same overlay semantics as every other layer. The profile
+// identity is cleared: the result describes the root model, not a profile.
+// Alias origin follows the root section — a root alias marks itself explicit,
+// and a root without an alias clears the profile's name so the caller resolves
+// a fresh one (see cli.ResolveAlias / cli.RootDisplayName); leaving the old
+// profile alias behind is exactly what must never survive a switch.
+//
+// The receiver is not modified. The only error case is a config assembled
+// without a file, where there is no root section to apply.
+func ApplyRootOverlay(cfg *Config) (*Config, error) {
+	if cfg.RootSection == nil {
+		return nil, fmt.Errorf("config: no root section to re-apply (no config file was read)")
+	}
+	out := *cfg
+	if err := ApplyFileConfig(&out, *cfg.RootSection); err != nil {
+		return nil, err
+	}
+	out.Profile = ""
+	if cfg.RootSection.Alias != nil {
+		out.AliasSet = true
+		out.AliasFromProfile = false
+	} else {
+		out.Alias = ""
+		out.AliasFromProfile = false
+	}
+	if cfg.RootSection.ChatTemplate != nil {
 		out.ChatTemplateSet = true
 	}
 	return &out, nil

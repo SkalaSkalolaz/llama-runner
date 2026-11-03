@@ -17,38 +17,31 @@ import (
 
 // handleModels serves GET /v1/models with an Anthropic-format model list so
 // the proxy passes Claude Code's startup model check. It advertises the local
-// llama-server, the configured external model, and the standard aliases
-// (sonnet/haiku/opus) — the aliases are listed for visibility only. When a
-// switcher is wired, the local model names it can serve are advertised as
-// well; routing sends everything else upstream.
+// llama-server, the local model alias (the Custom entry of the /model menu
+// carries it, so Claude Code may ask for it by name), the configured external
+// model, and the standard aliases (sonnet/haiku/opus) — the aliases are
+// listed for visibility only; routing sends everything else upstream.
 func (h *proxyHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 	if !h.externalMode() {
-		if h.switcher == nil {
-			h.passthrough(w, r)
-			return
-		}
-		h.handleModelsLocal(w)
+		h.passthrough(w, r)
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	data := []modelEntry{
 		{ID: localModelName, Type: "model", DisplayName: localModelName, CreatedAt: now},
-		{ID: h.cfg.OpenAIModel, Type: "model", DisplayName: h.cfg.OpenAIModel, CreatedAt: now},
 	}
+	// The local model alias is a second name of the local route (the /model
+	// menu's Custom entry publishes it); advertise it only when it is a
+	// distinct name, so the list stays free of duplicates.
+	if h.cfg.Alias != "" && !strings.EqualFold(h.cfg.Alias, localModelName) {
+		data = append(data, modelEntry{ID: h.cfg.Alias, Type: "model", DisplayName: h.cfg.Alias, CreatedAt: now})
+	}
+	data = append(data, modelEntry{ID: h.cfg.OpenAIModel, Type: "model", DisplayName: h.cfg.OpenAIModel, CreatedAt: now})
 	// Standard aliases — for visibility in /v1/models.
 	// Routing still goes to openai since they aren't "llama-server".
 	for _, alias := range []string{"sonnet", "haiku", "opus"} {
 		data = append(data, modelEntry{ID: alias, Type: "model", DisplayName: alias, CreatedAt: now})
-	}
-	// With a switcher wired, the local model names it routes to the local
-	// route are advertised too, so Claude Code's model checks see exactly
-	// the names it may send (menu entries included).
-	for _, name := range h.advertisedLocalNames() {
-		if indexOfModelID(data, name) >= 0 {
-			continue
-		}
-		data = append(data, modelEntry{ID: name, Type: "model", DisplayName: name, CreatedAt: now})
 	}
 
 	resp := map[string]any{
@@ -68,51 +61,20 @@ type modelEntry struct {
 	CreatedAt   string `json:"created_at"`
 }
 
-// advertisedLocalNames lists the local model names worth publishing on
-// /v1/models: the switcher's menu identifiers, or nothing when no switcher is
-// wired (then only the fixed entries exist).
-func (h *proxyHandler) advertisedLocalNames() []string {
-	if h.switcher == nil {
-		return nil
-	}
-	return h.switcher.ModelNames()
-}
-
-// indexOfModelID returns the position of id (case-insensitive) in the model
-// list, or -1 when absent. Used to keep /v1/models free of duplicates when
-// the switcher's names overlap the fixed entries.
-func indexOfModelID(data []modelEntry, id string) int {
-	for i, m := range data {
-		if strings.EqualFold(m.ID, id) {
-			return i
-		}
-	}
-	return -1
-}
-
 // ---- /v1/messages ----
 
 // handleMessages is the core route, POST /v1/messages. It reads the body
 // under maxRequestBodyBytes (oversized bodies get 413 request_too_large,
 // other read errors 400), parses the Anthropic request, and routes it by the
-// requested model: the localModelName (case- and whitespace-insensitive) goes
-// to the local llama-server, everything else to the external provider.
-//
-// When a switcher is wired, names it recognises (profile display names and
-// the loaded model's alias) also go local: the switcher first makes the
-// llama-server actually serve that model — possibly restarting it — and the
-// request's model field is rewritten to the served alias before conversion.
-// The gateway is untouched: any other name still goes upstream.
+// requested model: the localModelName and the local model alias (both case-
+// and whitespace-insensitive) go to the local llama-server, everything else
+// to the external provider.
 //
 // The stream flag from the request body selects between streaming (SSE) and
 // single-response conversion downstream.
 func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if !h.externalMode() {
-		if h.switcher == nil {
-			h.passthrough(w, r)
-			return
-		}
-		h.handleMessagesLocal(w, r)
+		h.passthrough(w, r)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
@@ -137,25 +99,13 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	model, _ := req["model"].(string)
 	stream, _ := req["stream"].(bool)
 
-	isLocal := strings.EqualFold(strings.TrimSpace(model), localModelName)
-
-	// A name the switcher claims (a profile display name, the as-launched
-	// alias) is local too: make the server serve it first, then rewrite the
-	// request to the alias the (possibly restarted) server reports.
-	if !isLocal && h.switcher != nil && h.switcher.Handles(model) {
-		alias, swErr := h.switcher.EnsureLoaded(r.Context(), model)
-		if swErr != nil {
-			h.logf("переключение модели %q не удалось: %v", model, swErr)
-			convert.WriteAnthropicError(w, http.StatusBadGateway, "api_error",
-				strings.TrimSuffix(i18n.TF(i18n.MsgModelSwitchFailed, swErr), "\n"))
-			return
-		}
-		if !strings.EqualFold(model, alias) {
-			req["model"] = alias
-			h.logf("модель запроса переписана %q → %q", model, alias)
-		}
-		isLocal = true
-	}
+	// The local route is recognised by two tokens: the proxy's stable
+	// "llama-server" name (kept for backward compatibility with env vars
+	// that still use it) and the actual local model alias — the Custom
+	// entry of the /model menu carries the alias (see cli.BuildModelMenu),
+	// so Claude Code sends exactly that name when the user picks it.
+	isLocal := strings.EqualFold(strings.TrimSpace(model), localModelName) ||
+		(h.cfg.Alias != "" && strings.EqualFold(strings.TrimSpace(model), h.cfg.Alias))
 
 	if isLocal {
 		h.forwardToLlama(w, r, req, stream)
@@ -279,11 +229,7 @@ func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, r
 //   - anything else — 404 not_found_error.
 func (h *proxyHandler) handleOther(w http.ResponseWriter, r *http.Request) {
 	if !h.externalMode() {
-		if h.switcher == nil {
-			h.passthrough(w, r)
-			return
-		}
-		h.handleOtherLocal(w, r)
+		h.passthrough(w, r)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/count_tokens") {

@@ -155,27 +155,27 @@ func TestKeylessFlow(t *testing.T) {
 func TestBuildClaudeEnv_KeylessProviderSharesHybridMenu(t *testing.T) {
 	// Keyless changes only whether the proxy authenticates upstream; the
 	// menu is laid out exactly like the keyed hybrid one: the external model
-	// holds the Opus slot it is reserved for, the profiles fill Sonnet (and
-	// mark Haiku unused here), and llama-server stays the local-route entry.
+	// fills the four standard positions, the custom entry carries the local
+	// alias.
 	cfg := &config.Config{
 		Alias:         "local",
 		OpenAIBaseURL: "https://oai.example.com/v1",
 		OpenAIModel:   "Qwen3.6-27B",
 		OpenAIKeyless: true,
-		Profiles:      []config.Profile{{Name: "coder", Alias: "qwen3-coder", AliasSet: true}},
 	}
 	m := envMap(t, BuildClaudeEnv(cfg, "http://proxy:8082", nil))
 
-	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "Qwen3.6-27B" {
-		t.Errorf("opus = %q, want the external model", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+	for _, k := range []string{
+		"ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL",
+	} {
+		if m[k] != "Qwen3.6-27B" {
+			t.Errorf("%s = %q, want the external model", k, m[k])
+		}
 	}
-	if m["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "qwen3-coder" {
-		t.Errorf("sonnet = %q, want the profile alias", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
-	}
-	if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != unusedStandardSlotValue {
-		t.Errorf("haiku = %q, want the unused marker", m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
-	}
-	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "llama-server" {
-		t.Errorf("custom = %q, want llama-server", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
+	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "local" {
+		t.Errorf("custom = %q, want the local alias", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
 	}
 }

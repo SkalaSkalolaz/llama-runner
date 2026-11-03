@@ -147,6 +147,97 @@ func TestOrderedProfiles_SkipsStaleNameInOrder(t *testing.T) {
 	}
 }
 
+// launchedConfig replays what ParseFlagsWithHome assembles for a launch with
+// -p profile: defaults → root file → profile overlay, plus the derived travel
+// fields (Profiles, ProfileOverlays, RootSection).
+func launchedConfig(t *testing.T, body, profile string) *Config {
+	t.Helper()
+	fc := writeProfileConfig(t, body)
+	cfg := DefaultConfig()
+	if err := ApplyFileConfig(cfg, *fc); err != nil {
+		t.Fatalf("ApplyFileConfig(root): %v", err)
+	}
+	if fc.Alias != nil {
+		cfg.AliasSet = true
+	}
+	p, ok := fc.Profiles[profile]
+	if !ok {
+		t.Fatalf("profile %q not in test config", profile)
+	}
+	if err := ApplyFileConfig(cfg, p); err != nil {
+		t.Fatalf("ApplyFileConfig(%s): %v", profile, err)
+	}
+	if p.Alias != nil {
+		cfg.AliasSet = true
+		cfg.AliasFromProfile = true
+	}
+	cfg.Profiles = OrderedProfiles(fc)
+	cfg.ProfileOverlays = fc.Profiles
+	root := *fc
+	cfg.RootSection = &root
+	cfg.Profile = profile
+	return cfg
+}
+
+func TestApplyRootOverlay_ReappliesRootFields(t *testing.T) {
+	cfg := launchedConfig(t, `{
+		"model": "~/GGUF/root.gguf", "alias": "root-alias", "c": "111",
+		"profiles": {"fast": {"model": "~/GGUF/fast.gguf", "alias": "fast-alias", "c": "222"}}
+	}`, "fast")
+
+	root, err := ApplyRootOverlay(cfg)
+	if err != nil {
+		t.Fatalf("ApplyRootOverlay: %v", err)
+	}
+	if root.Model != "~/GGUF/root.gguf" {
+		t.Errorf("Model = %q, want the root model", root.Model)
+	}
+	if root.CtxSize != "111" {
+		t.Errorf("CtxSize = %q, want the root c (profile value must not survive)", root.CtxSize)
+	}
+	if root.Alias != "root-alias" || !root.AliasSet {
+		t.Errorf("Alias = %q (set %v), want the root alias marked explicit", root.Alias, root.AliasSet)
+	}
+	if root.AliasFromProfile {
+		t.Error("AliasFromProfile = true, want false for a root-sourced alias")
+	}
+	if root.Profile != "" {
+		t.Errorf("Profile = %q, want cleared", root.Profile)
+	}
+
+	// The receiver describes the launched profile and must stay untouched.
+	if cfg.Model != "~/GGUF/fast.gguf" || cfg.CtxSize != "222" || cfg.Profile != "fast" {
+		t.Errorf("receiver mutated: model=%q c=%q profile=%q", cfg.Model, cfg.CtxSize, cfg.Profile)
+	}
+}
+
+func TestApplyRootOverlay_RootWithoutAliasClearsProfileName(t *testing.T) {
+	// A root that names no alias must not keep the switched-from profile's
+	// name — the caller resolves a fresh one from the root model.
+	cfg := launchedConfig(t, `{
+		"model": "~/GGUF/root.gguf",
+		"profiles": {"fast": {"model": "~/GGUF/fast.gguf", "alias": "fast-alias"}}
+	}`, "fast")
+
+	root, err := ApplyRootOverlay(cfg)
+	if err != nil {
+		t.Fatalf("ApplyRootOverlay: %v", err)
+	}
+	if root.Alias != "" {
+		t.Errorf("Alias = %q, want cleared for a root without its own alias", root.Alias)
+	}
+	if root.AliasFromProfile {
+		t.Error("AliasFromProfile = true, want false after leaving the profile")
+	}
+}
+
+func TestApplyRootOverlay_NoRootSectionIsAnError(t *testing.T) {
+	// A config assembled in code (no file) has no root section to re-apply.
+	if _, err := ApplyRootOverlay(DefaultConfig()); err == nil {
+		t.Fatal("err = nil, want an error when no config file was read")
+	}
+}
+
 func TestUnmarshalJSON_ProfileShapeErrorsStillReported(t *testing.T) {
 	// The custom unmarshal must not swallow ordinary decoding errors: a
 	// "profiles" section that is not an object stays a config error.

@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net"
@@ -18,28 +17,7 @@ import (
 // OpenAI-compatible provider.
 const localModelName = "llama-server"
 
-// ModelSwitcher is the launcher's mid-session model switching hook. The
-// proxy asks it before forwarding a local request: Handles decides whether a
-// model name refers to one of the configured local models, and EnsureLoaded
-// makes the local llama-server actually serve it (which may stop the old
-// model and start a new one, taking as long as a model load). It is
-// implemented in internal/app and wired only when the config has profiles;
-// a nil switcher leaves the local route a plain passthrough.
-type ModelSwitcher interface {
-	// Handles reports whether model names one of the local models the
-	// switcher can load (a profile display name or the as-launched model).
-	Handles(model string) bool
-	// EnsureLoaded makes the local llama-server serve model and returns the
-	// alias the upstream expects in the forwarded request — the caller
-	// rewrites the body's model field to it before sending.
-	EnsureLoaded(ctx context.Context, model string) (servedAlias string, err error)
-	// ModelNames lists the model identifiers the local route can serve
-	// (advertised on GET /v1/models when a switcher is active).
-	ModelNames() []string
-}
-
-// Options bundles everything StartProxyServer needs. Switcher is optional
-// (nil keeps the local route a verbatim passthrough).
+// Options bundles everything StartProxyServer needs.
 type Options struct {
 	// ProxyAddr is the listen address (host:port) for Claude Code.
 	ProxyAddr string
@@ -50,8 +28,6 @@ type Options struct {
 	Cfg *config.Config
 	// LogWriter receives [proxy]-prefixed diagnostics under -v.
 	LogWriter io.Writer
-	// Switcher enables name-based local switching; nil disables it.
-	Switcher ModelSwitcher
 }
 
 // Start starts the proxy from Options. See StartProxyServer.
@@ -61,7 +37,6 @@ func Start(opts Options) (*http.Server, error) {
 		cfg:            opts.Cfg,
 		client:         newProxyClient(),
 		logWriter:      opts.LogWriter,
-		switcher:       opts.Switcher,
 	}
 
 	mux := newProxyMux(h)
@@ -99,9 +74,6 @@ type proxyHandler struct {
 	// logWriter receives [proxy]-prefixed diagnostic lines when -v is set;
 	// nil disables logging entirely.
 	logWriter io.Writer
-	// switcher is the optional mid-session model switch for the local route
-	// (see ModelSwitcher); nil keeps local traffic a verbatim passthrough.
-	switcher ModelSwitcher
 }
 
 // StartProxyServer binds an HTTP listener on proxyAddr and starts serving the

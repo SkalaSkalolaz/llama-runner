@@ -288,22 +288,14 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 			fmt.Fprint(stdout, i18n.TF(i18n.MsgWarnProxyLogDisabled))
 		}
 
-		// With profiles configured, the local route gains name-based
-		// switching: the proxy hands requests naming another local model to
-		// the switcher, which restarts llama-server with that profile before
-		// the request goes through. Without profiles the local route stays a
-		// verbatim passthrough.
-		var switcher proxy.ModelSwitcher
-		if len(cfg.Profiles) > 0 {
-			switcher = NewModelSwitch(cfg, spec, mgr, home, proxyLogWriter)
-		}
-
+		// The local route is a verbatim passthrough: every request reaches
+		// llama-server unchanged (hybrid mode routes by model name instead,
+		// see proxy.handlers).
 		srv, err := proxy.Start(proxy.Options{
 			ProxyAddr:      proxyAddr,
 			LlamaServerURL: llamaTargetURL,
 			Cfg:            cfg,
 			LogWriter:      proxyLogWriter,
-			Switcher:       switcher,
 		})
 		if err != nil {
 			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrProxyStart, err))

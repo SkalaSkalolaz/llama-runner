@@ -68,9 +68,11 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"ANTHROPIC_API_KEY":              "local-llama",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL": "local",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "local",
-		// The Opus slot is reserved for OpenAI-API models: without an
-		// external provider it shows the placeholder, not the local alias.
-		"ANTHROPIC_DEFAULT_OPUS_MODEL": "openai",
+		// Local mode: every position carries the single local alias.
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":       "local",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL":      "local",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION":      "local",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "local model",
 	}
 	for k, v := range checks {
 		if m[k] != v {
@@ -87,22 +89,24 @@ func TestBuildClaudeEnv_NoAlias(t *testing.T) {
 		parts := strings.SplitN(kv, "=", 2)
 		m[parts[0]] = parts[1]
 	}
-	// Sonnet/Haiku stay unpublished without an alias, but the reserved Opus
-	// slot always carries the OpenAI placeholder.
-	if _, ok := m["ANTHROPIC_DEFAULT_SONNET_MODEL"]; ok {
-		t.Errorf("unexpected ANTHROPIC_DEFAULT_SONNET_MODEL=%q", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
-	}
-	if _, ok := m["ANTHROPIC_DEFAULT_HAIKU_MODEL"]; ok {
-		t.Errorf("unexpected ANTHROPIC_DEFAULT_HAIKU_MODEL=%q", m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
-	}
-	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "openai" {
-		t.Errorf("ANTHROPIC_DEFAULT_OPUS_MODEL = %q, want openai", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+	// Without a local alias there is nothing to publish: BuildModelMenu
+	// returns nil and no menu variable appears at all.
+	for _, k := range []string{
+		"ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION",
+	} {
+		if _, ok := m[k]; ok {
+			t.Errorf("unexpected %s=%q", k, m[k])
+		}
 	}
 }
 
-func TestBuildClaudeEnv_OpenAIWithoutModelKeepsPlaceholder(t *testing.T) {
-	// -openai alone (no -model-openai) is not a configured provider: the Opus
-	// slot must keep the placeholder and no custom entry is added.
+func TestBuildClaudeEnv_OpenAIWithoutModelStaysLocalMenu(t *testing.T) {
+	// -openai alone (no -model-openai) is not a configured provider: the menu
+	// stays the local one — every position carries the local alias.
 	cfg := &config.Config{Alias: "local", OpenAIBaseURL: "https://api.example.com/v1"}
 	env := BuildClaudeEnv(cfg, "http://h:1", nil)
 	m := map[string]string{}
@@ -110,17 +114,16 @@ func TestBuildClaudeEnv_OpenAIWithoutModelKeepsPlaceholder(t *testing.T) {
 		parts := strings.SplitN(kv, "=", 2)
 		m[parts[0]] = parts[1]
 	}
-	if m["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "openai" {
-		t.Errorf("opus = %q, want openai", m["ANTHROPIC_DEFAULT_OPUS_MODEL"])
-	}
-	if m["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "local" {
-		t.Errorf("sonnet = %q, want local", m["ANTHROPIC_DEFAULT_SONNET_MODEL"])
-	}
-	if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "local" {
-		t.Errorf("haiku = %q, want local", m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
-	}
-	if _, ok := m["ANTHROPIC_CUSTOM_MODEL_OPTION"]; ok {
-		t.Errorf("unexpected custom option %q", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
+	for _, k := range []string{
+		"ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION",
+	} {
+		if m[k] != "local" {
+			t.Errorf("%s = %q, want local", k, m[k])
+		}
 	}
 }
 
@@ -144,6 +147,48 @@ func TestBuildClaudeArgs_Strict(t *testing.T) {
 	want := []string{"--mcp-config", "/tmp/mcp.json", "--strict-mcp-config"}
 	if !reflect.DeepEqual(args, want) {
 		t.Errorf("got %v, want %v", args, want)
+	}
+}
+
+func TestBuildClaudeArgs_LocalPinsLoadedModel(t *testing.T) {
+	// The pin is the whole point: Claude Code must start naming the model
+	// the server actually loaded, not whatever a previous session persisted.
+	args := BuildClaudeArgs(&config.Config{Alias: "qwen3.8-flash"}, "")
+	want := []string{"--model", "qwen3.8-flash"}
+	if !reflect.DeepEqual(args, want) {
+		t.Errorf("got %v, want %v", args, want)
+	}
+}
+
+func TestBuildClaudeArgs_ModelPinPrecedesMCP(t *testing.T) {
+	args := BuildClaudeArgs(&config.Config{Alias: "m", McpStrict: true}, "/tmp/mcp.json")
+	want := []string{"--model", "m", "--mcp-config", "/tmp/mcp.json", "--strict-mcp-config"}
+	if !reflect.DeepEqual(args, want) {
+		t.Errorf("got %v, want %v", args, want)
+	}
+}
+
+func TestBuildClaudeArgs_HybridDoesNotPinLocalModel(t *testing.T) {
+	// Hybrid sessions start at the external gateway; the local model stays
+	// an opt-in menu choice, so no --model here.
+	cfg := &config.Config{Alias: "qwen3-coder", OpenAIBaseURL: "https://gw/v1",
+		OpenAIModel: "gpt-5.1", OpenAIKey: "k"}
+	for _, a := range BuildClaudeArgs(cfg, "") {
+		if a == "--model" {
+			t.Errorf("hybrid args contain a model pin: %v", BuildClaudeArgs(cfg, ""))
+		}
+	}
+}
+
+func TestBuildClaudeEnv_ScrubsInheritedModelPin(t *testing.T) {
+	// A stale ANTHROPIC_MODEL from an outer session must not survive into
+	// the child: it would contradict (or override) this launcher's pin.
+	env := BuildClaudeEnv(&config.Config{Alias: "fresh"}, "http://h:1",
+		[]string{"ANTHROPIC_MODEL=stale-model", "PATH=/usr/bin"})
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "ANTHROPIC_MODEL=") {
+			t.Errorf("stale pin survived scrub: %q", kv)
+		}
 	}
 }
 
@@ -232,8 +277,12 @@ func TestBuildClaudeEnv_WithOpenAI(t *testing.T) {
 	if m["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "gpt-4" {
 		t.Errorf("haiku = %q, want gpt-4", m["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
 	}
-	// llama-server добавлен как кастомная опция.
-	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "llama-server" {
-		t.Errorf("custom option = %q, want llama-server", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
+	// Кастомная запись несёт алиас локальной модели — прокси узнаёт его и
+	// направляет запрос в llama-server.
+	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "local" {
+		t.Errorf("custom option = %q, want local", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
+	}
+	if m["ANTHROPIC_DEFAULT_FABLE_MODEL"] != "gpt-4" {
+		t.Errorf("fable = %q, want gpt-4", m["ANTHROPIC_DEFAULT_FABLE_MODEL"])
 	}
 }

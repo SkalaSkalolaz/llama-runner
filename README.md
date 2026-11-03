@@ -52,8 +52,8 @@ go build -o llama-runner ./cmd/llama-runner
   CLI > file > built-in defaults. `-config ""` disables reading it. Secrets (`openaiKey`,
   `proxyToken`) are supported in the file, but env / `credentials` / a flag are recommended.
 - **Profiles:** `-p coder` — short presets from `profiles: {…}` in the config
-  file. In local mode all of them also show up as entries in Claude Code's
-  `/model` menu (see «Profiles and the `/model` menu»).
+  file. A profile supplies the model, alias and other settings of the one
+  local model this run serves (see «The `/model` menu»).
 - **`-doctor`:** show resolved paths, version and the final command without spawning
   any processes.
 - **Clean shutdown:** Ctrl-C/SIGTERM stops claude, the server and MCP with
@@ -141,12 +141,13 @@ You can use the local llama-server and an external OpenAI-compatible service
 
 Routing by model name in Claude Code (`/model`):
 
-- exactly `llama-server` (including picking it from the `/model` menu) → the local
+- the local model alias **or** the token `llama-server` (including picking the
+  custom entry from the `/model` menu) → the local
   llama-server (the request is converted Anthropic → OpenAI, the stream is converted
   back);
 - **everything else** (`sonnet`, `haiku`, `opus`, any other name) → the external provider.
 
-`llama-server` is also added to the interactive `/model` menu via
+The local model alias is also added to the interactive `/model` menu via
 `ANTHROPIC_CUSTOM_MODEL_OPTION` so it can be selected with arrow keys.
 
 ```bash
@@ -262,53 +263,24 @@ Notes:
 - secrets (`openaiKey`, `proxyToken`) in the file are technically supported, but
   env or `~/.config/llama-runner/credentials` is recommended.
 
-### Profiles and the `/model` menu
+### The `/model` menu
 
-In local mode the config profiles become the model choices in Claude Code's
-`/model` menu, in the order they are written in the file:
+In local mode all five positions (Opus, Sonnet, Haiku, Fable and the custom
+entry) carry the single local model — the one selected with `-model` / `-p`,
+or the config default if neither was given.
 
-| Menu entry | Filled from |
-|---|---|
-| Opus | reserved for OpenAI-compatible models — shows `openai` |
-| Sonnet | alias of the 1st profile |
-| Haiku | alias of the 2nd profile |
-| Fable | alias of the 3rd profile (the built-in top-tier entry is occupied too) |
-| `local default (running)` | the model llama-server actually loaded (its effective alias) |
-| `profile <name> - <alias>` | the 4th profile and further ones |
+In hybrid mode (`-openai` + `-model-openai` + a key or `-key none`) the four
+standard positions carry the external model, and the custom entry carries the
+local model. Picking the custom entry routes the request to llama-server
+through the proxy.
 
-- The name shown for a profile is its `alias`, else a name derived from its
-  model file, else the profile key itself.
-- **One model is loaded at a time, switching is live.** Picking another
-  profile entry makes the proxy restart llama-server with that profile
-  (same address, full profile settings) before the next message goes
-  through — Claude Code just experiences a slow first reply, the dialogue
-  continues with the new model. A failed switch rolls back to the previous
-  model and the error is reported.
-- A standard slot with no profile behind it shows `unused (no profile)`; an
-  unused extra slot shows `unused - slot N (no profile)`.
-- With **no profiles at all** the menu stays exactly as it was before: in
-  local mode Sonnet and Haiku carry the effective alias, Fable stays the
-  built-in entry, and there are no extra entries; in hybrid mode the three
-  standard gateway slots carry the external model.
-- Hybrid mode (`-openai` + key + `-model-openai`) follows **the same layout**,
-  so the positions never shift between modes: the Opus slot carries the
-  external model (picking it routes through the proxy to the gateway — the
-  gateway keeps working when switched to), the first extra entry is
-  `llama-server (local)` — the token the proxy routes to whatever local
-  model is loaded right now — and Sonnet/Haiku/Fable/extra entries fill
-  from the profiles exactly as above. Choosing a profile entry switches the
-  local model just like in local mode; only names the launcher does not
-  recognise go to the external provider.
-- Menu variables inherited from the environment (`ANTHROPIC_DEFAULT_*_MODEL`,
-  `ANTHROPIC_CUSTOM_MODEL_OPTION*`) are removed before the launcher publishes
-  its own, so a nested run never shows ghost entries from an outer session.
-- Extra slots (4th profile and up) are published as numbered variables
-  (`ANTHROPIC_CUSTOM_MODEL_OPTION_2`, `ANTHROPIC_CUSTOM_MODEL_OPTION_2_NAME`,
-  `ANTHROPIC_CUSTOM_MODEL_OPTION_2_DESCRIPTION`, …). Claude Code documents only
-  the singular set, so **this part is unverified**: if the numbered variables
-  are ignored, the first three profiles (Sonnet/Haiku/Fable) and the loaded
-  model still appear and the rest simply do not. Worth checking once in a
-  live `/model` menu.
+Config profiles are still selected with `-p <name>` (they apply the profile's
+model, alias and other settings as the one running local model), but they are
+no longer advertised separately in the menu.
+
+Menu variables inherited from the environment (`ANTHROPIC_DEFAULT_*_MODEL`,
+`ANTHROPIC_CUSTOM_MODEL_OPTION*`) are removed before the launcher publishes
+its own, so a nested run never shows ghost entries from an outer session.
 
 ## Logs
 
@@ -362,10 +334,10 @@ In local mode the config profiles become the model choices in Claude Code's
 `ANTHROPIC_BASE_URL` (server or proxy address),
 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` — the value of `-proxy-token`,
 or `local-llama` if no token is set,
-`ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL` and `ANTHROPIC_CUSTOM_MODEL_OPTION*`
-(the whole `/model` menu, laid out from the config profiles in both modes —
-see «Profiles and the `/model` menu»; in hybrid mode the Opus slot carries the
-external model and `llama-server` is the first extra entry). Variables of
+`ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL` and `ANTHROPIC_CUSTOM_MODEL_OPTION*`
+(the whole `/model` menu — see «The `/model` menu»; in local mode every
+position carries the local alias, in hybrid mode the standard positions carry
+the external model and the custom entry the local alias). Variables of
 these families inherited from the environment are dropped first, so nothing
 leaks from an outer llama-runner session.
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
