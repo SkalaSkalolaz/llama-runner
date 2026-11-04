@@ -52,7 +52,7 @@ func copyHeadersExcept(dst, src http.Header, extra ...string) {
 // talking to llama-server directly).
 //
 // The body is size-capped with the same limit as the converted routes.
-// Transport failures map to a 502 Anthropic error, mirroring forwardToLlama.
+// Transport failures map to a 502 Anthropic error, mirroring forwardToOpenAI.
 func (h *proxyHandler) passthrough(w http.ResponseWriter, r *http.Request) {
 	target := h.llamaServerURL + r.URL.Path
 	if r.URL.RawQuery != "" {

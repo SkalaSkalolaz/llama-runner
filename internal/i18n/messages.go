@@ -219,7 +219,6 @@ const (
 	MsgBodyTooLarge     = "proxy_body_too_large"
 	MsgInvalidJSON      = "proxy_invalid_json"
 	MsgConvertErr       = "proxy_convert_error"
-	MsgLlamaUpstream    = "proxy_llama_upstream"
 	MsgOpenaiUpstream   = "proxy_openai_upstream"
 	MsgUpstreamErr      = "proxy_upstream_connect_error"
 	MsgUpstreamOpenai   = "proxy_upstream_openai_error"
@@ -451,7 +450,6 @@ var messages = map[string]i18nMessage{
 	MsgBodyTooLarge:     {"тело запроса больше %d байт", "request body larger than %d bytes"},
 	MsgInvalidJSON:      {"некорректный JSON: %v", "invalid JSON: %v"},
 	MsgConvertErr:       {"ошибка конвертации: %v", "convert: %v"},
-	MsgLlamaUpstream:    {"ответ llama-server: %s", "llama-server upstream: %s"},
 	MsgOpenaiUpstream:   {"ответ openai: %s", "openai upstream: %s"},
 	MsgStreamingUnsupp:  {"стриминг не поддерживается", "streaming unsupported"},
 	MsgStreamNoDone:     {"поток апстрима завершился без [DONE]", "upstream stream ended before [DONE]"},

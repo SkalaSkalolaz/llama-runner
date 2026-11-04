@@ -67,7 +67,7 @@ func ShouldWarnProxyExposure(proxyAddr string, cfg *config.Config) bool {
 // for response headers while leaving the stream body open as long as needed.
 // Abandoning an in-flight request is driven by cancellation of the incoming
 // request context (NewRequestWithContext with r.Context() in
-// forwardToLlama/forwardToOpenAI).
+// forwardToOpenAI and the passthrough).
 //
 // The transport is a Clone of http.DefaultTransport with that single field
 // changed, preserving environment proxy settings, HTTP/2 and keep-alives.

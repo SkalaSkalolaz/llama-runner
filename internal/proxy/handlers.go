@@ -120,59 +120,22 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		(h.cfg.Alias != "" && strings.EqualFold(strings.TrimSpace(model), h.cfg.Alias))
 
 	if isLocal {
-		h.forwardToLlama(w, r, req, stream)
+		// Local route in hybrid mode is a VERBATIM passthrough to
+		// /v1/messages — the same path as local-only mode. llama-server
+		// implements the Anthropic Messages API natively and sends SSE
+		// response headers promptly on that endpoint, whereas the
+		// OpenAI-compatible /v1/chat/completions endpoint can buffer
+		// until reasoning completes. Converting to OpenAI format and back
+		// is unnecessary and (with -reasoning enabled) delays the headers
+		// past Claude Code's 5-minute timeout, causing retry loops.
+		//
+		// The body was already read into `body` above; restore it for the
+		// passthrough, which re-reads and forwards it verbatim.
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		h.passthrough(w, r)
 		return
 	}
 	h.forwardToOpenAI(w, r, req, stream)
-}
-
-// ---- Route to llama-server ----
-
-// forwardToLlama converts the Anthropic request to OpenAI chat/completions
-// format and sends it to the local llama-server (which needs no
-// authentication). For streaming requests stream_options.include_usage is
-// added so token usage arrives in the final chunk.
-//
-// Upstream failures map to Anthropic errors: transport errors become 502,
-// non-200 responses are relayed with their status and a mapped error type.
-// On success the response is converted back to Anthropic format — SSE events
-// when streaming, a single JSON message otherwise — and token usage is logged
-// under -v.
-func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, req map[string]any, stream bool) {
-	openAIReq, err := h.convert(req)
-	if err != nil {
-		convert.WriteAnthropicError(w, http.StatusInternalServerError, "api_error", strings.TrimSuffix(i18n.TF(i18n.MsgConvertErr, err), "\n"))
-		return
-	}
-	openAIReq["stream"] = stream
-	if stream {
-		openAIReq["stream_options"] = map[string]any{"include_usage": true}
-	}
-
-	target := h.llamaServerURL + "/v1/chat/completions"
-	body, _ := json.Marshal(openAIReq)
-	proxyReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, target, bytes.NewReader(body))
-	proxyReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := h.local().Do(proxyReq)
-	if err != nil {
-		convert.WriteAnthropicError(w, http.StatusBadGateway, "api_error", strings.TrimSuffix(i18n.TF(i18n.MsgUpstreamErr, err), "\n"))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		convert.WriteAnthropicError(w, resp.StatusCode, convert.AnthropicErrorType(resp.StatusCode),
-			strings.TrimSuffix(i18n.TF(i18n.MsgLlamaUpstream, string(b)), "\n"))
-		return
-	}
-	if stream {
-		in, out := convert.ConvertOpenAIStreamToAnthropic(w, resp, "llama-server")
-		h.logf(i18n.T(i18n.MsgProxyUsage), in, out)
-		return
-	}
-	convertOpenAIResponseToAnthropic(w, resp, "llama-server")
 }
 
 // ---- Route to external OpenAI-compatible service ----
@@ -197,10 +160,10 @@ func openAIEndpoint(base, path string) string {
 // format and forwards it to the configured external provider (the URL built
 // from cfg.OpenAIBaseURL and cfg.OpenAIPath — see openAIEndpoint), authenticating with
 // Authorization: Bearer cfg.OpenAIKey — or with no Authorization header when
-// the provider was configured without a key (cfg.OpenAIKeyless). Like forwardToLlama it requests usage
-// accounting for streams, maps transport/upstream failures to Anthropic error
-// responses, and converts successful responses — streaming or not — back to
-// the Anthropic format.
+// the provider was configured without a key (cfg.OpenAIKeyless). It requests
+// usage accounting for streams, maps transport/upstream failures to Anthropic
+// error responses, and converts successful responses — streaming or not —
+// back to the Anthropic format.
 func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, req map[string]any, stream bool) {
 	openAIReq, err := h.convert(req)
 	if err != nil {
