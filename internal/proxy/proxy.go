@@ -17,7 +17,7 @@ import (
 // OpenAI-compatible provider.
 const localModelName = "llama-server"
 
-// Options bundles everything StartProxyServer needs.
+// Options bundles everything Start needs.
 type Options struct {
 	// ProxyAddr is the listen address (host:port) for Claude Code.
 	ProxyAddr string
@@ -30,7 +30,18 @@ type Options struct {
 	LogWriter io.Writer
 }
 
-// Start starts the proxy from Options. See StartProxyServer.
+// Start binds an HTTP listener on opts.ProxyAddr and starts serving the proxy
+// in a background goroutine, returning the *http.Server so the caller can shut
+// it down gracefully.
+//
+// All incoming requests pass through authMiddleware: with cfg.ProxyToken set,
+// every request must present the token; with it empty, no authentication is
+// performed.
+//
+// opts.LogWriter is the sink for [proxy] diagnostic lines emitted under -v —
+// normally os.Stderr when output is piped/redirected, or the open
+// llama-server log file in interactive mode (to avoid corrupting the TUI).
+// nil disables proxy logging.
 func Start(opts Options) (*http.Server, error) {
 	h := &proxyHandler{
 		llamaServerURL: strings.TrimRight(opts.LlamaServerURL, "/"),
@@ -84,27 +95,6 @@ type proxyHandler struct {
 	logWriter io.Writer
 }
 
-// StartProxyServer binds an HTTP listener on proxyAddr and starts serving the
-// proxy in a background goroutine, returning the *http.Server so the caller
-// can shut it down gracefully.
-//
-// All incoming requests pass through authMiddleware: with cfg.ProxyToken set,
-// every request must present the token; with it empty, no authentication is
-// performed.
-//
-// logWriter is the sink for [proxy] diagnostic lines emitted under -v —
-// normally os.Stderr when output is piped/redirected, or the open
-// llama-server log file in interactive mode (to avoid corrupting the TUI).
-// nil disables proxy logging.
-func StartProxyServer(proxyAddr, llamaServerURL string, cfg *config.Config, logWriter io.Writer) (*http.Server, error) {
-	return Start(Options{
-		ProxyAddr:      proxyAddr,
-		LlamaServerURL: llamaServerURL,
-		Cfg:            cfg,
-		LogWriter:      logWriter,
-	})
-}
-
 // externalMode reports whether the proxy runs in hybrid mode: an external
 // OpenAI-compatible provider is fully configured, so requests are routed by
 // model name and converted between the API dialects. Without it the proxy is
@@ -133,7 +123,7 @@ func (h *proxyHandler) local() *http.Client {
 //	/v1/models/<id>              → handleOther (single model echo)
 //	/                            → handleOther (404 for everything else)
 //
-// It is factored out of StartProxyServer so that end-to-end tests can serve
+// It is factored out of Start so that end-to-end tests can serve
 // the exact same wiring (httptest.NewServer over authMiddleware+mux) without
 // binding a real port.
 func newProxyMux(h *proxyHandler) *http.ServeMux {

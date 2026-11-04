@@ -76,17 +76,3 @@ func resolveServerWorkDir(cfg *config.Config, home string, stderr io.Writer) (st
 	}
 	return "", 0
 }
-
-// SetWorkDir resolves the working directory for llama-server (see
-// resolveServerWorkDir) and stores it on cmd.Dir. Returns 0 on success,
-// otherwise the exit code run() must return.
-func SetWorkDir(cmd *exec.Cmd, cfg *config.Config, home string, stderr io.Writer) int {
-	dir, code := resolveServerWorkDir(cfg, home, stderr)
-	if code != 0 {
-		return code
-	}
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	return 0
-}

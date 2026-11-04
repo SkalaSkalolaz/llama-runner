@@ -24,7 +24,6 @@ import (
 // streams.
 type ServerLog struct {
 	Writer io.Writer
-	File   *os.File
 	Name   string
 	closer func()
 }
@@ -66,7 +65,6 @@ func OpenServerLog(cfg *config.Config, home string, stdout, stderr io.Writer) (S
 		fmt.Fprint(stderr, i18n.TF(i18n.MsgErrLogChmod, logPath, chErr))
 		return sl, 2
 	}
-	sl.File = f
 	sl.Writer = f
 	sl.Name = logPath
 	sl.closer = func() { _ = f.Close() }

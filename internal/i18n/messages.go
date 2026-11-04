@@ -138,7 +138,6 @@ const (
 	MsgWarnProxyExposure    = "warn_proxy_exposure"
 	MsgStartingProxy        = "starting_proxy"
 	MsgStartingProxyLocal   = "starting_proxy_local"
-	MsgModelSwitchFailed    = "model_switch_failed"
 	MsgProxyLogFile         = "proxy_log_file"
 	MsgWarnProxyLogDisabled = "warn_proxy_log_disabled"
 	MsgErrProxyStart        = "err_proxy_start"
@@ -371,7 +370,6 @@ var messages = map[string]i18nMessage{
 	MsgWarnProxyExposure:    {"предупреждение: прокси слушает не-loopback адрес %s без аутентификации — любой в сети может использовать ваш платный ключ. Задайте -proxy-token (и тот же токен в Claude Code) или явный -proxy-allow-remote.", "warning: the proxy listens on the non-loopback address %s without authentication — anyone on the network can use your paid key. Set -proxy-token (and the same token in Claude Code) or an explicit -proxy-allow-remote."},
 	MsgStartingProxy:        {"Запуск прокси на %s (llama → %s, openai → %s)", "Starting the proxy on %s (llama → %s, openai → %s)"},
 	MsgStartingProxyLocal:   {"Запуск прокси на %s (все запросы → %s)", "Starting the proxy on %s (all requests → %s)"},
-	MsgModelSwitchFailed:    {"переключение локальной модели не удалось: %v", "local model switch failed: %v"},
 	MsgProxyLogFile:         {"Логи прокси: %s", "Proxy logs: %s"},
 	MsgWarnProxyLogDisabled: {"предупреждение: не удалось открыть лог-файл для [proxy] — логи прокси отключены, чтобы не портить TUI Claude Code", "warning: could not open the [proxy] log file — proxy logging is disabled to avoid corrupting the Claude Code TUI"},
 	MsgErrProxyStart:        {"ошибка запуска прокси: %v", "failed to start the proxy: %v"},

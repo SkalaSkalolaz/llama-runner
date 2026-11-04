@@ -53,7 +53,7 @@ type ServerSpec struct {
 // inline. User-facing diagnostics go to stdout/stderr as before.
 //
 // The int return follows run's exit-code convention: 0 on success, and the
-// ResolvePaths/SetWorkDir severities (1 — a required file is missing,
+// ResolvePaths/resolveServerWorkDir severities (1 — a required file is missing,
 // 2 — a path cannot even be resolved) otherwise. A relaunching caller (the
 // model switch) treats any non-zero as "this profile cannot start".
 func SpecForConfig(cfg *config.Config, home string, stdout, stderr io.Writer) (ServerSpec, int) {

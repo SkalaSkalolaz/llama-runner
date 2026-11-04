@@ -7,19 +7,6 @@ import (
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 )
 
-func strp(s string) *string { return &s }
-
-func rootSection(model, alias string) *config.FileConfig {
-	fc := &config.FileConfig{}
-	if model != "" {
-		fc.Model = strp(model)
-	}
-	if alias != "" {
-		fc.Alias = strp(alias)
-	}
-	return fc
-}
-
 func TestBuildModelMenu_LocalFillsAllFiveSlots(t *testing.T) {
 	cfg := &config.Config{Alias: "qwen3-coder"}
 	slots := BuildModelMenu(cfg)
@@ -79,45 +66,5 @@ func TestBuildModelMenu_NilConfig(t *testing.T) {
 func TestBuildModelMenu_EmptyAlias(t *testing.T) {
 	if got := BuildModelMenu(&config.Config{}); got != nil {
 		t.Errorf("BuildModelMenu(empty) = %+v, want nil", got)
-	}
-}
-
-func TestRootDisplayName(t *testing.T) {
-	tests := []struct {
-		name string
-		cfg  *config.Config
-		want string
-	}{
-		{"nil config", nil, ""},
-		{"no root section", &config.Config{}, ""},
-		{"root alias wins", &config.Config{RootSection: rootSection("~/G/root.gguf", "qwen3.8-distil")}, "qwen3.8-distil"},
-		{"derived from root model", &config.Config{RootSection: rootSection("~/G/Qwen.Fixed.gguf", "")}, "Qwen.Fixed"},
-		{"root names nothing", &config.Config{RootSection: rootSection("", "")}, ""},
-		{"never falls back to the running alias", &config.Config{Alias: "qwen3-coder", RootSection: rootSection("", "")}, ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := RootDisplayName(tt.cfg); got != tt.want {
-				t.Errorf("RootDisplayName = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestBuildModelMenu_ProfilesDoNotAppear(t *testing.T) {
-	// Profiles from the config file must not leak into the /model menu:
-	// only the local model alias is published.
-	cfg := &config.Config{
-		Alias: "qwen3.8-distil",
-		Profiles: []config.Profile{
-			{Name: "coder", Alias: "qwen3-coder", AliasSet: true},
-			{Name: "big", Alias: "qwen3.8-flash", AliasSet: true},
-		},
-	}
-	for _, slot := range BuildModelMenu(cfg) {
-		if strings.Contains(slot.ModelValue, "qwen3-coder") ||
-			strings.Contains(slot.ModelValue, "qwen3.8-flash") {
-			t.Errorf("profile alias leaked into menu slot: %+v", slot)
-		}
 	}
 }

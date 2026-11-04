@@ -51,9 +51,6 @@ type ModelSlot struct {
 	Description string
 	// Filled reports whether a real model stands behind the slot.
 	Filled bool
-	// Profile is the config-file profile behind this slot, "" when the slot
-	// comes from somewhere else.
-	Profile string
 }
 
 // BuildModelMenu computes the /model menu for Claude Code. There is exactly

@@ -117,21 +117,6 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 			}
 		}
 	}
-	// The whole profile list travels with the config, in file order: -p picks
-	// which one runs, but the /model menu and -doctor have to show all of
-	// them. Taken from the root file, so a profile's nested "profiles" (if
-	// any) are deliberately not promoted here.
-	cfg.Profiles = config.OrderedProfiles(fc)
-	if fc != nil {
-		// The raw overlays travel with the config so a profile can also be
-		// applied mid-session (see config.ApplyProfileOverlay). The root
-		// section travels alongside them: it is what a switch back to the
-		// config default re-applies (see config.ApplyRootOverlay), and the
-		// profile overlay has already overwritten those fields in cfg.
-		cfg.ProfileOverlays = fc.Profiles
-		root := *fc
-		cfg.RootSection = &root
-	}
 	cfg.ConfigPath = configPath
 	cfg.Profile = profileName
 

@@ -56,7 +56,9 @@ func ShouldWarnProxyExposure(proxyAddr string, cfg *config.Config) bool {
 	return cfg.ProxyToken == "" && !cfg.ProxyAllowRemote
 }
 
-// newProxyClient builds the http.Client used for all upstream requests.
+// newProxyClient builds the http.Client used for upstream requests to the
+// EXTERNAL provider. Requests to the local llama-server go through
+// newLocalProxyClient instead (much longer ResponseHeaderTimeout, see below).
 //
 // Client.Timeout is 0 on purpose: a whole-request timeout would cut long
 // generations off mid-stream after a fixed period (defect #8). Protection

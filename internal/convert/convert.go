@@ -108,15 +108,6 @@ func (s ConvertStats) Summary() string {
 	return strings.Join(parts, ", ")
 }
 
-// AnthropicToOpenAI converts an Anthropic request with default options, i.e.
-// image blocks are not mapped (no vision projector assumed). Its signature is
-// preserved from the original M0 implementation because the golden tests use
-// it; new code should call ConvertRequest to get drop statistics.
-func AnthropicToOpenAI(anthropic map[string]any) (map[string]any, error) {
-	out, _, err := ConvertRequest(anthropic, ConvertOptions{})
-	return out, err
-}
-
 // ConvertRequest converts an Anthropic Messages API request body into an
 // OpenAI chat/completions request body, returning per-reason statistics of
 // content blocks that could not be carried over.

@@ -7,48 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 )
-
-func TestSetWorkDir_ExplicitDirectory(t *testing.T) {
-	dir := t.TempDir()
-	cfg := &config.Config{WorkDir: dir}
-	cmd := exec.Command("true")
-	if code := SetWorkDir(cmd, cfg, dir, newStderr()); code != 0 {
-		t.Errorf("code = %d, want 0", code)
-	}
-	if cmd.Dir != dir {
-		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, dir)
-	}
-}
-
-func TestSetWorkDir_MissingDirectory(t *testing.T) {
-	dir := t.TempDir()
-	cfg := &config.Config{WorkDir: filepath.Join(dir, "nope")}
-	cmd := exec.Command("true")
-	if code := SetWorkDir(cmd, cfg, dir, newStderr()); code != 1 {
-		t.Errorf("code = %d, want 1", code)
-	}
-	if cmd.Dir != "" {
-		t.Errorf("cmd.Dir = %q, want untouched", cmd.Dir)
-	}
-}
-
-func TestSetWorkDir_DefaultsToLauncherCwd(t *testing.T) {
-	cfg := &config.Config{}
-	cmd := exec.Command("true")
-	if code := SetWorkDir(cmd, cfg, "/unused", newStderr()); code != 0 {
-		t.Errorf("code = %d, want 0", code)
-	}
-	wanted, wdErr := os.Getwd()
-	if wdErr != nil {
-		t.Fatal(wdErr)
-	}
-	if cmd.Dir != wanted {
-		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, wanted)
-	}
-}
 
 func TestApplyLdLibraryPath_PrependsSiblingLib(t *testing.T) {
 	root := t.TempDir()

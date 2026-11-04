@@ -83,8 +83,6 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		return 1
 	}
 
-	cfg.Home = home
-
 	// We pick up the external provider's key ONLY if the external provider
 	// is actually requested. Otherwise a developer with OPENAI_API_KEY in the environment
 	// would get "-openai is required when using -key" on a local

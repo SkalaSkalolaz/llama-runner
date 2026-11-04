@@ -107,31 +107,6 @@ type Config struct {
 	LogKeep  int
 
 	// Derived — not settable by the user; filled in after parse/validate.
-	// Home is the resolved user home directory used to expand "~" in paths.
-	Home string
-	// Profiles lists every profile in the config file, in the order they are
-	// written, regardless of which one -p selected (and of -p being given at
-	// all). Values are unresolved as written — the profile's own model and
-	// alias, not the effective ones. It exists because a launcher that shows
-	// the user their model choices (the Claude Code /model menu, -doctor)
-	// needs the whole list, while everything else in Config describes the one
-	// profile that is actually running. Empty when no config file was read.
-	Profiles []Profile
-	// ProfileOverlays keeps the raw file overlay of every profile, keyed by
-	// name, exactly as the config file provided them. Profiles is identity
-	// only; a mid-session profile switch needs the full overlay (context
-	// size, chat template, …) — everything -p applied at launch — so the
-	// overlays travel with the config instead of being re-read from disk.
-	// Nil when no config file was read.
-	ProfileOverlays map[string]FileConfig
-	// RootSection keeps the raw root section of the config file — the same
-	// FileConfig the launcher applied before any profile overlay. It exists
-	// for the reason ProfileOverlays exists: the root model is a selectable
-	// entry of the Claude Code /model menu, and switching to it mid-session
-	// needs the root's full field set, which the profile overlay has already
-	// overwritten in every other copy of the config. Nil when no config file
-	// was read.
-	RootSection *FileConfig
 	// ChatTemplateSet reports whether -chat-template (or the file field
 	// chatTemplate) was provided explicitly, as opposed to coming from the
 	// "auto" default. Explicit templates that are missing are an error;

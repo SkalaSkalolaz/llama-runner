@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -146,75 +145,6 @@ type FileConfig struct {
 
 	// Profiles
 	Profiles map[string]FileConfig `json:"profiles,omitempty"`
-
-	// ProfileOrder records the order of the "profiles" keys as they appear in
-	// the file. It is derived while parsing and never read from the file
-	// (hence json:"-"), because encoding/json hands "profiles" back as a map
-	// and map iteration order is randomised — anything user-visible has to go
-	// through OrderedProfiles instead.
-	ProfileOrder []string `json:"-"`
-}
-
-// UnmarshalJSON parses the file and additionally remembers the order of the
-// "profiles" keys (see ProfileOrder).
-//
-// The type alias drops this method for the inner decode, so the ordinary
-// struct decoding — and with it all validation of field types — still runs
-// first and unchanged. Capturing the order is then best-effort over the raw
-// JSON of the "profiles" object: any unexpected shape leaves ProfileOrder
-// empty, and OrderedProfiles falls back to sorted names. That is deliberate —
-// a malformed "profiles" section is already reported by the regular decode,
-// and the ordering is only ever a display nicety, never a reason to fail a
-// config file that decodes correctly.
-func (fc *FileConfig) UnmarshalJSON(data []byte) error {
-	type plainFileConfig FileConfig
-	var plain plainFileConfig
-	if err := json.Unmarshal(data, &plain); err != nil {
-		return err
-	}
-	var raw struct {
-		Profiles json.RawMessage `json:"profiles"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	*fc = FileConfig(plain)
-	fc.ProfileOrder = jsonObjectKeys(raw.Profiles)
-	return nil
-}
-
-// jsonObjectKeys returns the member names of a JSON object in document order.
-// Empty input, JSON null and anything that does not parse as an object yield
-// nil (see UnmarshalJSON: the caller's regular decode owns error reporting).
-func jsonObjectKeys(raw json.RawMessage) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	tok, err := dec.Token()
-	if err != nil {
-		return nil
-	}
-	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
-		return nil
-	}
-	var keys []string
-	for dec.More() {
-		keyTok, err := dec.Token()
-		if err != nil {
-			return keys
-		}
-		key, ok := keyTok.(string)
-		if !ok {
-			return keys
-		}
-		keys = append(keys, key)
-		var value json.RawMessage
-		if err := dec.Decode(&value); err != nil {
-			return keys
-		}
-	}
-	return keys
 }
 
 // ApplyFileConfig overlays the set (non-nil) fields of fc onto cfg; nil
