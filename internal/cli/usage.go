@@ -100,6 +100,9 @@ Claude Code:
   -openai string       URL OpenAI-совместимого API
   -key string          API-ключ внешнего провайдера ("none" или "" — работать без ключа)
   -model-openai str    имя модели у внешнего провайдера
+  -openai-path str     путь к chat/completions у внешнего провайдера
+                       (по умолчанию "/chat/completions"; "" — без суффикса,
+                       для OVH Kepler, VLM.run)
   -proxy-addr string   адрес локального прокси (по умолчанию 127.0.0.1:8082)
   -proxy-token string  токен для проверки входящих запросов прокси (пусто — без проверки)
   -proxy-allow-remote  разрешить не-loopback -proxy-addr без предупреждения
@@ -226,6 +229,9 @@ Claude Code:
   -openai string       OpenAI-compatible API URL
   -key string          external provider API key ("none" or "" = no authentication)
   -model-openai str    model name at external provider
+  -openai-path str     path to chat/completions at the external provider
+                       (default "/chat/completions"; "" — no suffix,
+                       for OVH Kepler, VLM.run)
   -proxy-addr string   local proxy address (default 127.0.0.1:8082)
   -proxy-token string  proxy auth token for incoming requests (empty = no check)
   -proxy-allow-remote  allow non-loopback -proxy-addr without warning

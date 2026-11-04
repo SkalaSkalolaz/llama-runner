@@ -77,6 +77,13 @@ type Config struct {
 	OpenAIBaseURL string
 	OpenAIKey     string
 	OpenAIModel   string
+	// OpenAIPath is the path suffix appended to OpenAIBaseURL when the proxy
+	// forwards a request to the external provider. Empty means "no suffix"
+	// (used by providers such as OVH Kepler and VLM.run, which serve the
+	// endpoint at the base URL itself). The default /chat/completions matches
+	// the OpenAI chat/completions path and keeps standard providers
+	// (OpenAI, OpenRouter, DeepSeek) working unchanged.
+	OpenAIPath string
 	// OpenAIKeyless records that the provider was asked to run WITHOUT
 	// authentication (-key none, -key "", or "openaiKey": "none" in the
 	// config file), as decided by cli.ResolveOpenAIKey. OpenAIKey stays empty

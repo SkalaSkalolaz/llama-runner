@@ -108,6 +108,7 @@ go build -o llama-runner ./cmd/llama-runner
 | `-openai` | | URL OpenAI-совместимого API |
 | `-key` | | API-ключ внешнего провайдера (см. «Получение ключа»); `none` или `""` — работать **без ключа** |
 | `-model-openai` | | Имя модели у внешнего провайдера |
+| `-openai-path` | `/chat/completions` | Суффикс пути к `-openai`; `""` — без суффикса (OVH Kepler, VLM.run) |
 | `-proxy-addr` | `127.0.0.1:8082` | Адрес локального маршрутизирующего прокси |
 | `-proxy-token` | _(пусто — без проверки)_ | Токен для входящих запросов прокси |
 | `-proxy-allow-remote` | `false` | Разрешить не-loopback `-proxy-addr` без предупреждения |
@@ -151,6 +152,12 @@ OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, �
   -model-openai deepseek/deepseek-v4-flash-free
 ```
 
+По умолчанию запросы уходят на `<openai>/chat/completions`. Некоторые
+провайдеры (например, OVH Kepler `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`,
+VLM.run) обслуживают endpoint по «голому» базовому URL и отвергают лишний
+суффикс `/chat/completions`. Передайте `-openai-path ""`, чтобы запросы шли на
+`<openai>` как есть, или `-openai-path /custom/path` для другого суффикса.
+
 ### Защита прокси
 
 - `-proxy-token <токен>` — прокси проверяет входящие запросы по
@@ -182,6 +189,7 @@ OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, �
 ./llama-runner \
   -openai https://oai.endpoints.kepler.ai.cloud.ovh.net/v1 \
   -model-openai Qwen3.6-27B \
+  -openai-path "" \
   -key none
 ```
 
@@ -218,7 +226,7 @@ OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, �
 `chatTemplateFallback`, `logFile`, `logMaxMB`, `logKeep`, `quietServer`,
 `mcpAddr`, `mcpStrict`, `webuiMcpProxy`, `alias`, `claudeBin`, `claudeDir`,
 `serverOnly`, `readyTimeout` (duration-строка, например `"180s"`), `openai`,
-`openaiKey`, `modelOpenai`, `proxyAddr`, `proxyToken`, `proxyAllowRemote`,
+`openaiKey`, `modelOpenai`, `openaiPath`, `proxyAddr`, `proxyToken`, `proxyAllowRemote`,
 `llamaSrc`, `installPrefix`, `cuda`, `cudaArch`, `dir`, `verbose`, `lmLazy`,
 `mcpConfig`).
 
@@ -231,6 +239,7 @@ OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, �
   "readyTimeout": "180s",
   "chatTemplate": "auto",
   "chatTemplateFallback": "~/GGUF/qwen-fixed-chat-template.jinja",
+  "openaiPath": "/chat/completions",
   "profiles": {
     "coder": {
       "model": "~/GGUF/qwen3-coder.gguf",
@@ -252,7 +261,10 @@ OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, �
   `-config <path>` без файла — ошибка;
 - `-p <имя>` без конфиг-файла или с неизвестным именем — ошибка (не молчит);
 - секреты (`openaiKey`, `proxyToken`) в файле технически поддерживаются, но
-  рекомендуется env или `~/.config/llama-runner/credentials`.
+  рекомендуется env или `~/.config/llama-runner/credentials`;
+- `openaiPath` — суффикс пути, добавляемый к `openai` (по умолчанию
+  `"/chat/completions"`); `"openaiPath": ""` отправляет запросы на «голый»
+  URL `openai` — именно так ждут OVH Kepler и VLM.run.
 
 ### Меню `/model`
 

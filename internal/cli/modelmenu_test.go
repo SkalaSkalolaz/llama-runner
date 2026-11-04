@@ -103,3 +103,21 @@ func TestRootDisplayName(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildModelMenu_ProfilesDoNotAppear(t *testing.T) {
+	// Profiles from the config file must not leak into the /model menu:
+	// only the local model alias is published.
+	cfg := &config.Config{
+		Alias: "qwen3.8-distil",
+		Profiles: []config.Profile{
+			{Name: "coder", Alias: "qwen3-coder", AliasSet: true},
+			{Name: "big", Alias: "qwen3.8-flash", AliasSet: true},
+		},
+	}
+	for _, slot := range BuildModelMenu(cfg) {
+		if strings.Contains(slot.ModelValue, "qwen3-coder") ||
+			strings.Contains(slot.ModelValue, "qwen3.8-flash") {
+			t.Errorf("profile alias leaked into menu slot: %+v", slot)
+		}
+	}
+}

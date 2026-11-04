@@ -78,6 +78,30 @@ func TestApplyFileConfig_BadReadyTimeout(t *testing.T) {
 	}
 }
 
+// TestDefaultConfig_OpenAIPath pins the default external-provider path
+// suffix: it keeps standard providers (OpenAI, OpenRouter, DeepSeek)
+// working without any extra configuration.
+func TestDefaultConfig_OpenAIPath(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.OpenAIPath != "/chat/completions" {
+		t.Errorf("OpenAIPath = %q, want /chat/completions", cfg.OpenAIPath)
+	}
+}
+
+// TestApplyFileConfig_OpenAIPathOverlay: "openaiPath": "" in the file must
+// override the default with "no suffix" (OVH Kepler / VLM.run), not be
+// treated as absent.
+func TestApplyFileConfig_OpenAIPathOverlay(t *testing.T) {
+	cfg := DefaultConfig()
+	empty := ""
+	if err := ApplyFileConfig(cfg, FileConfig{OpenAIPath: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OpenAIPath != "" {
+		t.Errorf("OpenAIPath = %q, want empty", cfg.OpenAIPath)
+	}
+}
+
 func str(s string) *string { return &s }
 func bl(b bool) *bool      { return &b }
 func i(n int) *int         { return &n }

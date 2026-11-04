@@ -52,6 +52,7 @@ func DefaultConfig() *Config {
 		QuietServer:          true,
 		McpAddr:              "127.0.0.1:8090",
 		ProxyAddr:            "127.0.0.1:8082",
+		OpenAIPath:           "/chat/completions",
 	}
 }
 
@@ -136,6 +137,7 @@ type FileConfig struct {
 	OpenAIBaseURL *string `json:"openai,omitempty"`
 	OpenAIKey     *string `json:"openaiKey,omitempty"` // not recommended; prefer env / credentials
 	OpenAIModel   *string `json:"modelOpenai,omitempty"`
+	OpenAIPath    *string `json:"openaiPath,omitempty"`
 
 	// Proxy
 	ProxyAddr        *string `json:"proxyAddr,omitempty"`
@@ -294,6 +296,7 @@ func ApplyFileConfig(cfg *Config, fc FileConfig) error {
 	set(&cfg.OpenAIBaseURL, fc.OpenAIBaseURL)
 	set(&cfg.OpenAIKey, fc.OpenAIKey)
 	set(&cfg.OpenAIModel, fc.OpenAIModel)
+	set(&cfg.OpenAIPath, fc.OpenAIPath)
 
 	set(&cfg.ProxyAddr, fc.ProxyAddr)
 	set(&cfg.ProxyToken, fc.ProxyToken)

@@ -113,6 +113,7 @@ go build -o llama-runner ./cmd/llama-runner
 | `-openai` | | URL of the OpenAI-compatible API |
 | `-key` | | API key for the external provider (see «Getting the provider key»); `none` or `""` — use the provider **without** a key |
 | `-model-openai` | | Model name at the external provider |
+| `-openai-path` | `/chat/completions` | Path suffix appended to `-openai` when forwarding; `""` — no suffix (OVH Kepler, VLM.run) |
 | `-proxy-addr` | `127.0.0.1:8082` | Address of the local routing proxy |
 | `-proxy-token` | _(empty — no check)_ | Token for incoming proxy requests |
 | `-proxy-allow-remote` | `false` | Allow a non-loopback `-proxy-addr` without a warning |
@@ -160,6 +161,12 @@ The local model alias is also added to the interactive `/model` menu via
 A provider that needs no authentication works the same way — pass `-key none`
 (see «Running the provider without a key»).
 
+By default requests are forwarded to `<openai>/chat/completions`. Some
+providers (e.g. OVH Kepler `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`,
+VLM.run) serve the endpoint at the bare base URL and reject the extra
+`/chat/completions` suffix. Pass `-openai-path ""` to send requests to
+`<openai>` as-is, or `-openai-path /custom/path` to use a different suffix.
+
 ### Proxy protection
 
 - `-proxy-token <token>` — the proxy checks incoming requests via
@@ -191,6 +198,7 @@ Some OpenAI-compatible endpoints need no authentication. Say so explicitly:
 ./llama-runner \
   -openai https://oai.endpoints.kepler.ai.cloud.ovh.net/v1 \
   -model-openai Qwen3.6-27B \
+  -openai-path "" \
   -key none
 ```
 
@@ -227,7 +235,7 @@ match the flags: `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`,
 `chatTemplateFallback`, `logFile`, `logMaxMB`, `logKeep`, `quietServer`,
 `mcpAddr`, `mcpStrict`, `webuiMcpProxy`, `alias`, `claudeBin`, `claudeDir`,
 `serverOnly`, `readyTimeout` (duration string, e.g. `"180s"`), `openai`,
-`openaiKey`, `modelOpenai`, `proxyAddr`, `proxyToken`, `proxyAllowRemote`,
+`openaiKey`, `modelOpenai`, `openaiPath`, `proxyAddr`, `proxyToken`, `proxyAllowRemote`,
 `llamaSrc`, `installPrefix`, `cuda`, `cudaArch`, `dir`, `verbose`, `lmLazy`,
 `mcpConfig`).
 
@@ -240,6 +248,7 @@ match the flags: `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`,
   "readyTimeout": "180s",
   "chatTemplate": "auto",
   "chatTemplateFallback": "~/GGUF/qwen-fixed-chat-template.jinja",
+  "openaiPath": "/chat/completions",
   "profiles": {
     "coder": {
       "model": "~/GGUF/qwen3-coder.gguf",
@@ -261,7 +270,10 @@ Notes:
   `-config <path>` without a file is an error;
 - `-p <name>` without a config file or with an unknown name is an error (not silent);
 - secrets (`openaiKey`, `proxyToken`) in the file are technically supported, but
-  env or `~/.config/llama-runner/credentials` is recommended.
+  env or `~/.config/llama-runner/credentials` is recommended;
+- `openaiPath` is the path suffix appended to `openai` (default
+  `"/chat/completions"`); `"openaiPath": ""` sends requests to the bare
+  `openai` URL — what providers like OVH Kepler and VLM.run expect.
 
 ### The `/model` menu
 

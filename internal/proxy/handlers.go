@@ -30,18 +30,18 @@ func (h *proxyHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 
 	data := []modelEntry{
 		{ID: localModelName, Type: "model", DisplayName: localModelName, CreatedAt: now},
+		{ID: h.cfg.OpenAIModel, Type: "model", DisplayName: h.cfg.OpenAIModel, CreatedAt: now},
 	}
-	// The local model alias is a second name of the local route (the /model
-	// menu's Custom entry publishes it); advertise it only when it is a
-	// distinct name, so the list stays free of duplicates.
-	if h.cfg.Alias != "" && !strings.EqualFold(h.cfg.Alias, localModelName) {
-		data = append(data, modelEntry{ID: h.cfg.Alias, Type: "model", DisplayName: h.cfg.Alias, CreatedAt: now})
-	}
-	data = append(data, modelEntry{ID: h.cfg.OpenAIModel, Type: "model", DisplayName: h.cfg.OpenAIModel, CreatedAt: now})
 	// Standard aliases — for visibility in /v1/models.
 	// Routing still goes to openai since they aren't "llama-server".
 	for _, alias := range []string{"sonnet", "haiku", "opus"} {
 		data = append(data, modelEntry{ID: alias, Type: "model", DisplayName: alias, CreatedAt: now})
+	}
+	// The local model alias is a second name of the local route; add it only
+	// when it is not already present under another spelling (case-insensitive),
+	// so the list never carries a duplicate.
+	if h.cfg.Alias != "" && indexOfModelID(data, h.cfg.Alias) < 0 {
+		data = append(data, modelEntry{ID: h.cfg.Alias, Type: "model", DisplayName: h.cfg.Alias, CreatedAt: now})
 	}
 
 	resp := map[string]any{
@@ -51,6 +51,18 @@ func (h *proxyHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 		"last_id":  data[len(data)-1].ID,
 	}
 	convert.WriteJSON(w, http.StatusOK, resp)
+}
+
+// indexOfModelID returns the position of id (case-insensitive) in the model
+// list, or -1 when absent. Used to keep /v1/models free of duplicates when
+// the local alias overlaps a fixed entry.
+func indexOfModelID(data []modelEntry, id string) int {
+	for i, m := range data {
+		if strings.EqualFold(m.ID, id) {
+			return i
+		}
+	}
+	return -1
 }
 
 // modelEntry is one model object in an Anthropic-format /v1/models list.
@@ -165,9 +177,25 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 
 // ---- Route to external OpenAI-compatible service ----
 
+// openAIEndpoint builds the upstream URL for the external provider from the
+// configured base and path suffix. The base's trailing slash is trimmed; the
+// path, when non-empty, is appended with exactly one leading slash (so both
+// "/chat/completions" and "chat/completions" work). An empty path yields the
+// bare base URL — the shape some providers (OVH Kepler, VLM.run) expect.
+func openAIEndpoint(base, path string) string {
+	target := strings.TrimRight(base, "/")
+	if path == "" {
+		return target
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return target + path
+}
+
 // forwardToOpenAI converts the Anthropic request to OpenAI chat/completions
-// format and forwards it to the configured external provider
-// (cfg.OpenAIBaseURL + /chat/completions), authenticating with
+// format and forwards it to the configured external provider (the URL built
+// from cfg.OpenAIBaseURL and cfg.OpenAIPath — see openAIEndpoint), authenticating with
 // Authorization: Bearer cfg.OpenAIKey — or with no Authorization header when
 // the provider was configured without a key (cfg.OpenAIKeyless). Like forwardToLlama it requests usage
 // accounting for streams, maps transport/upstream failures to Anthropic error
@@ -183,7 +211,7 @@ func (h *proxyHandler) forwardToOpenAI(w http.ResponseWriter, r *http.Request, r
 	if stream {
 		openAIReq["stream_options"] = map[string]any{"include_usage": true}
 	}
-	target := strings.TrimRight(h.cfg.OpenAIBaseURL, "/") + "/chat/completions"
+	target := openAIEndpoint(h.cfg.OpenAIBaseURL, h.cfg.OpenAIPath)
 	body, _ := json.Marshal(openAIReq)
 	proxyReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, target, bytes.NewReader(body))
 	proxyReq.Header.Set("Content-Type", "application/json")

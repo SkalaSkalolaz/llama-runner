@@ -94,6 +94,7 @@ const (
 	MsgFlagOpenai          = "flag_openai"
 	MsgFlagKey             = "flag_key"
 	MsgFlagModelOpenai     = "flag_model_openai"
+	MsgFlagOpenaiPath      = "flag_openai_path"
 	MsgFlagProxyAddr       = "flag_proxy_addr"
 	MsgFlagProxyToken      = "flag_proxy_token"
 	MsgFlagProxyAllowRem   = "flag_proxy_allow_remote"
@@ -326,6 +327,7 @@ var messages = map[string]i18nMessage{
 	MsgFlagOpenai:          {"URL OpenAI-совместимого API", "OpenAI-compatible API URL"},
 	MsgFlagKey:             {"API-ключ для внешнего провайдера (\"none\" или \"\" — работать без ключа)", "API key for the external provider (\"none\" or \"\" = no authentication)"},
 	MsgFlagModelOpenai:     {"Название модели у внешнего провайдера", "model name at the external provider"},
+	MsgFlagOpenaiPath:      {"путь к chat/completions у внешнего провайдера (\"\" — без суффикса, для OVH Kepler / VLM.run)", "path to chat/completions at the external provider (\"\" — no suffix, for OVH Kepler / VLM.run)"},
 	MsgFlagProxyAddr:       {"адрес локального прокси (гибридный режим)", "local proxy address (hybrid mode)"},
 	MsgFlagProxyToken:      {"токен для аутентификации входящих запросов прокси (пусто — без проверки)", "token for incoming proxy requests (empty = no check)"},
 	MsgFlagProxyAllowRem:   {"разрешить не-loopback -proxy-addr без предупреждения", "allow non-loopback -proxy-addr without warning"},

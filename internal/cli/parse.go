@@ -198,6 +198,7 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	fs.StringVar(&cfg.OpenAIBaseURL, "openai", cfg.OpenAIBaseURL, i18n.T(i18n.MsgFlagOpenai))
 	fs.StringVar(&cfg.OpenAIKey, "key", cfg.OpenAIKey, i18n.T(i18n.MsgFlagKey))
 	fs.StringVar(&cfg.OpenAIModel, "model-openai", cfg.OpenAIModel, i18n.T(i18n.MsgFlagModelOpenai))
+	fs.StringVar(&cfg.OpenAIPath, "openai-path", cfg.OpenAIPath, i18n.T(i18n.MsgFlagOpenaiPath))
 	fs.StringVar(&cfg.ProxyAddr, "proxy-addr", cfg.ProxyAddr, i18n.T(i18n.MsgFlagProxyAddr))
 	fs.StringVar(&cfg.ProxyToken, "proxy-token", cfg.ProxyToken, i18n.T(i18n.MsgFlagProxyToken))
 	fs.BoolVar(&cfg.ProxyAllowRemote, "proxy-allow-remote", cfg.ProxyAllowRemote, i18n.T(i18n.MsgFlagProxyAllowRem))

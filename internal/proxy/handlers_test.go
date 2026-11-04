@@ -193,6 +193,94 @@ func TestHybrid_LocalAliasRoutesToLlama(t *testing.T) {
 	}
 }
 
+func TestHybrid_LocalTokenStillRoutesLocal(t *testing.T) {
+	// The canonical "llama-server" token must keep routing to llama-server
+	// even when a custom Alias is set, so old env vars remain functional.
+	upstream, captured := bodyCapturingUpstream(t,
+		`{"id":"c1","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	h := &proxyHandler{
+		llamaServerURL: upstream.URL,
+		cfg: &config.Config{
+			Alias:         "qwen3-coder",
+			OpenAIBaseURL: "http://provider.invalid/v1",
+			OpenAIModel:   "gpt-4",
+			OpenAIKey:     "k",
+		},
+		client: upstream.Client(),
+	}
+	w := httptest.NewRecorder()
+	h.handleMessages(w, anthropicUserRequest("llama-server"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d, body = %s", w.Code, w.Body.String())
+	}
+	if len(captured()) == 0 {
+		t.Fatal("llama-server was not called for the canonical token")
+	}
+}
+
+func TestHybrid_ExternalNameGoesUpstream(t *testing.T) {
+	// A name that is neither localModelName nor the local Alias must go to
+	// the external provider. The provider URL is deliberately dead, so the
+	// proxy reports 502.
+	h := &proxyHandler{
+		llamaServerURL: "http://llama.invalid",
+		cfg: &config.Config{
+			Alias:         "qwen3-coder",
+			OpenAIBaseURL: "http://provider.invalid/v1",
+			OpenAIModel:   "gpt-4",
+			OpenAIKey:     "k",
+		},
+		client: http.DefaultClient,
+	}
+	w := httptest.NewRecorder()
+	h.handleMessages(w, anthropicUserRequest("some-external-model"))
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("code = %d, want 502 (external route)", w.Code)
+	}
+}
+
+func TestHybrid_ModelsListLocalAliasWithoutDuplicates(t *testing.T) {
+	// Even when Alias coincides with an existing entry, /v1/models must not
+	// contain duplicates.
+	for _, tc := range []struct {
+		name  string
+		alias string
+	}{
+		{"alias = external model", "gpt-4"},
+		{"alias = standard (sonnet)", "sonnet"},
+		{"alias = localModelName", "llama-server"},
+		{"alias distinct", "qwen3-coder"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &proxyHandler{
+				cfg: &config.Config{
+					Alias:         tc.alias,
+					OpenAIBaseURL: "https://api.example/v1",
+					OpenAIModel:   "gpt-4",
+					OpenAIKey:     "k",
+				},
+			}
+			w := httptest.NewRecorder()
+			h.handleModels(w, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+			var got struct {
+				Data []modelEntry `json:"data"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("bad JSON: %v", err)
+			}
+			ids := map[string]int{}
+			for _, m := range got.Data {
+				ids[strings.ToLower(m.ID)]++
+			}
+			for id, n := range ids {
+				if n > 1 {
+					t.Errorf("duplicate id %q (%d times) in %v", id, n, ids)
+				}
+			}
+		})
+	}
+}
+
 func TestHybrid_ModelsIncludesLocalAlias(t *testing.T) {
 	h := &proxyHandler{
 		cfg: &config.Config{
@@ -209,5 +297,50 @@ func TestHybrid_ModelsIncludesLocalAlias(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "gpt-4") {
 		t.Errorf("external model missing in /v1/models: %s", w.Body.String())
+	}
+}
+
+// --- внешний endpoint: base + openaiPath ---
+
+func TestForwardToOpenAI_Endpoint(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		wantPath string
+	}{
+		{"default", "/chat/completions", "/v1/chat/completions"},
+		{"empty path (OVH-style)", "", "/v1"},
+		{"custom path", "/completions", "/v1/completions"},
+		{"path without leading slash", "chat/completions", "/v1/chat/completions"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotPath string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"c1","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`))
+			}))
+			defer upstream.Close()
+
+			h := &proxyHandler{
+				llamaServerURL: "http://llama.invalid",
+				cfg: &config.Config{
+					OpenAIBaseURL: upstream.URL + "/v1",
+					OpenAIModel:   "ext/model-x",
+					OpenAIKey:     "k",
+					OpenAIPath:    tt.path,
+				},
+				client: http.DefaultClient,
+			}
+			w := httptest.NewRecorder()
+			h.handleMessages(w, anthropicUserRequest("ext/model-x"))
+			if w.Code != http.StatusOK {
+				t.Fatalf("code = %d, body = %s", w.Code, w.Body.String())
+			}
+			if gotPath != tt.wantPath {
+				t.Errorf("path = %q, want %q", gotPath, tt.wantPath)
+			}
+		})
 	}
 }
