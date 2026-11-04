@@ -244,20 +244,29 @@ func customSlotVarPrefix(index int) string {
 }
 
 // BuildClaudeArgs returns the command-line arguments for the claude child
-// process. In local mode it pins the model Claude Code starts with to the
-// alias llama-server actually loaded (--model): without the pin Claude Code
-// resumes the model persisted from an earlier session, names it in the very
-// first request, and the proxy switches the server to it before the user
-// asked for anything — the menu cursor then sits on a model that is not the
-// one running. Hybrid mode is exempt: there the session is expected to start
-// at the external gateway and local models are opt-in through the menu.
+// process. In BOTH modes the session's starting model is pinned with
+// --model, because without the pin Claude Code resumes the model persisted
+// from an earlier session — and when that name no longer matches any entry
+// of the /model menu (for example after switching the local model via -p)
+// it is rendered as a phantom "Custom model" line without a label.
+//
+//   - local mode pins the loaded local alias (cfg.Alias): the session
+//     starts on the model llama-server actually serves.
+//   - hybrid mode pins the external model (cfg.OpenAIModel): that model
+//     fills the four standard /model slots, so starting on it matches what
+//     Claude Code shows as "Default (recommended)".
+//
 // When mcpConfigPath is set, Claude Code is pointed at that MCP
 // configuration file, and --strict-mcp-config is appended when
 // cfg.McpStrict is set (restricting Claude Code to exactly the servers in
 // that file).
 func BuildClaudeArgs(cfg *config.Config, mcpConfigPath string) []string {
 	args := []string{}
-	if !cfg.OpenAIProviderConfigured() && cfg.Alias != "" {
+	if cfg.OpenAIProviderConfigured() {
+		if cfg.OpenAIModel != "" {
+			args = append(args, "--model", cfg.OpenAIModel)
+		}
+	} else if cfg.Alias != "" {
 		args = append(args, "--model", cfg.Alias)
 	}
 	if mcpConfigPath != "" {

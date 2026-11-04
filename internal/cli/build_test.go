@@ -168,15 +168,43 @@ func TestBuildClaudeArgs_ModelPinPrecedesMCP(t *testing.T) {
 	}
 }
 
-func TestBuildClaudeArgs_HybridDoesNotPinLocalModel(t *testing.T) {
-	// Hybrid sessions start at the external gateway; the local model stays
-	// an opt-in menu choice, so no --model here.
+func TestBuildClaudeArgs_HybridPinsExternalModel(t *testing.T) {
+	// Hybrid sessions must pin the external model as the starting point:
+	// it fills the four standard /model slots, so it is exactly what Claude
+	// Code labels "Default (recommended)". Without the pin Claude Code
+	// resumes the persisted model from a prior session, and when that name
+	// no longer matches any menu entry it appears as a phantom "Custom
+	// model" line without a label.
 	cfg := &config.Config{Alias: "qwen3-coder", OpenAIBaseURL: "https://gw/v1",
 		OpenAIModel: "gpt-5.1", OpenAIKey: "k"}
-	for _, a := range BuildClaudeArgs(cfg, "") {
-		if a == "--model" {
-			t.Errorf("hybrid args contain a model pin: %v", BuildClaudeArgs(cfg, ""))
-		}
+	args := BuildClaudeArgs(cfg, "")
+	want := []string{"--model", "gpt-5.1"}
+	if !reflect.DeepEqual(args, want) {
+		t.Errorf("got %v, want %v", args, want)
+	}
+}
+
+func TestBuildClaudeArgs_HybridKeylessAlsoPinsExternalModel(t *testing.T) {
+	// The keyless provider shares the hybrid menu, so it also pins the
+	// external model as the starting point.
+	cfg := &config.Config{Alias: "qwen3-coder", OpenAIBaseURL: "https://oai.example.com/v1",
+		OpenAIModel: "Qwen3.6-27B", OpenAIKeyless: true}
+	args := BuildClaudeArgs(cfg, "")
+	want := []string{"--model", "Qwen3.6-27B"}
+	if !reflect.DeepEqual(args, want) {
+		t.Errorf("got %v, want %v", args, want)
+	}
+}
+
+func TestBuildClaudeArgs_HalfConfiguredHybridFallsBackToLocal(t *testing.T) {
+	// A provider missing its model (URL only) is not configured:
+	// OpenAIProviderConfigured() is false, so the local alias is pinned
+	// instead — the same as before the change.
+	cfg := &config.Config{Alias: "local-x", OpenAIBaseURL: "https://gw/v1"}
+	args := BuildClaudeArgs(cfg, "")
+	want := []string{"--model", "local-x"}
+	if !reflect.DeepEqual(args, want) {
+		t.Errorf("got %v, want %v", args, want)
 	}
 }
 
