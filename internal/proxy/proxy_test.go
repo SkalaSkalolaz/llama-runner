@@ -94,6 +94,21 @@ func TestNewProxyClient_Timeout(t *testing.T) {
 	}
 }
 
+func TestNewLocalProxyClient_Timeout(t *testing.T) {
+	c := newLocalProxyClient()
+	if c.Timeout != 0 {
+		t.Errorf("Timeout = %v, want 0 (streamed completions must not be cut)", c.Timeout)
+	}
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport = %T, want *http.Transport", c.Transport)
+	}
+	if tr.ResponseHeaderTimeout != 300*time.Second {
+		t.Errorf("ResponseHeaderTimeout = %v, want 300s (prefill on a large local model can take minutes)",
+			tr.ResponseHeaderTimeout)
+	}
+}
+
 func TestHandleMessages_TooLarge(t *testing.T) {
 	// Огромное тело: 100 МБ + 1 байт.
 	// Собираем не целиком в памяти, а через io.LimitReader от "бесконечного" читателя.

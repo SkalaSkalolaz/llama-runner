@@ -254,3 +254,34 @@ func TestPassthrough_LocalModeEndToEndThroughMux(t *testing.T) {
 		t.Errorf("code = %d, body = %s, want payload verbatim", resp.StatusCode, body.String())
 	}
 }
+
+func TestPassthrough_UsesLocalClient(t *testing.T) {
+	// passthrough (local-only route) must use localClient, not client:
+	// this is the path taken by `-p coder` WITHOUT `-openai`. A dead client
+	// in `client` and a working one in `localClient` proves the right one
+	// is picked.
+	upstream, captured := upstreamEcho(t, http.StatusOK, `{"id":"m1","type":"message"}`)
+
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadClient := dead.Client()
+	dead.Close()
+
+	h := &proxyHandler{
+		llamaServerURL: upstream.URL,
+		cfg:            localCfg(), // no external provider: externalMode() == false
+		client:         deadClient,
+		localClient:    upstream.Client(),
+	}
+	w := httptest.NewRecorder()
+	h.handleMessages(w, httptest.NewRequest(http.MethodPost, "/v1/messages",
+		strings.NewReader(`{"model":"m","messages":[]}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d, body = %s (localClient must have been used)",
+			w.Code, w.Body.String())
+	}
+	select {
+	case <-captured:
+	case <-time.After(2 * time.Second):
+		t.Fatal("llama-server was not called")
+	}
+}

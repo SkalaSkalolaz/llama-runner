@@ -344,3 +344,36 @@ func TestForwardToOpenAI_Endpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestForwardToLlama_UsesLocalClient(t *testing.T) {
+	// forwardToLlama (hybrid route) must use localClient, not client:
+	// pointing a dead client at `client` and a working one at `localClient`
+	// proves the route picks the right one.
+	upstream, captured := bodyCapturingUpstream(t,
+		`{"id":"c1","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadClient := dead.Client()
+	dead.Close()
+
+	h := &proxyHandler{
+		llamaServerURL: upstream.URL,
+		cfg: &config.Config{
+			Alias:         "qwen3-coder",
+			OpenAIBaseURL: "http://provider.invalid/v1",
+			OpenAIModel:   "gpt-4",
+			OpenAIKey:     "k",
+		},
+		client:      deadClient,
+		localClient: upstream.Client(),
+	}
+	w := httptest.NewRecorder()
+	h.handleMessages(w, anthropicUserRequest("qwen3-coder"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d, body = %s (localClient must have been used)",
+			w.Code, w.Body.String())
+	}
+	if len(captured()) == 0 {
+		t.Fatal("llama-server was not called")
+	}
+}

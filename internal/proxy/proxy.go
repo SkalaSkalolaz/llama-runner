@@ -36,6 +36,7 @@ func Start(opts Options) (*http.Server, error) {
 		llamaServerURL: strings.TrimRight(opts.LlamaServerURL, "/"),
 		cfg:            opts.Cfg,
 		client:         newProxyClient(),
+		localClient:    newLocalProxyClient(),
 		logWriter:      opts.LogWriter,
 	}
 
@@ -68,9 +69,16 @@ type proxyHandler struct {
 	llamaServerURL string
 	// cfg supplies the external provider settings, proxy token and verbosity.
 	cfg *config.Config
-	// client performs upstream requests without a whole-request timeout
-	// (see newProxyClient).
+	// client performs upstream requests to the EXTERNAL provider without a
+	// whole-request timeout, with a short ResponseHeaderTimeout (see
+	// newProxyClient).
 	client *http.Client
+	// localClient performs requests to the LOCAL llama-server: same shape as
+	// client but with a much longer ResponseHeaderTimeout to accommodate
+	// slow prefill (see newLocalProxyClient). May be nil when a handler was
+	// constructed directly in a test — callers use h.local() to get a
+	// non-nil client either way.
+	localClient *http.Client
 	// logWriter receives [proxy]-prefixed diagnostic lines when -v is set;
 	// nil disables logging entirely.
 	logWriter io.Writer
@@ -104,6 +112,17 @@ func StartProxyServer(proxyAddr, llamaServerURL string, cfg *config.Config, logW
 // (see passthrough.go).
 func (h *proxyHandler) externalMode() bool {
 	return h.cfg != nil && h.cfg.OpenAIProviderConfigured()
+}
+
+// local returns the http.Client used for requests to llama-server. In
+// production it is localClient (long ResponseHeaderTimeout, see
+// newLocalProxyClient); in tests that construct proxyHandler directly with
+// only client set, it falls back to client so those tests keep working.
+func (h *proxyHandler) local() *http.Client {
+	if h.localClient != nil {
+		return h.localClient
+	}
+	return h.client
 }
 
 // newProxyMux assembles the proxy's routing table:

@@ -67,7 +67,7 @@ func (h *proxyHandler) passthrough(w http.ResponseWriter, r *http.Request) {
 	}
 	copyHeadersExcept(req.Header, r.Header)
 
-	resp, err := h.client.Do(req)
+	resp, err := h.local().Do(req)
 	if err != nil {
 		convert.WriteAnthropicError(w, http.StatusBadGateway, "api_error",
 			strings.TrimSuffix(i18n.TF(i18n.MsgUpstreamErr, err), "\n"))

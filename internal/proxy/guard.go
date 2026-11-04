@@ -74,3 +74,23 @@ func newProxyClient() *http.Client {
 	t.ResponseHeaderTimeout = 30 * time.Second
 	return &http.Client{Timeout: 0, Transport: t}
 }
+
+// newLocalProxyClient builds the http.Client used for requests to the local
+// llama-server. It differs from newProxyClient only in ResponseHeaderTimeout:
+// llama-server does not send SSE response headers until the whole prompt has
+// been processed (prefill). On a large model with a big context — for example
+// a 27B model with c = 98304 and a 30K-token prompt — prefill can take minutes,
+// so the 30-second timeout that suits an external provider would spuriously
+// turn a healthy-but-slow local generation into 502 "timeout awaiting
+// response headers". 5 minutes gives ample headroom while still bounding the
+// wait: a truly dead llama-server cannot hang the proxy forever.
+//
+// As with newProxyClient, Client.Timeout is 0 on purpose: the body of a
+// streamed completion must stay open for as long as the model generates.
+// Abandoning an in-flight request is still driven by cancellation of the
+// incoming request context (r.Context()).
+func newLocalProxyClient() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = 300 * time.Second
+	return &http.Client{Timeout: 0, Transport: t}
+}

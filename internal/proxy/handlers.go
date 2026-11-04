@@ -154,7 +154,7 @@ func (h *proxyHandler) forwardToLlama(w http.ResponseWriter, r *http.Request, re
 	proxyReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, target, bytes.NewReader(body))
 	proxyReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := h.client.Do(proxyReq)
+	resp, err := h.local().Do(proxyReq)
 	if err != nil {
 		convert.WriteAnthropicError(w, http.StatusBadGateway, "api_error", strings.TrimSuffix(i18n.TF(i18n.MsgUpstreamErr, err), "\n"))
 		return
