@@ -60,6 +60,13 @@ type Config struct {
 	WithCuda      bool
 	CudaArch      string
 
+	// Auto-download
+	// Download holds the composite -download value "<local-dir><url>"; it
+	// is consumed by run() before launch (the downloaded file becomes
+	// Model) and reset to "" afterwards, so a re-parse cannot trigger a
+	// second download.
+	Download string
+
 	// Claude Code
 	ServerOnly   bool
 	ClaudeBin    string
@@ -137,6 +144,12 @@ type Config struct {
 	// GGUF instead (see cli.ResolveAlias rule 2). A profile's model does
 	// NOT set this flag: a profile is self-contained and brings its own alias.
 	ModelSet bool
+	// DownloadOverridesModel reports that BOTH -download and -model were
+	// given on the command line: the fetched model wins and the explicit
+	// -model is ignored (run() warns about it in -v mode). Like the other
+	// origin flags it cannot be derived from the values themselves, because
+	// cfg.Model always has at least the built-in default.
+	DownloadOverridesModel bool
 	// ParallelSet reports whether -parallel was given on the command line.
 	// Like AliasFromCLI, it outranks every value inherited from the config
 	// file or a profile. When -model is given too, an inherited parallel

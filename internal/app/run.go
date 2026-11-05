@@ -32,11 +32,15 @@ import (
 // flags; help and -version return 0).
 //
 // Flow:
-//  1. parse flags (help → 0), resolve the effective model alias
-//     (cli.ResolveAlias: CLI -alias > name derived from a CLI -model >
-//     config file/profile alias > "local"), resolve the OpenAI
-//     key only when an external provider was actually requested;
-//  2. handle the one-shot modes: -doctor and -update exit here;
+//  1. parse flags (help → 0; -version prints and exits before anything
+//     else can start);
+//  2. run the -download pre-step when requested: fetch the model (single
+//     file or HF shard set) into the target directory and continue with
+//     cfg.Model pointing at it; then resolve the effective model alias
+//     (cli.ResolveAlias: CLI -alias > name derived from a CLI -model or
+//     -download > config file/profile alias > "local") and resolve the
+//     OpenAI key only when an external provider was actually requested;
+//     handle the other one-shot modes: -doctor and -update exit here;
 //  3. validate and resolve all paths, then build and start llama-server in
 //     its own process group, with LD_LIBRARY_PATH pointed at the sibling
 //     lib/ or lib64/ directory, the chosen working directory, and logs going
@@ -64,15 +68,6 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		fmt.Fprintln(stdout, version)
 		return 0
 	}
-	// The effective model name is decided once, here, so the llama-server
-	// --alias (hence its WebUI card) and ANTHROPIC_DEFAULT_*_MODEL (hence
-	// Claude Code's /model entry) can never disagree: previously a stale
-	// alias from the config file survived a deliberate `-model` override,
-	// so the gpt-oss file was loaded while both places still showed the
-	// Qwen alias. Server mode is no longer excluded from naming — it must
-	// get the same name the Claude Code mode would have shown.
-	cfg.Alias, _ = cli.ResolveAlias(cfg)
-
 	if cfg.ServerOnly && cfg.OpenAIBaseURL != "" {
 		fmt.Fprint(stderr, i18n.TF(i18n.MsgWarnOpenaiIgnored))
 	}
@@ -82,6 +77,34 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		fmt.Fprint(stderr, i18n.TF(i18n.MsgErrHomeDirShort, err))
 		return 1
 	}
+
+	// --- -download one-shot pre-step ---
+	// Runs after the home directory is known and before the alias is
+	// resolved, so the downloaded file takes the place of a locally
+	// chosen -model in every downstream step (alias derivation, path
+	// validation, server args). -version above deliberately ignores
+	// -download (it never starts anything); -update never uses a model,
+	// so the combination is ambiguous and rejected here.
+	if cfg.Download != "" {
+		if cfg.UpdateFlag {
+			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrDownloadUpdateConflict))
+			return 2
+		}
+		if code := downloadModel(cfg, home, stdout, stderr, version); code != 0 {
+			return code
+		}
+	}
+
+	// The effective model name is decided once, here, so the llama-server
+	// --alias (hence its WebUI card) and ANTHROPIC_DEFAULT_*_MODEL (hence
+	// Claude Code's /model entry) can never disagree: previously a stale
+	// alias from the config file survived a deliberate `-model` override,
+	// so the gpt-oss file was loaded while both places still showed the
+	// Qwen alias. Server mode is no longer excluded from naming — it must
+	// get the same name the Claude Code mode would have shown. It runs
+	// after the -download pre-step on purpose: a downloaded model is a
+	// CLI-chosen model, and its alias derives from the fetched GGUF.
+	cfg.Alias, _ = cli.ResolveAlias(cfg)
 
 	// We pick up the external provider's key ONLY if the external provider
 	// is actually requested. Otherwise a developer with OPENAI_API_KEY in the environment

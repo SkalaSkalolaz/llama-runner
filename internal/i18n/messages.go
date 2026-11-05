@@ -72,6 +72,7 @@ const (
 	MsgFlagSpecDraftModel  = "flag_spec_draft_model"
 	MsgFlagSpecDraftNMax   = "flag_spec_draft_n_max"
 	MsgFlagSpecDraftNGL    = "flag_spec_draft_ngl"
+	MsgFlagDownload        = "flag_download"
 	MsgFlagUpdate          = "flag_update"
 	MsgFlagLlamaSrc        = "flag_llama_src"
 	MsgFlagInstallPrefix   = "flag_install_prefix"
@@ -181,6 +182,28 @@ const (
 	MsgErrCMakeBuild       = "err_cmake_build"
 	MsgInstalling          = "installing"
 	MsgErrCMakeInstall     = "err_cmake_install"
+
+	// --- Auto-download (-download, internal/download) ---
+	MsgErrDownloadSpec           = "err_download_spec"
+	MsgErrDownloadNoURL          = "err_download_no_url"
+	MsgErrDownloadNoDir          = "err_download_no_dir"
+	MsgErrDownloadUpdateConflict = "err_download_update_conflict"
+	MsgWarnDownloadOverrides     = "warn_download_overrides"
+	MsgWarnDownloadShardNotFirst = "warn_download_shard_not_first"
+	MsgDownloadStarting          = "download_starting"
+	MsgDownloadShards            = "download_shards"
+	MsgDownloadFromCache         = "download_from_cache"
+	MsgDownloadDone              = "download_done"
+	MsgDownloadFailed            = "download_failed"
+	MsgDownloadHTTPError         = "download_http_error"
+	MsgDownloadGated             = "download_gated"
+	MsgDownloadNotFound          = "download_not_found"
+	MsgDownloadRetry             = "download_retry"
+	MsgDownloadSizeMismatch      = "download_size_mismatch"
+	MsgDownloadURLPath           = "download_url_path"
+	MsgErrDownloadFailed         = "err_download_failed"
+	MsgErrDownloadDisk           = "err_download_disk"
+	MsgErrDownloadResumeFailed   = "err_download_resume_failed"
 
 	// --- Doctor report (doctor.go) ---
 	MsgDoctorVersion      = "doctor_version"
@@ -303,6 +326,7 @@ var messages = map[string]i18nMessage{
 	MsgFlagSpecDraftModel:  {"путь к драфтеру", "path to draft model"},
 	MsgFlagSpecDraftNMax:   {"n-max драфтера", "draft n-max"},
 	MsgFlagSpecDraftNGL:    {"ngl драфтера", "draft ngl"},
+	MsgFlagDownload:        {"загрузить модель: <директория><URL> (например ~/GGUF/https://huggingface.co/…)", "download a model: <dir><URL> (e.g. ~/GGUF/https://huggingface.co/…)"},
 	MsgFlagUpdate:          {"обновить llama.cpp", "update llama.cpp"},
 	MsgFlagLlamaSrc:        {"путь к исходникам", "path to llama.cpp sources"},
 	MsgFlagInstallPrefix:   {"префикс установки", "install prefix"},
@@ -412,6 +436,49 @@ var messages = map[string]i18nMessage{
 	MsgErrCMakeBuild:       {"cmake build", "cmake build"},
 	MsgInstalling:          {"Установка в %s...", "Installing into %s..."},
 	MsgErrCMakeInstall:     {"cmake install", "cmake install"},
+
+	// --- Auto-download (-download) ---
+	MsgErrDownloadSpec: {
+		"некорректный -download %q: ожидается <dir><url>",
+		"invalid -download %q: expected <dir><url>",
+	},
+	MsgErrDownloadNoURL:          {"в -download не найден http(s)-URL", "no http(s) URL found in -download"},
+	MsgErrDownloadNoDir:          {"в -download не указана целевая директория (префикс до URL)", "no target directory in -download (the prefix before the URL)"},
+	MsgErrDownloadUpdateConflict: {"-download несовместим с -update", "-download is not compatible with -update"},
+	MsgWarnDownloadOverrides:     {"предупреждение: -model игнорируется, потому что задан -download", "warning: -model is ignored because -download is set"},
+	MsgWarnDownloadShardNotFirst: {
+		"  передан шард %d — точка входа будет шард 1",
+		"  shard %d was given — the entry point will be shard 1",
+	},
+	MsgDownloadStarting: {"Загрузка %s → %s", "Downloading %s → %s"},
+	MsgDownloadShards:   {"  это шардированная модель: %d файлов", "  this is a sharded model: %d files"},
+	MsgDownloadFromCache: {
+		"  уже скачано: %s",
+		"  already downloaded: %s",
+	},
+	MsgDownloadDone:      {"  ✓ %s (%s)", "  ✓ %s (%s)"},
+	MsgDownloadFailed:    {"  не удалось скачать %s: %v", "  failed to download %s: %v"},
+	MsgDownloadHTTPError: {"  HTTP %d на %s", "  HTTP %d on %s"},
+	MsgDownloadGated:     {"  модель требует токена (HF_TOKEN / HUGGING_FACE_HUB_TOKEN): %s", "  the model requires a token (HF_TOKEN / HUGGING_FACE_HUB_TOKEN): %s"},
+	MsgDownloadNotFound:  {"  файл не найден на HuggingFace: %s", "  file not found on HuggingFace: %s"},
+	MsgDownloadRetry:     {"  повтор через %v (%d/%d): %v", "  retrying in %v (%d/%d): %v"},
+	MsgDownloadSizeMismatch: {
+		"  размер не совпадает (локально %d, удалённо %d) — перекачиваю",
+		"  size mismatch (local %d, remote %d) — re-downloading",
+	},
+	MsgDownloadURLPath: {"  URL: %s\n  путь: %s", "  URL: %s\n  path: %s"},
+	MsgErrDownloadFailed: {
+		"не удалось скачать %s",
+		"failed to download %s",
+	},
+	MsgErrDownloadDisk: {
+		"не удалось создать директорию %q",
+		"failed to create directory %q",
+	},
+	MsgErrDownloadResumeFailed: {
+		"повторите команду — докачка продолжится с .partial-файла",
+		"run the command again — the download will resume from the .partial file",
+	},
 
 	// --- Doctor report ---
 	MsgDoctorVersion:      {"  версия:         %s", "  version:        %s"},

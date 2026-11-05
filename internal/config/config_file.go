@@ -110,6 +110,10 @@ type FileConfig struct {
 	SpecDraftNMax  *string `json:"specDraftNMax,omitempty"`
 	SpecDraftNGL   *string `json:"specDraftNGL,omitempty"`
 
+	// Auto-download: composite "<local-dir><url>" value; when set in the
+	// file or a profile the model is fetched before launch (see -download).
+	Download *string `json:"download,omitempty"`
+
 	// Update
 	LlamaSrc      *string `json:"llamaSrc,omitempty"`
 	InstallPrefix *string `json:"installPrefix,omitempty"`
@@ -199,6 +203,8 @@ func ApplyFileConfig(cfg *Config, fc FileConfig) error {
 	set(&cfg.SpecDraftModel, fc.SpecDraftModel)
 	set(&cfg.SpecDraftNMax, fc.SpecDraftNMax)
 	set(&cfg.SpecDraftNGL, fc.SpecDraftNGL)
+
+	set(&cfg.Download, fc.Download)
 
 	set(&cfg.LlamaSrc, fc.LlamaSrc)
 	set(&cfg.InstallPrefix, fc.InstallPrefix)

@@ -45,6 +45,12 @@ SEARCH_ENABLED=true mcp-search-server --addr :8090.
         путь к llama-server (по умолчанию "~/.local/bin/llama-server")
   -model string
         путь к GGUF-модели
+  -download string
+        загрузить модель перед запуском: <директория><URL> одним аргументом,
+        например ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
+        (шарды *-00001-of-00004.gguf подтягиваются все); после загрузки
+        -model указывает на скачанный файл (первый шард), -model на CLI
+        игнорируется; несовместим с -update
   -host string
         адрес сервера (по умолчанию "127.0.0.1")
   -port string
@@ -139,6 +145,9 @@ Claude Code:
   # Профиль из конфиг-файла
   llama-runner -p coder
 
+  # Скачать модель с HuggingFace и запустить с ней
+  llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
+
   # Диагностика без запуска процессов
   llama-runner -doctor
 
@@ -174,6 +183,12 @@ Main flags:
         path to llama-server (default "~/.local/bin/llama-server")
   -model string
         path to GGUF model
+  -download string
+        download a model before launch: <dir><URL> as one argument, e.g.
+        ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
+        (shards *-00001-of-00004.gguf are all fetched); after the download
+        -model points at the fetched file (first shard), a CLI -model is
+        ignored; not compatible with -update
   -host string
         server address (default "127.0.0.1")
   -port string
@@ -267,6 +282,9 @@ Examples:
 
   # Profile from config file
   llama-runner -p coder
+
+  # Download a model from Hugging Face and launch with it
+  llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
 
   # Diagnose without starting processes
   llama-runner -doctor

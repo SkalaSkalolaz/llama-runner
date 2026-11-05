@@ -158,6 +158,8 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	fs.StringVar(&cfg.SpecDraftNMax, "spec-draft-n-max", cfg.SpecDraftNMax, i18n.T(i18n.MsgFlagSpecDraftNMax))
 	fs.StringVar(&cfg.SpecDraftNGL, "spec-draft-ngl", cfg.SpecDraftNGL, i18n.T(i18n.MsgFlagSpecDraftNGL))
 
+	fs.StringVar(&cfg.Download, "download", cfg.Download, i18n.T(i18n.MsgFlagDownload))
+
 	fs.BoolVar(&cfg.UpdateFlag, "update", false, i18n.T(i18n.MsgFlagUpdate))
 	fs.StringVar(&cfg.LlamaSrc, "llama-src", cfg.LlamaSrc, i18n.T(i18n.MsgFlagLlamaSrc))
 	fs.StringVar(&cfg.InstallPrefix, "install-prefix", cfg.InstallPrefix, i18n.T(i18n.MsgFlagInstallPrefix))
@@ -196,6 +198,7 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
+	var sawModel, sawDownload bool
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "chat-template":
@@ -211,6 +214,14 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 			// visible alias must follow it rather than keep the config file's
 			// name (rule 2 of ResolveAlias).
 			cfg.ModelSet = true
+			sawModel = true
+		case "download":
+			// A CLI -download is a deliberate model choice, just like
+			// -model: the visible alias must follow the downloaded file
+			// (rule 2 of ResolveAlias), and an inherited per-model
+			// parallel is reset below by the same ModelSet rule.
+			cfg.ModelSet = true
+			sawDownload = true
 		case "parallel":
 			// Record only the fact that the flag was given: an explicit
 			// -parallel outranks the reset triggered by a CLI -model (see
@@ -224,6 +235,13 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 			cfg.OpenAIKeyFromCLI = true
 		}
 	})
+	// -download together with -model: the fetch wins — run() replaces
+	// cfg.Model with the downloaded entry point before anything reads it.
+	// Record the collision so the -v path can warn about the ignored
+	// -model (the values alone cannot reveal it: cfg.Model has a default).
+	if sawDownload && sawModel {
+		cfg.DownloadOverridesModel = true
+	}
 	// -model on the CLI picks a different model; a parallel carried over
 	// from the file or a profile describes the OLD model and must not leak
 	// into the new one. Reset it to the built-in default ("1") unless
