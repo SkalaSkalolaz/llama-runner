@@ -179,6 +179,24 @@ func TestParseFlags_CLIAliasSetsAliasFromCLI(t *testing.T) {
 	}
 }
 
+func TestParseFlags_CLIParallelSetsParallelSet(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var buf bytes.Buffer
+	cfg, err := ParseFlags([]string{"-parallel", "4"}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Parallel != "4" {
+		t.Errorf("Parallel = %q, want 4", cfg.Parallel)
+	}
+	if !cfg.ParallelSet {
+		t.Error("ParallelSet = false — a CLI -parallel must be recorded")
+	}
+	if cfg.ModelSet {
+		t.Error("ModelSet = true, want false (-parallel is not -model)")
+	}
+}
+
 func TestParseFlags_ProfileModelDoesNotSetModelSet(t *testing.T) {
 	// A profile is self-contained: it supplies its own model AND alias, so
 	// ModelSet must stay false — otherwise ResolveAlias rule 2 would re-derive

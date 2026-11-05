@@ -99,3 +99,88 @@ func TestRun_ServerMode_ProfileAliasPreserved(t *testing.T) {
 			strings.Join(args, " "), errText)
 	}
 }
+
+// serverHomeWithConfig sets up an isolated HOME with a usable llama-server
+// binary, the two model files the alias tests reference, and a config.json
+// with the given content. Returns the home path; the caller passes -config
+// explicitly so the file is found regardless of $HOME.
+func serverHomeWithConfig(t *testing.T, configJSON string) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	bin := filepath.Join(home, ".local", "bin", "llama-server")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	modelDir := filepath.Join(home, "GGUF")
+	if err := os.MkdirAll(modelDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"Qwen3.8-35B-A3B-Q4_K_M.gguf",
+		"gpt-oss-20b-Q5_K_M.gguf",
+	} {
+		if err := os.WriteFile(filepath.Join(modelDir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if configJSON != "" {
+		cfgPath := filepath.Join(home, "config.json")
+		if err := os.WriteFile(cfgPath, []byte(configJSON), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return home
+}
+
+func TestRun_ServerMode_ResetsParallelOnCLIModel(t *testing.T) {
+	// -server + -model X with a root parallel: the root parallel describes
+	// the root model, so the actual launch must use --parallel 1, mirroring
+	// the alias rule (see TestRun_ServerMode_UsesAliasDerivedFromCLIModel).
+	home := serverHomeWithConfig(t,
+		`{"model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf", "parallel": "4"}`)
+
+	var out, errb bytes.Buffer
+	log := &argLog{}
+	code := Run(
+		[]string{"-config", filepath.Join(home, "config.json"), "-server",
+			"-model", "~/GGUF/gpt-oss-20b-Q5_K_M.gguf"},
+		&out, &errb, recordingRunner{log: log}, "1.5.3-test")
+	if code != 0 {
+		t.Fatalf("Run = %d, want 0 (stderr=%s)", code, errb.String())
+	}
+	if len(log.commands) == 0 {
+		t.Fatalf("no llama-server command recorded (stderr=%s)", errb.String())
+	}
+	joined := strings.Join(log.commands[0], " ")
+	if !strings.Contains(joined, "--parallel 1") {
+		t.Errorf("--parallel 1 missing from: %s", joined)
+	}
+}
+
+func TestRun_ServerMode_ProfileParallelApplies(t *testing.T) {
+	// Positive case through Run: a profile's parallel reaches --parallel
+	// in the launched command.
+	home := serverHomeWithConfig(t,
+		`{"profiles": {"coder": {"parallel": "8"}}}`)
+
+	var out, errb bytes.Buffer
+	log := &argLog{}
+	code := Run(
+		[]string{"-config", filepath.Join(home, "config.json"), "-server", "-p", "coder"},
+		&out, &errb, recordingRunner{log: log}, "1.5.3-test")
+	if code != 0 {
+		t.Fatalf("Run = %d, want 0 (stderr=%s)", code, errb.String())
+	}
+	if len(log.commands) == 0 {
+		t.Fatalf("no llama-server command recorded (stderr=%s)", errb.String())
+	}
+	joined := strings.Join(log.commands[0], " ")
+	if !strings.Contains(joined, "--parallel 8") {
+		t.Errorf("--parallel 8 missing from: %s", joined)
+	}
+}

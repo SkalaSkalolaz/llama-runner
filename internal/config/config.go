@@ -137,6 +137,13 @@ type Config struct {
 	// GGUF instead (see cli.ResolveAlias rule 2). A profile's model does
 	// NOT set this flag: a profile is self-contained and brings its own alias.
 	ModelSet bool
+	// ParallelSet reports whether -parallel was given on the command line.
+	// Like AliasFromCLI, it outranks every value inherited from the config
+	// file or a profile. When -model is given too, an inherited parallel
+	// describes a DIFFERENT model and is reset to "1" unless -parallel was
+	// explicit (see ParseFlagsWithHome). Set by flag.Visit, like the other
+	// origin flags above.
+	ParallelSet bool
 }
 
 // OpenAIProviderConfigured reports whether an external OpenAI-compatible

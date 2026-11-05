@@ -211,6 +211,12 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 			// visible alias must follow it rather than keep the config file's
 			// name (rule 2 of ResolveAlias).
 			cfg.ModelSet = true
+		case "parallel":
+			// Record only the fact that the flag was given: an explicit
+			// -parallel outranks the reset triggered by a CLI -model (see
+			// the post-Visit block below), and keeps its own value even
+			// when the model came from the config file or a profile.
+			cfg.ParallelSet = true
 		case "key":
 			// Only the fact that the flag was given matters: it is what lets
 			// -key "" mean "no authentication" instead of "no key provided".
@@ -218,5 +224,14 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 			cfg.OpenAIKeyFromCLI = true
 		}
 	})
+	// -model on the CLI picks a different model; a parallel carried over
+	// from the file or a profile describes the OLD model and must not leak
+	// into the new one. Reset it to the built-in default ("1") unless
+	// -parallel was given explicitly, which outranks everything as usual.
+	// This mirrors ResolveAlias rule 2, which resets a stale alias in the
+	// same situation.
+	if cfg.ModelSet && !cfg.ParallelSet {
+		cfg.Parallel = "1"
+	}
 	return cfg, nil
 }

@@ -382,3 +382,97 @@ func TestParseFlags_ProfileWithDefaultConfigMissing(t *testing.T) {
 		t.Errorf("err = %v, want упоминание профиля", err)
 	}
 }
+
+// --- per-model parallel: profile value applies, CLI -model resets it ---
+
+func TestParseFlags_ProfileParallelApplies(t *testing.T) {
+	// A profile carries its model AND its parallel; using the profile must
+	// apply its parallel without any CLI -parallel.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"profiles": {"coder": {"parallel": "8"}}}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg, err := ParseFlagsWithHome(
+		[]string{"-config", cfgPath, "-p", "coder"}, &buf, dir)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.Parallel != "8" {
+		t.Errorf("Parallel = %q, want 8 (from profile)", cfg.Parallel)
+	}
+	if cfg.ParallelSet {
+		t.Error("ParallelSet = false — the profile parallel is not a CLI override")
+	}
+}
+
+func TestParseFlags_CLIModelResetsProfileParallel(t *testing.T) {
+	// -model on the CLI picks a different model; the profile's parallel
+	// describes the profile's model, so it must not leak. Reset to "1".
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"profiles": {"coder": {"model": "~/GGUF/a.gguf", "parallel": "8"}}}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg, err := ParseFlagsWithHome(
+		[]string{"-config", cfgPath, "-p", "coder", "-model", "~/GGUF/b.gguf"},
+		&buf, dir)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.Parallel != "1" {
+		t.Errorf("Parallel = %q, want 1 (reset for a CLI -model)", cfg.Parallel)
+	}
+	if !cfg.ModelSet {
+		t.Error("ModelSet = false, want true")
+	}
+}
+
+func TestParseFlags_CLIModelAndParallelUsesCLI(t *testing.T) {
+	// -model resets the profile parallel, but an explicit -parallel wins
+	// over that reset.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"profiles": {"coder": {"model": "~/GGUF/a.gguf", "parallel": "8"}}}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg, err := ParseFlagsWithHome(
+		[]string{"-config", cfgPath, "-p", "coder",
+			"-model", "~/GGUF/b.gguf", "-parallel", "4"}, &buf, dir)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.Parallel != "4" {
+		t.Errorf("Parallel = %q, want 4 (CLI > reset > profile)", cfg.Parallel)
+	}
+	if !cfg.ParallelSet || !cfg.ModelSet {
+		t.Errorf("ParallelSet = %v, ModelSet = %v; want both true",
+			cfg.ParallelSet, cfg.ModelSet)
+	}
+}
+
+func TestParseFlags_CLIModelResetsRootParallel(t *testing.T) {
+	// Root-section parallel describes the root model; a CLI -model picks a
+	// different one, so the root parallel must be reset too.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"model": "~/GGUF/a.gguf", "parallel": "4"}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg, err := ParseFlagsWithHome(
+		[]string{"-config", cfgPath, "-model", "~/GGUF/b.gguf"}, &buf, dir)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.Parallel != "1" {
+		t.Errorf("Parallel = %q, want 1 (reset for a CLI -model)", cfg.Parallel)
+	}
+}
