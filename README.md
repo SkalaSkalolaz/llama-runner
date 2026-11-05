@@ -27,8 +27,10 @@ go build -o llama-runner ./cmd/llama-runner
 - **Automatic startup:** checks that the model exists, starts the server, waits for
   `/health` to pass and opens Claude Code.
 - **Hybrid mode:** a built-in proxy routes Claude Code requests between the local
-  `llama-server` and an external OpenAI-compatible API (with Anthropic → OpenAI
-  request conversion and streaming back). Token authentication via `-proxy-token`.
+  `llama-server` and an external OpenAI-compatible API. The local model uses the
+  native Anthropic API at `/v1/messages`, with Anthropic-specific features (thinking,
+  cache_control, tool_use/tool_result) preserved verbatim. Token authentication via
+  `-proxy-token`.
 - **MCP proxy:** `-webui-mcp-proxy` starts `mcp-search-server`, generates a temporary
   MCP config and passes CORS through. With `-mcp-strict` — only this MCP, no third-party
   servers from `~/.claude.json`.
@@ -53,7 +55,9 @@ go build -o llama-runner ./cmd/llama-runner
   `proxyToken`) are supported in the file, but env / `credentials` / a flag are recommended.
 - **Profiles:** `-p coder` — short presets from `profiles: {…}` in the config
   file. A profile supplies the model, alias and other settings of the one
-  local model this run serves (see «The `/model` menu»).
+  local model this run serves (see «The `/model` menu`).
+- **Per-model parallel:** parallel is set per-profile; `-p coder` uses the
+  profile value, `-model <other.gguf>` resets it to `"1"`.
 - **`-doctor`:** show resolved paths, version and the final command without spawning
   any processes.
 - **Clean shutdown:** Ctrl-C/SIGTERM stops claude, the server and MCP with
@@ -71,7 +75,7 @@ go build -o llama-runner ./cmd/llama-runner
 | `-alias` | derived from `-model`, else config file/profile, else `local` | Model alias — llama-server's `--alias` and `ANTHROPIC_DEFAULT_*_MODEL` |
 | `-c`, `-b`, `-ub` | `65536` / `2048` / `1024` | Context / batch / micro-batch |
 | `-fa` | `auto` | Flash attention |
-| `-parallel` | `1` | Number of parallel slots |
+| `-parallel` | `1` | Number of parallel slots; can be set per-profile in config file |
 | `-tools` | `all` | Tools mode |
 | `-jinja` | `true` | Jinja templates |
 | `-chat-template` | `auto` | `auto` / `""` / path to a `.jinja` file |
@@ -144,8 +148,9 @@ Routing by model name in Claude Code (`/model`):
 
 - the local model alias **or** the token `llama-server` (including picking the
   custom entry from the `/model` menu) → the local
-  llama-server (the request is converted Anthropic → OpenAI, the stream is converted
-  back);
+  llama-server (the request goes verbatim to `/v1/messages`, the native Anthropic
+  API; no OpenAI conversion — Anthropic-specific features such as thinking,
+  cache_control, tool_use/tool_result are preserved as-is);
 - **everything else** (`sonnet`, `haiku`, `opus`, any other name) → the external provider.
 
 The local model alias is also added to the interactive `/model` menu via
@@ -253,12 +258,14 @@ match the flags: `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`,
     "coder": {
       "model": "~/GGUF/qwen3-coder.gguf",
       "alias": "qwen3-coder",
-      "c": "98304"
+      "c": "98304",
+      "parallel": "8"
     },
     "fast": {
       "model": "~/GGUF/llama3.2-3b.gguf",
       "c": "16384",
-      "b": "512"
+      "b": "512",
+      "parallel": "2"
     }
   }
 }
@@ -274,6 +281,9 @@ Notes:
 - `openaiPath` is the path suffix appended to `openai` (default
   `"/chat/completions"`); `"openaiPath": ""` sends requests to the bare
   `openai` URL — what providers like OVH Kepler and VLM.run expect.
+- `parallel` can be set per-profile; if the model is overridden via `-model` on
+  the CLI, the inherited parallel resets to `"1"`, except in the case of an
+  explicit `-parallel N`.
 
 ### The `/model` menu
 
@@ -284,7 +294,10 @@ or the config default if neither was given.
 In hybrid mode (`-openai` + `-model-openai` + a key or `-key none`) the four
 standard positions carry the external model, and the custom entry carries the
 local model. Picking the custom entry routes the request to llama-server
-through the proxy.
+through the proxy. The request goes verbatim to `/v1/messages` (the native
+Anthropic API); no OpenAI conversion is applied — this avoids SSE-header delays
+under `-reasoning auto` / `-reasoning-budget` that would otherwise trigger a
+~5-minute retry-loop in Claude Code.
 
 Config profiles are still selected with `-p <name>` (they apply the profile's
 model, alias and other settings as the one running local model), but they are

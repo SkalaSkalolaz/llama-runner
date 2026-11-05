@@ -27,8 +27,9 @@ go build -o llama-runner ./cmd/llama-runner
 - **Автоматический запуск:** проверяет наличие модели, поднимает сервер, ждёт готовности
   `/health` и открывает Claude Code.
 - **Гибридный режим:** встроенный прокси маршрутизирует запросы Claude Code между локальным
-  `llama-server` и внешним OpenAI-совместимым API (с конвертацией Anthropic → OpenAI
-  и стримингом обратно). Токен-аутентификация — `-proxy-token`.
+  `llama-server` и внешним OpenAI-совместимым API. Локальная модель использует
+  нативный Anthropic API по `/v1/messages`, с сохранением Anthropic-специфики
+  (thinking, cache_control, tool_use/tool_result) в неизменном виде. Токен-аутентификация — `-proxy-token`.
 - **MCP-прокси:** `-webui-mcp-proxy` запускает `mcp-search-server`, генерирует временный
   MCP-конфиг и пробрасывает CORS. С `-mcp-strict` — только этот MCP, без сторонних
   из `~/.claude.json`.
@@ -50,6 +51,9 @@ go build -o llama-runner ./cmd/llama-runner
 - **Профили:** `-p coder` — короткие пресеты из `profiles: {…}` в конфиге.
   Профиль задаёт модель, алиас и прочие настройки единственной локальной
   модели этого запуска (см. «Меню `/model`»).
+- **Пересечение по моделям (per-model parallel):** `parallel` задаётся в каждом
+  профиле; `-p coder` использует значение профиля, `-model <чужой.gguf>` сбрасывает
+  в `"1"`.
 - **`-doctor`:** показать разрешённые пути, версию и итоговую команду без запуска процессов.
 - **Корректная остановка:** Ctrl-C/SIGTERM останавливает claude, сервер и MCP с эскалацией
   SIGTERM → SIGKILL; повторный сигнал ускоряет эскалацию.
@@ -66,7 +70,7 @@ go build -o llama-runner ./cmd/llama-runner
 | `-alias` | из `-model`, иначе конфиг/профиль, иначе `local` | Алиас модели — `--alias` llama-server и `ANTHROPIC_DEFAULT_*_MODEL` |
 | `-c`, `-b`, `-ub` | `65536` / `2048` / `1024` | Контекст / батч / микро-батч |
 | `-fa` | `auto` | Flash attention |
-| `-parallel` | `1` | Кол-во параллельных слотов |
+| `-parallel` | `1` | Кол-во параллельных слотов; в конфиг-файле можно задать per-profile |
 | `-tools` | `all` | Режим инструментов |
 | `-jinja` | `true` | Jinja-шаблоны |
 | `-chat-template` | `auto` | `auto` / `""` / путь к `.jinja` |
@@ -139,7 +143,9 @@ OpenAI-совместимый сервис (OrcaRouter, OpenRouter, DeepSeek, �
 
 - алиас локальной модели **или** токен `llama-server` (в том числе выбор
   кастомной записи из меню `/model`) → локальный llama-server
-  (запрос конвертируется Anthropic → OpenAI, стрим возвращается обратно);
+  (запрос идёт verbatim на `/v1/messages`, нативный Anthropic API; без конвертации
+  в OpenAI — Anthropic-специфика, такая как thinking, cache_control, tool_use/tool_result,
+  сохраняется в неизменном виде);
 - **все остальные** (`sonnet`, `haiku`, `opus`, любое другое имя) → внешний провайдер.
 
 Алиас локальной модели также добавлен в интерактивное меню `/model` через
@@ -244,12 +250,14 @@ VLM.run) обслуживают endpoint по «голому» базовому 
     "coder": {
       "model": "~/GGUF/qwen3-coder.gguf",
       "alias": "qwen3-coder",
-      "c": "98304"
+      "c": "98304",
+      "parallel": "8"
     },
     "fast": {
       "model": "~/GGUF/llama3.2-3b.gguf",
       "c": "16384",
-      "b": "512"
+      "b": "512",
+      "parallel": "2"
     }
   }
 }
@@ -265,6 +273,9 @@ VLM.run) обслуживают endpoint по «голому» базовому 
 - `openaiPath` — суффикс пути, добавляемый к `openai` (по умолчанию
   `"/chat/completions"`); `"openaiPath": ""` отправляет запросы на «голый»
   URL `openai` — именно так ждут OVH Kepler и VLM.run.
+- `parallel` можно задавать per-profile; если модель переопределена через `-model`
+  на CLI, унаследованный parallel сбрасывается в `"1"`, кроме случая явного
+  `-parallel N`.
 
 ### Меню `/model`
 
@@ -275,6 +286,9 @@ VLM.run) обслуживают endpoint по «голому» базовому 
 В гибридном режиме (`-openai` + `-model-openai` + ключ или `-key none`)
 четыре стандартных позиции несут внешнюю модель, а кастомная запись — локальную.
 Выбор кастомной записи направляет запрос в llama-server через прокси.
+Запрос к локальной модели идёт verbatim на `/v1/messages` (нативный Anthropic API);
+без конвертации в OpenAI — это обходит задержки SSE-заголовков при `-reasoning auto` /
+`-reasoning-budget`, которые иначе вызвали бы ~5-минутный retry-loop в Claude Code.
 
 Профили из конфиг-файла по-прежнему выбираются флагом `-p <имя>` (они
 применяют модель, алиас и прочие настройки профиля как единственную рабочую
