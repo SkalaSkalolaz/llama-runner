@@ -131,7 +131,7 @@ func Fetch(ctx context.Context, opts Options) (Result, error) {
 		if sp, ok := DetectShards(fileName); ok && sp.MultiFile() {
 			if opts.Progress != nil {
 				fmt.Fprint(opts.Progress, i18n.TF(i18n.MsgDownloadShards, sp.Total))
-				if sp.Cur != 1 {
+				if sp.Cur != 1 && opts.Verbose {
 					fmt.Fprint(opts.Progress, i18n.TF(i18n.MsgWarnDownloadShardNotFirst, sp.Cur))
 				}
 			}

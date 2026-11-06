@@ -32,7 +32,7 @@ func TestProgressWriter_FirstWriteRendersImmediately(t *testing.T) {
 	if strings.Contains(got, "\n") {
 		t.Errorf("intermediate updates must not contain \\n: %q", got)
 	}
-	if !strings.Contains(got, "downloading m.gguf") || !strings.Contains(got, "10%") {
+	if !strings.Contains(got, "m.gguf: 10%") {
 		t.Errorf("unexpected line: %q", got)
 	}
 }
@@ -129,6 +129,50 @@ func TestProgressWriter_NilOutIsSilent(t *testing.T) {
 		t.Errorf("Write = %d, %v", n, err)
 	}
 	p.Done(5, false, nil) // must not panic
+}
+
+func TestProgressWriter_LocalizedLine(t *testing.T) {
+	t.Setenv("LC_ALL", "ru_RU.UTF-8")
+	var buf bytes.Buffer
+	p, _ := newFakeClockProgress(&buf, 1000)
+	p.Write(make([]byte, 100))
+	got := buf.String()
+	if strings.Contains(got, "downloading") {
+		t.Errorf("progress line is not localized: %q", got)
+	}
+	if !strings.Contains(got, "m.gguf: 10%") {
+		t.Errorf("unexpected line: %q", got)
+	}
+}
+
+func TestProgressWriter_NoDoubledBrackets(t *testing.T) {
+	t.Setenv("LC_ALL", "C")
+	var buf bytes.Buffer
+	p, _ := newFakeClockProgress(&buf, 1000)
+	p.Write(make([]byte, 100))
+	got := buf.String()
+	if strings.Contains(got, "[[") || strings.Contains(got, "]]") {
+		t.Errorf("progress bar has doubled brackets: %q", got)
+	}
+	// И убедимся, что одинарные скобки на месте (защита от регрессии в
+	// обратную сторону — кто-то вырежет bar-скобки совсем).
+	if !strings.Contains(got, "[=>") && !strings.Contains(got, "[==") {
+		t.Errorf("progress bar is missing brackets: %q", got)
+	}
+}
+
+func TestProgressWriter_NoDoubledBrackets_UnknownSize(t *testing.T) {
+	t.Setenv("LC_ALL", "C")
+	var buf bytes.Buffer
+	p, _ := newFakeClockProgress(&buf, -1) // total неизвестен → bar = "[...]"
+	p.Write(make([]byte, 100))
+	got := buf.String()
+	if strings.Contains(got, "[[") || strings.Contains(got, "]]") {
+		t.Errorf("progress bar has doubled brackets: %q", got)
+	}
+	if !strings.Contains(got, "[...]") {
+		t.Errorf("expected the unknown-size placeholder: %q", got)
+	}
 }
 
 func TestFormatBytes(t *testing.T) {

@@ -3,6 +3,7 @@ package download
 import (
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/SkalaSkalolaz/llama-runner/internal/i18n"
@@ -11,7 +12,7 @@ import (
 // This module owns one responsibility: rendering the human-readable
 // download progress line
 //
-//	downloading <name>: 45% [==========>       ] 1.2 GiB / 2.7 GiB  5.2 MiB/s  ETA 04:30
+//	<name>: 45% [==========>       ] 1.2 GiB / 2.7 GiB  5.2 MiB/s  ETA 04:30
 //
 // with at most one update per second, independent of how many Write calls
 // the transfer makes.
@@ -96,6 +97,8 @@ func (p *progressWriter) Done(size int64, resumed bool, cause error) {
 }
 
 // line renders the current progress line (without any carriage control).
+// bar already includes its own brackets ("[===>   ]", "[...]");
+// the i18n template must not wrap it in another pair.
 func (p *progressWriter) line(now time.Time) string {
 	elapsed := now.Sub(p.start)
 	var speed float64
@@ -123,8 +126,11 @@ func (p *progressWriter) line(now time.Time) string {
 	} else {
 		bar = "[...]"
 	}
-	return fmt.Sprintf("downloading %s: %d%% %s %s / %s  %s/s  ETA %s",
-		p.name, pct, bar, formatBytes(p.written), formatBytes(p.total), formatBytes(int64(speed)), eta)
+	return strings.TrimSuffix(
+		i18n.TF(i18n.MsgDownloadProgress,
+			p.name, pct, bar, formatBytes(p.written), formatBytes(p.total),
+			formatBytes(int64(speed)), eta),
+		"\n")
 }
 
 // formatBytes renders a byte count with binary units: "1.2 GiB", "512 KiB".

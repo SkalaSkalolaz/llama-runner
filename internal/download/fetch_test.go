@@ -270,7 +270,7 @@ func TestFetch_MultiFile_FromLastShard(t *testing.T) {
 	dir := t.TempDir()
 	var out bytes.Buffer
 
-	res, err := Fetch(context.Background(), Options{Dir: dir, URL: srv.URL + "/o/r/resolve/main/m-00003-of-00003.gguf", Progress: &out})
+	res, err := Fetch(context.Background(), Options{Dir: dir, URL: srv.URL + "/o/r/resolve/main/m-00003-of-00003.gguf", Progress: &out, Verbose: true})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -422,10 +422,14 @@ func TestFetch_ResumeWithinCall(t *testing.T) {
 	}
 }
 
-// TestFetch_ResumeAcrossFetches emulates a run that dies mid-download
+// TestFetch_PartialFileSurvivesFailedRun emulates a run that dies mid-download
 // (every GET aborts) followed by a second run: the .partial left behind
 // must be resumed with Range, not restarted.
-func TestFetch_ResumeAcrossFetches(t *testing.T) {
+//
+// The .partial file surviving a failed Fetch is what makes the next run
+// (a new process in production) able to resume — the same mechanism as
+// within one call, no separate cross-process code path exists.
+func TestFetch_PartialFileSurvivesFailedRun(t *testing.T) {
 	t.Setenv("LC_ALL", "C")
 	payload := bytes.Repeat([]byte("P"), 800)
 	srv, ts := newTestServer(t, map[string][]byte{"/model.gguf": payload})
@@ -532,6 +536,31 @@ func TestFetch_RejectsBadURL(t *testing.T) {
 	t.Setenv("LC_ALL", "C")
 	if _, err := Fetch(context.Background(), Options{Dir: t.TempDir(), URL: "not-a-url"}); err == nil {
 		t.Error("a malformed URL must be rejected")
+	}
+}
+
+func TestFetch_ShardNotFirst_QuietWithoutVerbose(t *testing.T) {
+	t.Setenv("LC_ALL", "C")
+	files := map[string][]byte{
+		"/o/r/resolve/main/m-00001-of-00002.gguf": []byte("a"),
+		"/o/r/resolve/main/m-00002-of-00002.gguf": []byte("b"),
+	}
+	srv, _ := newTestServer(t, files)
+	var out bytes.Buffer
+	res, err := Fetch(context.Background(), Options{
+		Dir:      t.TempDir(),
+		URL:      srv.URL + "/o/r/resolve/main/m-00002-of-00002.gguf",
+		Progress: &out,
+		Verbose:  false,
+	})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if !strings.HasSuffix(res.EntryPoint, "-00001-of-00002.gguf") {
+		t.Errorf("EntryPoint = %q, want shard 1", res.EntryPoint)
+	}
+	if strings.Contains(out.String(), "shard 2 was given") {
+		t.Errorf("shard-not-first warning must be quiet without -v: %q", out.String())
 	}
 }
 

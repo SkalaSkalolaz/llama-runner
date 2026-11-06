@@ -127,6 +127,7 @@ go build -o llama-runner ./cmd/llama-runner
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-config` | `~/.config/llama-runner/config.json` | Path to the config file; `""` — don't read |
+| `-download` | _(not set)_ | Download a model before launch: `<dir><URL>` as one argument, e.g. `~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf`. Sharded models are expanded to the full set. After the download, `-model` points at the fetched file; a CLI `-model` is ignored. Not compatible with `-update`. |
 | `-p` | _(not set)_ | Profile from the config file |
 | `-doctor` | | Diagnostics without spawning processes |
 | `-v` | | Print the command before running it |
@@ -242,7 +243,7 @@ match the flags: `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`,
 `serverOnly`, `readyTimeout` (duration string, e.g. `"180s"`), `openai`,
 `openaiKey`, `modelOpenai`, `openaiPath`, `proxyAddr`, `proxyToken`, `proxyAllowRemote`,
 `llamaSrc`, `installPrefix`, `cuda`, `cudaArch`, `dir`, `verbose`, `lmLazy`,
-`mcpConfig`).
+`mcpConfig`, `download`).
 
 ```json
 {
@@ -307,6 +308,50 @@ Menu variables inherited from the environment (`ANTHROPIC_DEFAULT_*_MODEL`,
 `ANTHROPIC_CUSTOM_MODEL_OPTION*`) are removed before the launcher publishes
 its own, so a nested run never shows ghost entries from an outer session.
 
+## Auto-downloading models
+
+The `-download` flag fetches a GGUF model from an HTTP(S) URL into a local
+directory and then launches the launcher as usual, with the downloaded
+file as the model. The value is a single argument of the form
+`<directory><URL>` — the split point is the first `http://` or `https://`
+occurrence:
+
+```bash
+./llama-runner -download ~/GGUF/https://huggingface.co/AtomicChat/DeepSeek-V4.1-Flash-1017-Uncensored-GSQ-RCO-GGUF/resolve/main/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00004.gguf
+```
+
+### Sharded models
+
+Hugging Face serves large GGUFs as numbered shards
+(`*-00001-of-00004.gguf`). Passing any shard of such a set downloads the
+**whole** set (all `*-NNNNN-of-MMMMM.gguf` siblings) and points
+`llama-server` at shard 1 — llama.cpp loads the rest itself. Passing a
+shard other than the first produces a warning and still uses shard 1 as
+the entry point.
+
+### Resumable transfers
+
+Files are written to `<name>.partial` and renamed onto `<name>` on
+completion, so an interrupted run never leaves a "complete" file
+half-written. A leftover `.partial` is resumed with a `Range` request on
+the next run. The downloader checks `HEAD` first: a file already present
+with the expected size is reused without any transfer.
+
+### Gated repositories
+
+For gated Hugging Face repositories, set `HF_TOKEN` or
+`HUGGING_FACE_HUB_TOKEN` in the environment. The token is sent as a
+`Bearer` header and never printed.
+
+### Interaction with other flags
+
+- `-model` on the CLI is ignored when `-download` is set (the fetched
+  file wins); `-v` prints a warning.
+- `-update` combined with `-download` is an error (exit 2): `-update`
+  never uses a model.
+- The model alias is derived from the downloaded GGUF file name, exactly
+  as if `-model` had pointed at it.
+
 ## Logs
 
 - In Claude Code mode, llama-server (and MCP server) output is written to
@@ -349,6 +394,9 @@ its own, so a nested run never shows ghost entries from an outer session.
 
 # Profile from the config file
 ./llama-runner -p coder
+
+# Download a model from Hugging Face and launch with it
+./llama-runner -download ~/GGUF/https://huggingface.co/AtomicChat/DeepSeek-V4.1-Flash-1017-Uncensored-GSQ-RCO-GGUF/resolve/main/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00004.gguf
 
 # Diagnostics without starting anything
 ./llama-runner -doctor

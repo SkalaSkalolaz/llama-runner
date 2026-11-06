@@ -192,6 +192,7 @@ const (
 	MsgWarnDownloadShardNotFirst = "warn_download_shard_not_first"
 	MsgDownloadStarting          = "download_starting"
 	MsgDownloadShards            = "download_shards"
+	MsgDownloadProgress          = "download_progress"
 	MsgDownloadFromCache         = "download_from_cache"
 	MsgDownloadDone              = "download_done"
 	MsgDownloadFailed            = "download_failed"
@@ -449,6 +450,10 @@ var messages = map[string]i18nMessage{
 	MsgWarnDownloadShardNotFirst: {
 		"  передан шард %d — точка входа будет шард 1",
 		"  shard %d was given — the entry point will be shard 1",
+	},
+	MsgDownloadProgress: {
+		"  %s: %d%% %s %s / %s  %s/s  ETA %s",
+		"  %s: %d%% %s %s / %s  %s/s  ETA %s",
 	},
 	MsgDownloadStarting: {"Загрузка %s → %s", "Downloading %s → %s"},
 	MsgDownloadShards:   {"  это шардированная модель: %d файлов", "  this is a sharded model: %d files"},
