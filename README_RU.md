@@ -15,6 +15,8 @@
 ## Быстрый старт
 
 ```bash
+git clone https://github.com/SkalaSkalolaz/llama-runner.git
+cd llama-runner
 go build -o llama-runner ./cmd/llama-runner
 
 ./llama-runner                  # llama-server + Claude Code (по умолчанию)
