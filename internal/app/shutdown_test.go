@@ -44,23 +44,23 @@ func TestShutdown_StopAllKillsGroup(t *testing.T) {
 }
 
 func TestShutdown_StopAllDirectProcess(t *testing.T) {
-    cmd := exec.Command("sleep", "30")
-    if err := cmd.Start(); err != nil {
-        t.Fatal(err)
-    }
-    p := proc.Track(cmd)
-    defer func() {
-        _ = cmd.Process.Kill()
-        <-p.Done
-    }()
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	p := proc.Track(cmd)
+	defer func() {
+		_ = cmd.Process.Kill()
+		<-p.Done
+	}()
 
-    shut := NewShutdown()
-    shut.SetClaude(cmd)
-    shut.StopAll()
+	shut := NewShutdown()
+	shut.SetClaude(cmd)
+	shut.StopAll()
 
-    if !waitExit(cmd, p, 3*time.Second) {
-        t.Fatal("SIGINT не убил процесс за 3с")
-    }
+	if !waitExit(cmd, p, 3*time.Second) {
+		t.Fatal("SIGINT не убил процесс за 3с")
+	}
 }
 
 func TestShutdown_EscalateSIGKILL(t *testing.T) {
