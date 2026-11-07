@@ -81,13 +81,14 @@ jobs:
       - name: sha256sums.txt
         run: |
           cd dist
-          sha256sum * > sha256sums.txt
+          sha256sum *.tar.gz *.zip > sha256sums.txt
 
       - name: create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/* \
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/*.tar.gz dist/*.zip dist/sha256sums.txt \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes
 

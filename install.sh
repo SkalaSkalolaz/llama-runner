@@ -3,7 +3,7 @@
 # POSIX sh, no bashisms. Does not require Go on the target machine.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- --version v1.8.0 --with-agents
 #
 # See --help for all options.
@@ -34,6 +34,7 @@ ASSUME_YES=0
 # scripts/update-embedded-hashes.py on every release; do not edit by hand.
 # Format: VERSION<TAB>OS<TAB>ARCH<TAB>SHA256
 EMBEDDED_HASHES='
+
 '
 
 # Default Qwen model for a fresh install (small, ~400 MB).
