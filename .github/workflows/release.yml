@@ -106,8 +106,8 @@ jobs:
             exit 0
           fi
           git commit -m "chore(release): embed hashes for ${GITHUB_REF_NAME} [skip ci]"
-          # Rebase onto the current main so the push is a fast-forward even
+          # Rebase onto the current master so the push is a fast-forward even
           # if someone merged a PR between the tag push and this job.
-          git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main
+          git fetch origin master
+          git rebase origin/master
+          git push origin HEAD:master
