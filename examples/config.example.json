@@ -1,0 +1,45 @@
+{
+  "host": "127.0.0.1",
+  "port": "8080",
+  "jinja": true,
+  "readyTimeout": "180s",
+  "tools": "all",
+  "parallel": "1",
+
+  "logFile": "~/.cache/llama-runner/llama-server.log",
+  "logMaxMB": 50,
+  "logKeep": 5,
+
+  "chatTemplate": "auto",
+  "chatTemplateFallback": "~/GGUF/qwen-fixed-chat-template.jinja",
+
+  "proxyAddr": "127.0.0.1:8082",
+
+  "model": "~/GGUF/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+  "alias": "qwen2.5-0.5b",
+  "c": "32768",
+  "b": "2048",
+  "ub": "512",
+  "fa": "auto",
+
+  "profiles": {
+    "small": {
+      "model": "~/GGUF/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+      "alias": "qwen2.5-0.5b",
+      "c": "32768",
+      "b": "2048",
+      "ub": "512",
+      "fa": "auto",
+      "parallel": "1"
+    },
+    "a3b": {
+      "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
+      "alias": "qwen3.8-a3b",
+      "c": "262144",
+      "b": "4196",
+      "ub": "1024",
+      "fa": "auto",
+      "parallel": "1"
+    }
+  }
+}

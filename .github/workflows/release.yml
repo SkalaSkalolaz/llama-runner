@@ -1,0 +1,113 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux,   arch: amd64 }
+          - { os: linux,   arch: arm64 }
+          - { os: darwin,  arch: amd64 }
+          - { os: darwin,  arch: arm64 }
+          - { os: windows, arch: amd64 }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: build
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          VERSION="$(git describe --tags --always --dirty)"
+          mkdir -p dist
+          # Windows binaries get .exe
+          OUT="dist/llama-runner"
+          if [ "$GOOS" = "windows" ]; then OUT="dist/llama-runner.exe"; fi
+          go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+            -o "$OUT" ./cmd/llama-runner
+
+      - name: package (unix)
+        if: matrix.os != 'windows'
+        run: |
+          VERSION="$(git describe --tags --always --dirty)"
+          ver="${VERSION#v}"
+          cd dist
+          tar -czf "llama-runner_${ver}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz" llama-runner
+
+      - name: package (windows)
+        if: matrix.os == 'windows'
+        run: |
+          VERSION="$(git describe --tags --always --dirty)"
+          ver="${VERSION#v}"
+          cd dist
+          zip -q "llama-runner_${ver}_${{ matrix.os }}_${{ matrix.arch }}.zip" llama-runner.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: sha256sums.txt
+        run: |
+          cd dist
+          sha256sum * > sha256sums.txt
+
+      - name: create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
+
+      - name: embed hashes in install.sh
+        run: |
+          chmod +x scripts/update-embedded-hashes.py
+          ./scripts/update-embedded-hashes.py "${GITHUB_REF_NAME}" dist
+
+      - name: commit updated install.sh
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add install.sh
+          if git diff --cached --quiet; then
+            echo "install.sh unchanged, nothing to commit"
+            exit 0
+          fi
+          git commit -m "chore(release): embed hashes for ${GITHUB_REF_NAME} [skip ci]"
+          # Rebase onto the current main so the push is a fast-forward even
+          # if someone merged a PR between the tag push and this job.
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main

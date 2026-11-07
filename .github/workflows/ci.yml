@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -27,6 +31,16 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+
+      # Shell-скрипты проверяются shellcheck'ом рядом с gofmt — тоже дёшево
+      # и тоже ловит ошибки до сборки. shopt -s nullglob оставляет шаг
+      # работоспособным, пока в scripts/ нет *.sh файлов (единственный
+      # хелпер, scripts/update-embedded-hashes.py, написан на Python).
+      - name: shellcheck
+        run: |
+          shopt -s nullglob
+          command -v shellcheck >/dev/null || sudo apt-get install -y shellcheck
+          shellcheck install.sh scripts/*.sh
 
       - run: go build ./...
       - run: go vet ./...
