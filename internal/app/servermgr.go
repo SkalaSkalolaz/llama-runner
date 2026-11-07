@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/SkalaSkalolaz/llama-runner/internal/cli"
@@ -120,8 +119,7 @@ func NewServerManager(cmdRunner runner.CommandRunner, shut *shutdown, stdout, st
 // reaches it.
 func (m *ServerManager) Start(spec ServerSpec) error {
 	cmd := m.runner.Command(spec.Bin, spec.Args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
+	setProcAttr(cmd)
 	ApplyLdLibraryPath(cmd, spec.Bin, m.stdout, spec.Verbose)
 	if spec.WorkDir != "" {
 		cmd.Dir = spec.WorkDir

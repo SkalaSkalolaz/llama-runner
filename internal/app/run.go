@@ -181,10 +181,10 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 	if cfg.McpProxy {
 		mcpCmd = cmdRunner.Command("mcp-search-server", "--addr", cfg.McpAddr)
 		mcpCmd.Env = append(os.Environ(), "SEARCH_ENABLED=true")
-		// Setpgid for mcp — same as for llama-server (red zone #1:
-		// mcp terminal doesn't read, group is needed for group kill).
-		mcpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
+		// Own process group for mcp — same as for llama-server (red zone #1:
+		// mcp terminal doesn't read, group is needed for group kill). On Windows
+		// this is a no-op (see sysproc_windows.go).
+		setProcAttr(mcpCmd)
 		if sink.Writer != nil {
 			mcpCmd.Stdout = sink.Writer
 			mcpCmd.Stderr = sink.Writer
