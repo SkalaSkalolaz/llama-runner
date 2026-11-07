@@ -34,7 +34,11 @@ ASSUME_YES=0
 # scripts/update-embedded-hashes.py on every release; do not edit by hand.
 # Format: VERSION<TAB>OS<TAB>ARCH<TAB>SHA256
 EMBEDDED_HASHES='
-
+v1.8.0	windows	amd64	621bba0e77366008d483af70a114f6aaedd68e95661b960423173404f7ed2583
+v1.8.0	linux	arm64	c1ff3336a341cf107fbe3d64629bef1da0b12d56f3fbfe52af0f99a3a2be822c
+v1.8.0	linux	amd64	571324fbd379ae0f75ce3dad383ff0cd575203e975844e629c22b397ba630965
+v1.8.0	darwin	arm64	6c7bec48577528bb023ac4f4df09cc3fd18b90d0748564844968099335299d10
+v1.8.0	darwin	amd64	d478fb8e4b189227bf21ebec7f199236e604ab9cff28f04a5960307666cbfcc4
 '
 
 # Default Qwen model for a fresh install (small, ~400 MB).
