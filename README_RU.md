@@ -17,13 +17,13 @@
 Одной командой — скачивается готовый бинарь (Go не требуется):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/install.sh | sh
 ```
 
 С параметрами (агентские файлы, скачивание модели, конкретная версия):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/install.sh \
   | sh -s -- --version v1.8.0 --with-agents --with-default-model
 ```
 

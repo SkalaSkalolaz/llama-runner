@@ -17,13 +17,13 @@ A local launcher: starts `llama-server` with your GGUF model and automatically o
 One-liner — downloads a pre-built binary (no Go required):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/install.sh | sh
 ```
 
 With options (agents, model download, exact version):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/install.sh \
   | sh -s -- --version v1.8.0 --with-agents --with-default-model
 ```
 
