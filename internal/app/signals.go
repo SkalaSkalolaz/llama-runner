@@ -68,23 +68,9 @@ func (s *shutdown) SetMCP(cmd *exec.Cmd) {
 func (s *shutdown) signal(sig syscall.Signal) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.claude != nil && s.claude.Process != nil {
-		_ = s.claude.Process.Signal(sig)
-	}
-	if s.server != nil && s.server.Process != nil {
-		if s.server.SysProcAttr != nil && s.server.SysProcAttr.Setpgid {
-			_ = syscall.Kill(-s.server.Process.Pid, sig)
-		} else {
-			_ = s.server.Process.Signal(sig)
-		}
-	}
-	if s.mcp != nil && s.mcp.Process != nil {
-		if s.mcp.SysProcAttr != nil && s.mcp.SysProcAttr.Setpgid {
-			_ = syscall.Kill(-s.mcp.Process.Pid, sig)
-		} else {
-			_ = s.mcp.Process.Signal(sig)
-		}
-	}
+	signalChild(s.claude, sig)
+	signalChild(s.server, sig)
+	signalChild(s.mcp, sig)
 }
 
 // StopAll sends SIGINT to all registered children — the first, graceful
