@@ -94,8 +94,7 @@ jobs:
 
       - name: embed hashes in install.sh
         run: |
-          chmod +x scripts/update-embedded-hashes.py
-          ./scripts/update-embedded-hashes.py "${GITHUB_REF_NAME}" dist
+          python3 scripts/update-embedded-hashes.py "${GITHUB_REF_NAME}" dist
 
       - name: commit updated install.sh
         run: |
