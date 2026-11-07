@@ -12,7 +12,37 @@
 Локальный лаунчер: запускает `llama-server` с вашей GGUF-моделью и автоматически открывает
 **Claude Code**, привязанный к этому серверу. При закрытии Claude Code сервер останавливается.
 
-## Быстрый старт
+## Установка
+
+Одной командой — скачивается готовый бинарь (Go не требуется):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/main/install.sh | sh
+```
+
+С параметрами (агентские файлы, скачивание модели, конкретная версия):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/main/install.sh \
+  | sh -s -- --version v1.8.0 --with-agents --with-default-model
+```
+
+Полный список флагов — `install.sh --help`. Что делает installer:
+
+- помещает двоичный файл в `~/.local/bin/llama-runner` (`llama-runner.exe` в Windows/Git Bash; переопределить с помощью `--dir`);
+- создаёт `~/GGUF/`, `~/.cache/llama-runner/`, `~/.config/llama-runner/` (права 0700) и пишет `~/.config/llama-runner/config.json`, если его нет;
+- проверяет SHA-256 бинаря по хешу, встроенному в `install.sh` для этой версии; для latest без встроенного хеша — по `sha256sums.txt` релиза, и только с явным `--allow-unverified-hash` (или `-y`);
+- опционально ставит `~/.config/agents/AGENTS.md` и `~/.config/agents/workflow-policy.md` (выбор по локали консоли: `.ru.md` для русской, иначе — обычный `.md`) и дописывает соответствующие `@-ссылки` в `~/.claude/CLAUDE.md` (существующее содержимое сохраняется, дубликаты не появляются);
+- опционально скачивает маленькую модель Qwen по умолчанию (`Qwen2.5-0.5B-Instruct-Q4_K_M.gguf`, ~400 МБ) — через `--with-default-model`, ответ «y» на вопрос или `--no-default-model`, чтобы пропустить;
+- проверяет наличие `llama-server`, `claude` и `mcp-search-server` и печатает предупреждения, если их нет в PATH (автоматически не устанавливает).
+
+Installer никогда не запускает sudo, не трогает пути за пределами `$HOME` и не перезаписывает существующий `~/.config/llama-runner/config.json`.
+
+**Примечание:** `mcp-search-server` (используется с `-webui-mcp-proxy`) — отдельный проект: https://github.com/SkalaSkalolaz/mcp-search-server. Устанавливайте его отдельно, если нужен веб-поиск. Любой другой MCP-сервер (включая удалённый) подключается через `-mcp-config`.
+
+## Быстрый старт (из исходников)
+
+Сборка из исходников требует Go 1.26. Готовые бинари — см. раздел [«Установка»](#установка) выше.
 
 ```bash
 git clone https://github.com/SkalaSkalolaz/llama-runner.git
@@ -28,6 +58,7 @@ go build -o llama-runner ./cmd/llama-runner
 
 - **Автоматический запуск:** проверяет наличие модели, поднимает сервер, ждёт готовности
   `/health` и открывает Claude Code.
+- **Установка одной командой:** `curl … | sh` с готовыми бинарями для linux/darwin/windows × amd64/arm64, проверкой SHA-256, опциональной установкой глобальных агентских файлов и маленькой модели по умолчанию.
 - **Авто-загрузка моделей:** флаг `-download` скачивает GGUF-модель
   (single-file или multi-file/sharded с Hugging Face) в локальную
   директорию перед запуском. Шарды `*-00001-of-NNNNN.gguf`
@@ -245,30 +276,53 @@ VLM.run) обслуживают endpoint по «голому» базовому 
 
 ```json
 {
-  "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
   "host": "127.0.0.1",
   "port": "8080",
   "jinja": true,
   "readyTimeout": "180s",
+  "tools": "all",
+  "parallel": "1",
+
+  "logFile": "~/.cache/llama-runner/llama-server.log",
+  "logMaxMB": 50,
+  "logKeep": 5,
+
   "chatTemplate": "auto",
   "chatTemplateFallback": "~/GGUF/qwen-fixed-chat-template.jinja",
-  "openaiPath": "/chat/completions",
+
+  "proxyAddr": "127.0.0.1:8082",
+
+  "model": "~/GGUF/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+  "alias": "qwen2.5-0.5b",
+  "c": "32768",
+  "b": "2048",
+  "ub": "512",
+  "fa": "auto",
+
   "profiles": {
-    "coder": {
-      "model": "~/GGUF/qwen3-coder.gguf",
-      "alias": "qwen3-coder",
-      "c": "98304",
-      "parallel": "8"
+    "small": {
+      "model": "~/GGUF/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+      "alias": "qwen2.5-0.5b",
+      "c": "32768",
+      "b": "2048",
+      "ub": "512",
+      "fa": "auto",
+      "parallel": "1"
     },
-    "fast": {
-      "model": "~/GGUF/llama3.2-3b.gguf",
-      "c": "16384",
-      "b": "512",
-      "parallel": "2"
+    "a3b": {
+      "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
+      "alias": "qwen3.8-a3b",
+      "c": "262144",
+      "b": "4196",
+      "ub": "1024",
+      "fa": "auto",
+      "parallel": "1"
     }
   }
 }
 ```
+
+`install.sh` пишет ровно этот файл при чистой установке (см. `examples/config.example.json`); отредактируйте `model` и `profiles` под свои GGUF-файлы.
 
 Заметки:
 
@@ -302,6 +356,8 @@ VLM.run) обслуживают endpoint по «голому» базовому 
 локальную модель), но в меню отдельными записями больше не показываются.
 
 ## Авто-загрузка моделей
+
+Installer может опционально скачать маленькую модель Qwen по умолчанию (см. раздел [«Установка»](#установка)); флаг `-download` ниже — чтобы указать свою модель.
 
 Флаг `-download` скачивает GGUF-модель с HTTP(S)-URL в локальную директорию
 и запускает лаунчер как обычно, с загруженным файлом как модель. Значение —
@@ -415,6 +471,27 @@ Hugging Face обслуживает большие GGUF как пронумер�
 `… | tee`), stdio Claude Code перенаправляется в `/dev/tty`, чтобы TUI остался
 интерактивным.
 
+## Структура репозитория
+
+| Путь | Содержание |
+|------|-----------|
+| `cmd/llama-runner/` | точка входа исполняемого файла |
+| `internal/` | пакеты реализации (см. комментарии в каждом) |
+| `templates/` | файлы, устанавливаемые install.sh в `$HOME` пользователя |
+| `templates/agents/` | `AGENTS.md`, `workflow-policy.md` (варианты EN и RU) |
+| `templates/claude/CLAUDE.md` | фрагмент для справки; `install.sh` напрямую записывает те же две `@`-references непосредственно |
+| `templates/chat-templates/` | `qwen-fixed-chat-template.jinja` |
+| `packaging/` | файлы для дистрибутивов (install.sh их не ставит) |
+| `packaging/systemd/` | `llama-runner.service` |
+| `packaging/man/` | `llama-runner.1` |
+| `packaging/completions/` | completion'ы для bash и zsh |
+| `examples/` | `config.example.json` — эталонный конфиг, который пишет install.sh |
+| `scripts/` | `update-embedded-hashes.py` — CI-помощник для таблицы хешей в install.sh |
+| `install.sh` | one-shot installer (также раздаётся через raw.githubusercontent.com) |
+| `AGENTS.md`, `CLAUDE.md` | инструкции для AI-агентов, работающих над этим репо |
+
+`AGENTS.md` в корне репозитория — для AI-агентов, работающих над самим llama-runner. Файлы из `templates/agents/` устанавливаются `install.sh` в `~/.config/agents/` для **других** проектов; это намеренно разные файлы.
+
 ## Разработка
 
 ```bash
@@ -428,6 +505,7 @@ go test -race ./...
 CI (GitHub Actions): gofmt → build → vet → `go test -race -cover`; версия
 бинаря внедряется через `-ldflags "-X main.version=$(git describe --tags --always --dirty)"`.
 
+Файл `install.sh` проверяется с помощью shellcheck в CI в дополнение к конвейеру Go. Вспомогательные скрипты на Python из папки `scripts/` намеренно исключены из этого этапа.
 ---
 
 [BSD 3-Clause License](LICENSE) · Copyright © 2026 Skala Skalolaz

@@ -12,7 +12,37 @@
 A local launcher: starts `llama-server` with your GGUF model and automatically opens
 **Claude Code** wired to that server. When Claude Code exits, the server shuts down.
 
-## Quick start
+## Install
+
+One-liner — downloads a pre-built binary (no Go required):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/main/install.sh | sh
+```
+
+With options (agents, model download, exact version):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/main/install.sh \
+  | sh -s -- --version v1.8.0 --with-agents --with-default-model
+```
+
+`install.sh --help` lists every flag. What the installer does:
+
+- places the binary in `~/.local/bin/llama-runner` (`llama-runner.exe` on Windows/Git Bash; override with `--dir`);
+- creates `~/GGUF/`, `~/.cache/llama-runner/`, `~/.config/llama-runner/` (mode 0700) and writes `~/.config/llama-runner/config.json` if it does not exist;
+- verifies the binary against a SHA-256 hash embedded in `install.sh` for that version; for latest without an embedded hash it falls back to the release's `sha256sums.txt` — and only with an explicit `--allow-unverified-hash` (or `-y`);
+- optionally installs `~/.config/agents/AGENTS.md` and `~/.config/agents/workflow-policy.md` (selected by console locale: `.ru.md` for Russian, plain `.md` otherwise) and appends the matching `@-references` to `~/.claude/CLAUDE.md` (existing content is preserved, duplicates avoided);
+- optionally downloads a small default Qwen model (`Qwen2.5-0.5B-Instruct-Q4_K_M.gguf`, ~400 MB) — pass `--with-default-model`, or say "y" at the prompt, or skip with `--no-default-model`;
+- checks for `llama-server`, `claude` and `mcp-search-server` and prints warnings if they are not on PATH (it does not install them automatically).
+
+The installer never runs sudo, never touches paths outside `$HOME`, and never overwrites an existing `~/.config/llama-runner/config.json`.
+
+**Note:** `mcp-search-server` (used by `-webui-mcp-proxy`) is a separate project — https://github.com/SkalaSkalolaz/mcp-search-server. Install it separately if you need web search. Any other MCP server (including a remote one) can be wired via `-mcp-config`.
+
+## Quick start (from source)
+
+Building from source requires Go 1.26. For pre-built binaries, see [Install](#install) above.
 
 ```bash
 git clone https://github.com/SkalaSkalolaz/llama-runner.git
@@ -28,6 +58,7 @@ go build -o llama-runner ./cmd/llama-runner
 
 - **Automatic startup:** checks that the model exists, starts the server, waits for
   `/health` to pass and opens Claude Code.
+- **One-shot installer:** `curl … | sh` with SHA-256-verified pre-built binaries for linux/darwin/windows × amd64/arm64, optional global agent files and a small default model.
 - **Hybrid mode:** a built-in proxy routes Claude Code requests between the local
   `llama-server` and an external OpenAI-compatible API. The local model uses the
   native Anthropic API at `/v1/messages`, with Anthropic-specific features (thinking,
@@ -249,30 +280,53 @@ match the flags: `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`,
 
 ```json
 {
-  "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
   "host": "127.0.0.1",
   "port": "8080",
   "jinja": true,
   "readyTimeout": "180s",
+  "tools": "all",
+  "parallel": "1",
+
+  "logFile": "~/.cache/llama-runner/llama-server.log",
+  "logMaxMB": 50,
+  "logKeep": 5,
+
   "chatTemplate": "auto",
   "chatTemplateFallback": "~/GGUF/qwen-fixed-chat-template.jinja",
-  "openaiPath": "/chat/completions",
+
+  "proxyAddr": "127.0.0.1:8082",
+
+  "model": "~/GGUF/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+  "alias": "qwen2.5-0.5b",
+  "c": "32768",
+  "b": "2048",
+  "ub": "512",
+  "fa": "auto",
+
   "profiles": {
-    "coder": {
-      "model": "~/GGUF/qwen3-coder.gguf",
-      "alias": "qwen3-coder",
-      "c": "98304",
-      "parallel": "8"
+    "small": {
+      "model": "~/GGUF/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+      "alias": "qwen2.5-0.5b",
+      "c": "32768",
+      "b": "2048",
+      "ub": "512",
+      "fa": "auto",
+      "parallel": "1"
     },
-    "fast": {
-      "model": "~/GGUF/llama3.2-3b.gguf",
-      "c": "16384",
-      "b": "512",
-      "parallel": "2"
+    "a3b": {
+      "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
+      "alias": "qwen3.8-a3b",
+      "c": "262144",
+      "b": "4196",
+      "ub": "1024",
+      "fa": "auto",
+      "parallel": "1"
     }
   }
 }
 ```
+
+`install.sh` writes exactly this file on a fresh install (see `examples/config.example.json`); edit `model` and `profiles` to match your own GGUF files.
 
 Notes:
 
@@ -311,6 +365,8 @@ Menu variables inherited from the environment (`ANTHROPIC_DEFAULT_*_MODEL`,
 its own, so a nested run never shows ghost entries from an outer session.
 
 ## Auto-downloading models
+
+The installer can optionally fetch the small default Qwen model for you (see [Install](#install)); the `-download` flag below is for choosing your own model.
 
 The `-download` flag fetches a GGUF model from an HTTP(S) URL into a local
 directory and then launches the launcher as usual, with the downloaded
@@ -426,6 +482,27 @@ Note: if llama-runner's stdout/stderr is not a TTY (started from a pipe,
 `… | tee`), Claude Code's stdio is redirected to `/dev/tty` so the TUI stays
 interactive.
 
+## Repository layout
+
+| Path | Contents |
+|------|----------|
+| `cmd/llama-runner/` | executable entry point |
+| `internal/` | implementation packages (see comments in each) |
+| `templates/` | files installed into the user's `$HOME` by `install.sh` |
+| `templates/agents/` | `AGENTS.md`, `workflow-policy.md` (EN and RU variants) |
+| `templates/claude/CLAUDE.md` | reference snippet; `install.sh` writes the same two `@`-references directly |
+| `templates/chat-templates/` | `qwen-fixed-chat-template.jinja` |
+| `packaging/` | distro-facing assets (not installed by `install.sh`) |
+| `packaging/systemd/` | `llama-runner.service` |
+| `packaging/man/` | `llama-runner.1` |
+| `packaging/completions/` | bash and zsh completions |
+| `examples/` | `config.example.json` — reference config written by `install.sh` |
+| `scripts/` | `update-embedded-hashes.py` — CI helper for `install.sh`'s hash table |
+| `install.sh` | one-shot installer (also served via `raw.githubusercontent.com`) |
+| `AGENTS.md`, `CLAUDE.md` | instructions for AI agents working on this repo |
+
+`AGENTS.md` in the repository root is for AI agents working on llama-runner itself. The files under `templates/agents/` are installed by `install.sh` into `~/.config/agents/` for **other** projects; they are deliberately separate.
+
 ## Development
 
 ```bash
@@ -439,6 +516,7 @@ go test -race ./...
 CI (GitHub Actions): gofmt → build → vet → `go test -race -cover`; the binary
 version is injected via `-ldflags "-X main.version=$(git describe --tags --always --dirty)"`.
 
+`install.sh` is checked with shellcheck in CI in addition to the Go pipeline. Python helpers under `scripts/` are excluded from that step by design.
 ---
 
 [BSD 3-Clause License](LICENSE) · Copyright © 2026 Skala Skalolaz
