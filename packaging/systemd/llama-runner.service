@@ -1,0 +1,25 @@
+[Unit]
+Description=llama-runner (llama-server for Claude Code / API clients)
+Documentation=https://github.com/SkalaSkalolaz/llama-runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# -server mode: only llama-server, no Claude Code (interactive TUI does not
+# belong under systemd). Point -config at your config file if it is not in
+# the default location.
+ExecStart=%h/.local/bin/llama-runner -server
+Restart=on-failure
+RestartSec=5
+# Keep $HOME and $PATH sane under systemd --user.
+Environment=HOME=%h
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# For hybrid mode, provide the provider key via an EnvironmentFile:
+# EnvironmentFile=%h/.config/llama-runner/env
+# In that file:
+#   OPENAI_API_KEY=...
+# (or LLAMA_RUNNER_OPENAI_KEY=...). Do not put the key on ExecStart.
+
+[Install]
+WantedBy=default.target

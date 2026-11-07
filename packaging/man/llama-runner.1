@@ -1,0 +1,124 @@
+.TH LLAMA-RUNNER 1 "2026-11-07" "llama-runner 1.8" "User Commands"
+.SH NAME
+llama-runner \- launch llama-server and wire it to Claude Code
+.SH SYNOPSIS
+.B llama-runner
+[\fIflags\fR]
+.SH DESCRIPTION
+.B llama-runner
+starts a local \fBllama-server\fR with a GGUF model and, by default, launches
+Claude Code wired to that server through \fBANTHROPIC_*\fR environment
+variables. When Claude Code exits, the server is stopped.
+.PP
+With \fB-server\fR only llama-server is started. With \fB-doctor\fR a
+read-only report of resolved paths, version, and the final llama-server
+command line is printed without spawning any processes. With \fB-update\fR
+llama.cpp is rebuilt and installed, then the program exits.
+.PP
+In hybrid mode (\fB-openai\fR + \fB-model-openai\fR + key or \fB-key none\fR)
+a local proxy routes Claude Code requests between the local llama-server and
+the external OpenAI-compatible provider. The local route is a verbatim
+passthrough to \fB/v1/messages\fR (native Anthropic API).
+.SH OPTIONS
+.TP
+.B \-model \fIpath\fR
+Path to the GGUF model. Default: \fI~/GGUF/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf\fR.
+.TP
+.B \-bin \fIpath\fR
+Path to llama-server. Default: \fI~/.local/bin/llama-server\fR.
+.TP
+.B \-alias \fIname\fR
+Model alias used for llama-server \-\-alias and \fBANTHROPIC_DEFAULT_*_MODEL\fR.
+When unset, derived from the model file name, then from the config file or
+profile, then defaults to \fBlocal\fR.
+.TP
+.B \-server
+Start llama-server only, without Claude Code.
+.TP
+.B \-doctor
+Print resolved paths, version, and the final llama-server command; do not
+spawn any processes.
+.TP
+.B \-update
+Update llama.cpp (git pull --ff-only, cmake configure/build/install) and exit.
+.TP
+.B \-download \fI<dir><url>\fR
+Download a GGUF model (single file or Hugging Face shard set) before launch.
+Passing any shard of a sharded model downloads the whole set and uses shard 1.
+.TP
+.B \-c, \-b, \-ub \fIn\fR
+Context / batch / micro-batch sizes passed to llama-server.
+.TP
+.B \-ngl \fIn\fR
+Number of layers offloaded to GPU.
+.TP
+.B \-chat-template \fIvalue\fR
+\fBauto\fR, \fB""\fR (use the template embedded in the GGUF), or a path to a
+Jinja template file.
+.TP
+.B \-openai \fIurl\fR, \-model-openai \fIname\fR, \-key \fIkey\fR
+External OpenAI-compatible provider. \fB-key none\fR or \fB-key ""\fR means
+the provider needs no authentication; the request then carries no
+\fBAuthorization\fR header at all.
+.TP
+.B \-proxy-addr \fIhost:port\fR
+Address of the local routing proxy. Default: \fI127.0.0.1:8082\fR.
+.TP
+.B \-proxy-token \fIvalue\fR
+If set, the proxy rejects incoming requests without a matching
+\fBAuthorization: Bearer\fR or \fBx-api-key\fR.
+.TP
+.B \-config \fIpath\fR
+Configuration file. Default: \fI~/.config/llama-runner/config.json\fR.
+\fB-config ""\fR disables reading the file.
+.TP
+.B \-p \fIname\fR
+Profile from the config file.
+.TP
+.B \-v
+Print the command before running it.
+.TP
+.B \-version
+Print the version and exit.
+.SH FILES
+.TP
+.I ~/.config/llama-runner/config.json
+Main configuration file.
+.TP
+.I ~/.config/llama-runner/credentials
+Optional \fBKEY=VALUE\fR file for the external provider key
+(\fBOPENAI_KEY\fR or \fBOPENAI_API_KEY\fR). Permissions \fB0600\fR recommended.
+.TP
+.I ~/.cache/llama-runner/llama-server.log
+Default llama-server log file (rotated by size; see \fB-log-max-mb\fR and
+\fB-log-keep\fR).
+.TP
+.I ~/.cache/llama-runner/proxy.log
+Proxy diagnostics when the server log is not enabled.
+.SH ENVIRONMENT
+.TP
+.B LLAMA_RUNNER_OPENAI_KEY, OPENAI_API_KEY
+External provider API key, used only when the external provider is actually
+requested. The \fB-key\fR flag, if given, outranks both.
+.TP
+.B HF_TOKEN, HUGGING_FACE_HUB_TOKEN
+Hugging Face access token, used by \fB-download\fR for gated repositories.
+.SH EXAMPLES
+.TP
+Start llama-server and Claude Code with a project directory:
+.B llama-runner -claude-dir ~/my-project
+.TP
+Start the server only on a different port:
+.B llama-runner -server -port 9090
+.TP
+Hybrid mode with a proxy token:
+.B llama-runner -openai https://api.example.com/v1 -key \$KEY -model-openai model-x -proxy-token \$TOKEN
+.TP
+Diagnostics without starting anything:
+.B llama-runner -doctor
+.SH SEE ALSO
+.BR llama-server (1),
+.BR claude (1),
+.BR curl (1)
+.SH AUTHORS
+Skala Skalolaz.
