@@ -37,4 +37,4 @@ credentials
 
 # tool-specific
 .gogitor/
-.gogitor.json
+.gogitor.jsonlogs/
