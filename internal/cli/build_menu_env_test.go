@@ -68,6 +68,7 @@ func TestBuildClaudeEnv_HybridFourExternalOneCustom(t *testing.T) {
 			t.Errorf("%s = %q, want gpt-4", k, m[k])
 		}
 	}
+
 	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "qwen3-coder" {
 		t.Errorf("custom = %q, want qwen3-coder", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
 	}
@@ -107,5 +108,25 @@ func TestBuildClaudeEnv_ScrubsInheritedMenuVars(t *testing.T) {
 	}
 	if m["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "qwen3.8-distil" {
 		t.Errorf("custom = %q, want the loaded model", m["ANTHROPIC_CUSTOM_MODEL_OPTION"])
+	}
+}
+
+func TestBuildClaudeEnv_SetsContextTokens(t *testing.T) {
+	cfg := &config.Config{Alias: "qwen3.8-flash", CtxSize: "262144", Parallel: "1"}
+	m := envMap(t, BuildClaudeEnv(cfg, "http://h:1", nil))
+	if m["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] != "262144" {
+		t.Errorf("MAX_CONTEXT = %q", m["CLAUDE_CODE_MAX_CONTEXT_TOKENS"])
+	}
+	if m["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "262144" {
+		t.Errorf("AUTO_COMPACT = %q", m["CLAUDE_CODE_AUTO_COMPACT_WINDOW"])
+	}
+}
+
+func TestBuildClaudeEnv_UserOverrideWins(t *testing.T) {
+	cfg := &config.Config{Alias: "qwen3.8-flash", CtxSize: "262144", Parallel: "1"}
+	base := []string{"CLAUDE_CODE_MAX_CONTEXT_TOKENS=999999"}
+	m := envMap(t, BuildClaudeEnv(cfg, "http://h:1", base))
+	if m["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] != "999999" {
+		t.Errorf("user value lost: %q", m["CLAUDE_CODE_MAX_CONTEXT_TOKENS"])
 	}
 }

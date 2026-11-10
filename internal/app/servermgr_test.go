@@ -222,3 +222,55 @@ func killCurrent(mgr *ServerManager) func() {
 		}
 	}
 }
+
+func TestServerManager_Stop_NoProcess(t *testing.T) {
+	mgr := NewServerManager(aliveRunner{}, NewShutdown(), io.Discard, io.Discard)
+	if err := mgr.Stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServerManager_Stop_RunningProcess(t *testing.T) {
+	cfg, home := tempLaunchCfg(t)
+	spec, _ := SpecForConfig(cfg, home, io.Discard, io.Discard)
+	mgr := NewServerManager(aliveRunner{}, NewShutdown(), io.Discard, io.Discard)
+	if err := mgr.Start(spec); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if mgr.Current() != nil {
+		t.Error("Current() != nil after Stop")
+	}
+}
+
+func TestServerManager_Stop_Idempotent(t *testing.T) {
+	cfg, home := tempLaunchCfg(t)
+	spec, _ := SpecForConfig(cfg, home, io.Discard, io.Discard)
+	mgr := NewServerManager(aliveRunner{}, NewShutdown(), io.Discard, io.Discard)
+	_ = mgr.Start(spec)
+	_ = mgr.Stop()
+	_ = mgr.Stop() // must not panic
+}
+
+func TestServerManager_StopAndStart_NewPort(t *testing.T) {
+	cfg, home := tempLaunchCfg(t)
+	spec, _ := SpecForConfig(cfg, home, io.Discard, io.Discard)
+	mgr := NewServerManager(aliveRunner{}, NewShutdown(), io.Discard, io.Discard)
+	if err := mgr.Start(spec); err != nil {
+		t.Fatal(err)
+	}
+	old := mgr.CurrentCmd()
+	newSpec, err := mgr.StopAndStart(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mgr.Stop() })
+	if newSpec.Port == spec.Port {
+		t.Errorf("port unchanged: %q", newSpec.Port)
+	}
+	if mgr.CurrentCmd() == old {
+		t.Error("old cmd still current")
+	}
+}

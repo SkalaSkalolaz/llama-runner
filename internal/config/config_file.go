@@ -125,6 +125,7 @@ type FileConfig struct {
 	ClaudeBin            *string `json:"claudeBin,omitempty"`
 	ClaudeDir            *string `json:"claudeDir,omitempty"`
 	Alias                *string `json:"alias,omitempty"`
+	Description          *string `json:"description,omitempty"`
 	ReadyTimeout         *string `json:"readyTimeout,omitempty"` // duration string, e.g. "180s"
 	ChatTemplate         *string `json:"chatTemplate,omitempty"`
 	ChatTemplateFallback *string `json:"chatTemplateFallback,omitempty"`

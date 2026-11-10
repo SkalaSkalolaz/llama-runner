@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 	"github.com/SkalaSkalolaz/llama-runner/internal/convert"
 	"github.com/SkalaSkalolaz/llama-runner/internal/i18n"
 )
@@ -75,17 +76,10 @@ type modelEntry struct {
 
 // ---- /v1/messages ----
 
-// handleMessages is the core route, POST /v1/messages. It reads the body
-// under maxRequestBodyBytes (oversized bodies get 413 request_too_large,
-// other read errors 400), parses the Anthropic request, and routes it by the
-// requested model: the localModelName and the local model alias (both case-
-// and whitespace-insensitive) go to the local llama-server, everything else
-// to the external provider.
-//
-// The stream flag from the request body selects between streaming (SSE) and
-// single-response conversion downstream.
 func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
-	if !h.externalMode() {
+	// Single-model fast path: nothing to swap, nothing to parse — keep the
+	// original zero-copy passthrough untouched.
+	if !h.externalMode() && h.swapper == nil {
 		h.passthrough(w, r)
 		return
 	}
@@ -105,37 +99,104 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
-		convert.WriteAnthropicError(w, http.StatusBadRequest, "invalid_request_error", strings.TrimSuffix(i18n.TF(i18n.MsgInvalidJSON, err), "\n"))
+		convert.WriteAnthropicError(w, http.StatusBadRequest, "invalid_request_error",
+			strings.TrimSuffix(i18n.TF(i18n.MsgInvalidJSON, err), "\n"))
 		return
 	}
 	model, _ := req["model"].(string)
 	stream, _ := req["stream"].(bool)
+	model = strings.TrimSpace(model)
 
-	// The local route is recognised by two tokens: the proxy's stable
-	// "llama-server" name (kept for backward compatibility with env vars
-	// that still use it) and the actual local model alias — the Custom
-	// entry of the /model menu carries the alias (see cli.BuildModelMenu),
-	// so Claude Code sends exactly that name when the user picks it.
-	isLocal := strings.EqualFold(strings.TrimSpace(model), localModelName) ||
-		(h.cfg.Alias != "" && strings.EqualFold(strings.TrimSpace(model), h.cfg.Alias))
+	// Explicit profile switch: swap first, then route the request to the
+	// new server. Only this branch restarts llama-server; every other
+	// request (including the background traffic Claude Code generates for
+	// session titles and compaction) is routed to the running server.
+	if target, ok := strings.CutPrefix(model, config.SwitchPrefix); ok {
+		h.handleSwitch(w, r, strings.TrimSpace(target), body, req, stream)
+		return
+	}
 
+	// Non-swap path: bracket with in-flight tracking so a future swap
+	// waits for us before killing the server.
+	if h.swapper != nil {
+		h.swapper.IncInflight()
+		defer h.swapper.DecInflight()
+	}
+
+	if !h.externalMode() {
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		h.passthrough(w, r)
+		return
+	}
+
+	isLocal := strings.EqualFold(model, localModelName) ||
+		(h.cfg.Alias != "" && strings.EqualFold(model, h.cfg.Alias))
 	if isLocal {
-		// Local route in hybrid mode is a VERBATIM passthrough to
-		// /v1/messages — the same path as local-only mode. llama-server
-		// implements the Anthropic Messages API natively and sends SSE
-		// response headers promptly on that endpoint, whereas the
-		// OpenAI-compatible /v1/chat/completions endpoint can buffer
-		// until reasoning completes. Converting to OpenAI format and back
-		// is unnecessary and (with -reasoning enabled) delays the headers
-		// past Claude Code's 5-minute timeout, causing retry loops.
-		//
-		// The body was already read into `body` above; restore it for the
-		// passthrough, which re-reads and forwards it verbatim.
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		h.passthrough(w, r)
 		return
 	}
 	h.forwardToOpenAI(w, r, req, stream)
+}
+
+// handleSwitch performs one explicit profile switch and then routes the
+// triggering request to the new server.
+//
+// No-op (already on that alias) is allowed but still counts as in-flight,
+// so a concurrent swap elsewhere waits for it. Unknown alias and swap
+// failure produce Anthropic-shaped errors and leave the currently running
+// server untouched.
+func (h *proxyHandler) handleSwitch(w http.ResponseWriter, r *http.Request,
+	target string, body []byte, req map[string]any, stream bool) {
+
+	if h.swapper == nil {
+		convert.WriteAnthropicError(w, http.StatusBadRequest,
+			"invalid_request_error", "switch-to: not supported")
+		return
+	}
+
+	if strings.EqualFold(target, h.swapper.CurrentAlias()) {
+		h.swapper.IncInflight()
+		defer h.swapper.DecInflight()
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		h.passthrough(w, r)
+		return
+	}
+
+	inCatalog := false
+	for _, a := range h.swapper.CatalogAliases() {
+		if strings.EqualFold(a, target) {
+			inCatalog = true
+			break
+		}
+	}
+	if !inCatalog {
+		convert.WriteAnthropicError(w, http.StatusBadRequest,
+			"invalid_request_error",
+			strings.TrimSuffix(i18n.TF(i18n.MsgErrUnknownProfile, target), "\n"))
+		return
+	}
+
+	h.logf(i18n.T(i18n.MsgSwapVerbose), h.swapper.CurrentAlias(), target)
+
+	h.swapMu.Lock()
+	newURL, err := h.swapper.SwapTo(r.Context(), target)
+	if err == nil {
+		h.setServerURL(newURL)
+	}
+	h.swapMu.Unlock()
+
+	if err != nil {
+		convert.WriteAnthropicError(w, http.StatusBadGateway, "api_error",
+			strings.TrimSuffix(i18n.TF(i18n.MsgSwapFailed, target, err), "\n"))
+		return
+	}
+	h.setServerURL(newURL)
+
+	h.swapper.IncInflight()
+	defer h.swapper.DecInflight()
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	h.passthrough(w, r)
 }
 
 // ---- Route to external OpenAI-compatible service ----

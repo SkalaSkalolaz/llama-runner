@@ -149,6 +149,24 @@ func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []stri
 	for _, slot := range BuildModelMenu(cfg) {
 		env = append(env, modelSlotEnvVars(slot)...)
 	}
+
+	// Tell Claude Code the real context window of the local model.
+	// Without this, custom (non-Anthropic) model names get a pessimistic
+	// default (48K observed on recent versions) and produce
+	// "exceeds the available context size" errors long before llama-server's
+	// actual limit. The value is per-slot because llama-server splits its
+	// --ctx-size across all --parallel slots.
+	// A value the user already exported in baseEnv wins, so
+	// CLAUDE_CODE_MAX_CONTEXT_TOKENS=... llama-runner -p coder keeps working.
+	if ctx := ContextTokensPerSlot(cfg); ctx > 0 {
+		budget := strconv.Itoa(ctx)
+		if !envHasKey(baseEnv, "CLAUDE_CODE_MAX_CONTEXT_TOKENS") {
+			env = append(env, "CLAUDE_CODE_MAX_CONTEXT_TOKENS="+budget)
+		}
+		if !envHasKey(baseEnv, "CLAUDE_CODE_AUTO_COMPACT_WINDOW") {
+			env = append(env, "CLAUDE_CODE_AUTO_COMPACT_WINDOW="+budget)
+		}
+	}
 	return env
 }
 
@@ -276,4 +294,40 @@ func BuildClaudeArgs(cfg *config.Config, mcpConfigPath string) []string {
 		}
 	}
 	return args
+}
+
+// ContextTokensPerSlot returns the per-slot context window that
+// llama-server actually makes available to one session:
+// CtxSize / Parallel (llama-server splits its --ctx-size across all
+// --parallel slots). Returns 0 when either value is not a positive
+// integer ("auto", "-1", "", garbage) — meaning "unknown, don't set
+// CLAUDE_CODE_MAX_CONTEXT_TOKENS and let Claude Code fall back".
+func ContextTokensPerSlot(cfg *config.Config) int {
+	if cfg == nil {
+		return 0
+	}
+	c, err := strconv.Atoi(strings.TrimSpace(cfg.CtxSize))
+	if err != nil || c <= 0 {
+		return 0
+	}
+	p := 1
+	if s := strings.TrimSpace(cfg.Parallel); s != "" {
+		v, err := strconv.Atoi(s)
+		if err != nil || v <= 0 {
+			return 0
+		}
+		p = v
+	}
+	return c / p
+}
+
+// envHasKey reports whether env already contains a KEY=VALUE entry for key.
+func envHasKey(env []string, key string) bool {
+	prefix := key + "="
+	for _, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			return true
+		}
+	}
+	return false
 }

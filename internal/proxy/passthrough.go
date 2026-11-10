@@ -54,7 +54,10 @@ func copyHeadersExcept(dst, src http.Header, extra ...string) {
 // The body is size-capped with the same limit as the converted routes.
 // Transport failures map to a 502 Anthropic error, mirroring forwardToOpenAI.
 func (h *proxyHandler) passthrough(w http.ResponseWriter, r *http.Request) {
-	target := h.llamaServerURL + r.URL.Path
+	h.swapMu.RLock()
+	defer h.swapMu.RUnlock()
+	serverURL := h.currentServerURL()
+	target := serverURL + r.URL.Path
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}

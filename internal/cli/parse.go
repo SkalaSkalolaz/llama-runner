@@ -2,6 +2,7 @@ package cli
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"os"
 
@@ -250,6 +251,64 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	// same situation.
 	if cfg.ModelSet && !cfg.ParallelSet {
 		cfg.Parallel = "1"
+	}
+	// --- Profile catalog (opt-in hot-swap) ---
+	// When the config file declares profiles, build each one as a fully
+	// merged Config, resolved independently of the active CLI profile.
+	// This catalog drives the /model menu and the proxy's hot-swap; with
+	// no profiles in the file, cfg.Profiles stays nil and every code path
+	// below falls through to the pre-existing single-model behaviour.
+	if fc != nil && len(fc.Profiles) > 0 {
+		cfg.Profiles = make(map[string]*config.Config, len(fc.Profiles)+1)
+		cfg.ProfileDescriptions = make(map[string]string, len(fc.Profiles))
+		for name := range fc.Profiles {
+			pfc := fc.Profiles[name]
+			pc := config.DefaultConfig()
+			if err := config.ApplyFileConfig(pc, *fc); err != nil {
+				return nil, err
+			}
+			if err := config.ApplyFileConfig(pc, pfc); err != nil {
+				return nil, err
+			}
+			if pfc.Alias != nil {
+				pc.AliasSet = true
+			}
+			if pfc.ChatTemplate != nil {
+				pc.ChatTemplateSet = true
+			}
+			pc.Profile = name
+			pc.ConfigPath = configPath
+			alias, _ := ResolveAlias(pc)
+			pc.Alias = alias
+			pc.AliasSet = true
+			if _, dup := cfg.Profiles[alias]; dup {
+				fmt.Fprint(stderr, i18n.TF(i18n.MsgWarnProfileDupAlias, name, alias))
+				continue
+			}
+			cfg.Profiles[alias] = pc
+			if pfc.Description != nil && *pfc.Description != "" {
+				cfg.ProfileDescriptions[alias] = *pfc.Description
+			}
+		}
+
+		// Root as an implicit profile: rebuild it from DefaultConfig + the file's
+		// root section (NOT from cfg, which already carries the -p profile).
+		rootCfg := config.DefaultConfig()
+		if err := config.ApplyFileConfig(rootCfg, *fc); err != nil {
+			return nil, err
+		}
+		rootCfg.ConfigPath = configPath
+		if fc.Alias != nil {
+			rootCfg.AliasSet = true // ← КРИТИЧНО: без этого ResolveAlias вернёт "local"
+		}
+		rootAlias, _ := ResolveAlias(rootCfg)
+		if rootAlias != "" {
+			rootCfg.Alias = rootAlias
+			rootCfg.AliasSet = true
+			if _, exists := cfg.Profiles[rootAlias]; !exists {
+				cfg.Profiles[rootAlias] = rootCfg
+			}
+		}
 	}
 	return cfg, nil
 }

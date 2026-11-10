@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"sort"
+	"strings"
+
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 )
 
@@ -15,6 +18,14 @@ import (
 
 // SlotKind names a position in the /model menu.
 type SlotKind int
+
+// localModelRoute is the model ID that the proxy always routes to the local
+// llama-server without a swap. It mirrors proxy.localModelName; the duplicate
+// exists because cli cannot import proxy (cycle: proxy → cli → proxy).
+// Currently unused: standard /model slots with no real profile to fill are
+// left empty (Claude Code shows its builtin entry there) instead of being
+// backfilled. Kept for a possible future re-introduction of backfill.
+const localModelRoute = "llama-server"
 
 const (
 	// SlotOpus is the Opus position.
@@ -71,19 +82,23 @@ func BuildModelMenu(cfg *config.Config) []ModelSlot {
 	if cfg == nil {
 		return nil
 	}
+	if len(cfg.Profiles) > 0 {
+		return buildDynamicMenu(cfg)
+	}
+	return buildStaticMenu(cfg)
+}
+
+// buildStaticMenu is the pre-profiles behaviour, preserved verbatim so
+// configurations without a "profiles" section see byte-identical output.
+func buildStaticMenu(cfg *config.Config) []ModelSlot {
 	alias := cfg.Alias
 	if alias == "" {
 		return nil
 	}
-
 	custom := ModelSlot{
-		Kind:        SlotCustom,
-		CustomIndex: 1,
-		ModelValue:  alias,
-		Name:        "local model",
-		Filled:      true,
+		Kind: SlotCustom, CustomIndex: 1,
+		ModelValue: alias, Name: "local model", Filled: true,
 	}
-
 	if cfg.OpenAIProviderConfigured() {
 		custom.Description = "Local llama-server model: " + alias
 		ext := cfg.OpenAIModel
@@ -95,7 +110,6 @@ func BuildModelMenu(cfg *config.Config) []ModelSlot {
 			custom,
 		}
 	}
-
 	custom.Description = "Model llama-server loaded: " + alias
 	return []ModelSlot{
 		{Kind: SlotOpus, ModelValue: alias, Filled: true},
@@ -104,4 +118,72 @@ func BuildModelMenu(cfg *config.Config) []ModelSlot {
 		{Kind: SlotFable, ModelValue: alias, Filled: true},
 		custom,
 	}
+}
+
+// buildDynamicMenu lays out the /model menu when a profile catalog is
+// present:
+//
+//   - Standard slots (Opus/Sonnet/Haiku/Fable) always carry the BARE
+//     primary model (PrimaryModel): Claude Code sends these values for
+//     background tasks (session titles, compaction, subagents) and the
+//     proxy routes such requests to whichever server is currently running
+//     — never restarting llama-server.
+//
+//   - Custom 1 = switch-to:<startup local alias>, the profile the launcher
+//     started with (root, -p <name>, or -model <path>).
+//
+//   - Custom 2+ = switch-to:<other profile>, one per declared profile.
+//
+// Selecting a custom slot is the ONLY way to trigger a llama-server
+// restart; the prefix prevents background traffic from being mistaken for
+// an explicit choice.
+func buildDynamicMenu(cfg *config.Config) []ModelSlot {
+	current := cfg.Alias
+	if current == "" {
+		return nil
+	}
+	primary := PrimaryModel(cfg)
+
+	var others []string
+	for a := range cfg.Profiles {
+		if !strings.EqualFold(a, current) {
+			others = append(others, a)
+		}
+	}
+	sort.Strings(others) // mini, coder, agent → sorted by alias
+
+	// Slots (fixed order in /model: Opus, Sonnet, Haiku, Fable):
+	//   Opus    = switch-to:<root>     → Default resolves here; "recommended" = primary
+	//   Sonnet  = switch-to:<other[0]> → first profile
+	//   Haiku   = bare primary         → --model pins here; background never swaps
+	//   Fable   = switch-to:<other[1]> → second profile
+	// Custom 1  = switch-to:<other[2]> → third profile
+	op := config.SwitchPrefix + current
+	so, fa, cu := "", "", ""
+	if len(others) > 0 {
+		so = config.SwitchPrefix + others[0]
+	}
+	if len(others) > 1 {
+		fa = config.SwitchPrefix + others[1]
+	}
+	if len(others) > 2 {
+		cu = config.SwitchPrefix + others[2]
+	}
+
+	slots := []ModelSlot{
+		{Kind: SlotOpus, ModelValue: op, Filled: true}, // Default → primary
+		{Kind: SlotSonnet, ModelValue: so, Filled: so != ""},
+		{Kind: SlotHaiku, ModelValue: primary, Filled: true}, // bare (safety)
+		{Kind: SlotFable, ModelValue: fa, Filled: fa != ""},
+	}
+	if cu != "" {
+		slots = append(slots, ModelSlot{
+			Kind: SlotCustom, CustomIndex: 1,
+			ModelValue:  cu,
+			Name:        strings.TrimPrefix(cu, config.SwitchPrefix),
+			Description: "Profile: " + strings.TrimPrefix(cu, config.SwitchPrefix),
+			Filled:      true,
+		})
+	}
+	return slots
 }

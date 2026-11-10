@@ -24,7 +24,7 @@ With options (agents, model download, exact version):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/install.sh \
-  | sh -s -- --version v1.8.0 --with-agents --with-default-model
+  | sh -s -- --version v1.9.0 --with-agents --with-default-model
 ```
 
 `install.sh --help` lists every flag. What the installer does:
@@ -86,10 +86,10 @@ go build -o llama-runner ./cmd/llama-runner
 - **Config file:** `~/.config/llama-runner/config.json` (or `-config <path>`). Priority:
   CLI > file > built-in defaults. `-config ""` disables reading it. Secrets (`openaiKey`,
   `proxyToken`) are supported in the file, but env / `credentials` / a flag are recommended.
-- **Profiles:** `-p coder` — short presets from `profiles: {…}` in the config
+- **Profiles:** `-p small` — short presets from `profiles: {…}` in the config
   file. A profile supplies the model, alias and other settings of the one
   local model this run serves (see «The `/model` menu`).
-- **Per-model parallel:** parallel is set per-profile; `-p coder` uses the
+- **Per-model parallel:** parallel is set per-profile; `-p a3b` uses the
   profile value, `-model <other.gguf>` resets it to `"1"`.
 - **`-doctor`:** show resolved paths, version and the final command without spawning
   any processes.
@@ -106,24 +106,25 @@ go build -o llama-runner ./cmd/llama-runner
 | `-bin` | `~/.local/bin/llama-server` | Path to llama-server |
 | `-host` / `-port` | `127.0.0.1` / `8080` | Server address and port |
 | `-alias` | derived from `-model`, else config file/profile, else `local` | Model alias — llama-server's `--alias` and `ANTHROPIC_DEFAULT_*_MODEL` |
-| `-c`, `-b`, `-ub` | `65536` / `2048` / `1024` | Context / batch / micro-batch |
+| `-c`, `-b`, `-ub` | `32768` / `2048` / `512` | Context / batch / micro-batch (config values; CLI defaults are `65536` / `2048` / `1024`) |
 | `-fa` | `auto` | Flash attention |
-| `-parallel` | `1` | Number of parallel slots; can be set per-profile in config file |
+| `-parallel` | `1` | Number of parallel slots; can be set per-profile in config file (CLI default is `1`) |
 | `-tools` | `all` | Tools mode |
 | `-jinja` | `true` | Jinja templates |
 | `-chat-template` | `auto` | `auto` / `""` / path to a `.jinja` file |
 | `-ngl` | _(not passed)_ | Number of layers offloaded to GPU |
 | `-mmproj` | _(not passed)_ | Multimodal projector |
-| `-temp`, `-top-p` | _(not passed)_ | Sampling |
+| `-temp`, `-top-p` | _(not passed)_ | Sampling; `temp` is set per-profile in the example config |
 | `-cache-type-k`, `-cache-type-v` | _(not passed)_ | KV-cache types |
-| `-fit` | _(not passed)_ | `--fit` mode (`on`/`off`) |
+| `-fit` | _(not passed)_ | `--fit` mode (on/off); example config sets `"on"` |
 | `-lv` | _(not passed)_ | llama.cpp log verbosity |
+| `-reasoning` | _(not passed)_ | Reasoning mode: on/off/auto; example sets `"on"` per-profile |
+| `-reasoning-budget` | _(not passed)_ | Reasoning token budget: -1/0/N; example sets `"2048"` |
+| `-spec-type` | _(not passed)_ | Speculative decoding type |
+| `-spec-draft-model` | _(not passed)_ | Draft model path |
+| `-spec-draft-n-max` | _(not passed)_ | Draft tokens max |
+| `-spec-draft-ngl` | _(not passed)_ | Draft layers on GPU |
 | `-lm-lazy` | `false` | Lazy mmap mode |
-| `-reasoning` | _(not passed)_ | Reasoning mode: `on`/`off`/`auto` |
-| `-reasoning-budget` | _(not passed)_ | Token budget for reasoning: `-1`/`0`/`N` |
-| `-spec-type` | _(not passed)_ | Spec-decoding type (`draft-mtp`, `draft-dflash`) |
-| `-spec-draft-model` | _(not passed)_ | Path to the draft model |
-| `-spec-draft-n-max`, `-spec-draft-ngl` | _(not passed)_ | Draft model parameters |
 | `-dir` | current directory | Working directory of llama-server |
 
 ### Claude Code
@@ -268,9 +269,9 @@ By default `~/.config/llama-runner/config.json` is read. Value priority:
 **CLI > config > built-in defaults**. The `-config ""` flag disables reading
 the file. All tunable parameters are available in the file (names closely
 match the flags: `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`,
-`jinja`, `tools`, `parallel`, `temp`, `topP`, `cacheTypeK/V`, `fit`,
-`logVerbosity`, `reasoning`, `reasoningBudget`, `specType`, `specDraftModel`,
-`specDraftNMax`, `specDraftNGL`, `mmproj`, `chatTemplate`,
+`jinja`, `tools`, `parallel`, `mmproj`, `temp`, `topP`, `cacheTypeK`,
+`cacheTypeV`, `fit`, `logVerbosity`, `reasoning`, `reasoningBudget`,
+`specType`, `specDraftModel`, `specDraftNMax`, `specDraftNGL`, `chatTemplate`,
 `chatTemplateFallback`, `logFile`, `logMaxMB`, `logKeep`, `quietServer`,
 `mcpAddr`, `mcpStrict`, `webuiMcpProxy`, `alias`, `claudeBin`, `claudeDir`,
 `serverOnly`, `readyTimeout` (duration string, e.g. `"180s"`), `openai`,
@@ -311,7 +312,11 @@ match the flags: `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`,
       "b": "2048",
       "ub": "512",
       "fa": "auto",
-      "parallel": "1"
+      "parallel": "1",
+      "temp": "0.2",
+      "fit": "on",
+      "reasoning": "on",
+      "reasoningBudget": "2048"
     },
     "a3b": {
       "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
@@ -320,13 +325,26 @@ match the flags: `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`,
       "b": "4196",
       "ub": "1024",
       "fa": "auto",
-      "parallel": "1"
+      "parallel": "1",
+      "temp": "0.2",
+      "fit": "on",
+      "reasoning": "on",
+      "reasoningBudget": "2048"
     }
   }
 }
 ```
 
 `install.sh` writes exactly this file on a fresh install (see `examples/config.example.json`); edit `model` and `profiles` to match your own GGUF files.
+
+### Profiles
+
+| Profile | Alias | Model | Context | Parallel | Purpose |
+|---------|-------|-------|---------|----------|---------|
+| `small` | `qwen2.5-0.5b` | Qwen2.5-0.5B-Instruct | 32768 | 1 | Small model for lightweight tasks |
+| `a3b` | `qwen3.8-a3b` | Qwen3.8-35B-A3B | 262144 | 1 | Large MoE model for complex tasks |
+
+Profiles are selected with `-p <name>` (they apply the profile's model, alias and other settings as the one running local model). When the config file declares profiles, they also appear in the `/model` menu as `switch-to:<profile-alias>` entries — see «The `/model` menu» below.
 
 Notes:
 
@@ -344,25 +362,25 @@ Notes:
 
 ### The `/model` menu
 
-In local mode all five positions (Opus, Sonnet, Haiku, Fable and the custom
-entry) carry the single local model — the one selected with `-model` / `-p`,
-or the config default if neither was given.
+When the config file declares a `profiles` section, the `/model` menu is built dynamically by `cli.buildDynamicMenu`:
 
-In hybrid mode (`-openai` + `-model-openai` + a key or `-key none`) the four
-standard positions carry the external model, and the custom entry carries the
-local model. Picking the custom entry routes the request to llama-server
-through the proxy. The request goes verbatim to `/v1/messages` (the native
-Anthropic API); no OpenAI conversion is applied — this avoids SSE-header delays
-under `-reasoning auto` / `-reasoning-budget` that would otherwise trigger a
-~5-minute retry-loop in Claude Code.
+- Opus (the "Default" slot) carries `switch-to:<startup-alias>` — the alias the launcher started with (from `-p`, `-model`, or the root config);
+- Sonnet / Fable carry `switch-to:<other-profile-alias>` for the first two "other" profiles;
+- Haiku carries the bare primary model (`cfg.Alias` in local mode, `cfg.OpenAIModel` in hybrid mode) and never triggers a swap — Claude Code's background traffic (session titles, compaction, subagents) goes to whichever server is currently running;
+- Custom 1 carries `switch-to:<third-other-profile>` (appears only when at least three "other" profiles are declared).
 
-Config profiles are still selected with `-p <name>` (they apply the profile's
-model, alias and other settings as the one running local model), but they are
-no longer advertised separately in the menu.
+For the example config (`small` with alias `qwen2.5-0.5b`, `a3b` with alias `qwen3.8-a3b`) the menu shows exactly:
 
-Menu variables inherited from the environment (`ANTHROPIC_DEFAULT_*_MODEL`,
-`ANTHROPIC_CUSTOM_MODEL_OPTION*`) are removed before the launcher publishes
-its own, so a nested run never shows ghost entries from an outer session.
+    switch-to:qwen2.5-0.5b      (Opus / Default)
+    switch-to:qwen3.8-a3b       (Sonnet)
+    qwen2.5-0.5b                (Haiku)
+    (empty)                     (Fable)
+
+Only entries starting with `switch-to:` restart llama-server; the bare primary (Haiku) always routes to the current server.
+
+**Known cosmetic issue (fix planned for 1.9.1):** standard slots display the `switch-to:` prefix. It works, but the plan is to show bare profile names there and keep `switch-to:` only in the model value.
+
+Without a `profiles` section the static menu is used: all five positions carry the single local model (or, in hybrid mode, the four standard slots carry the external model and the custom entry carries the local alias). Menu variables inherited from the environment (`ANTHROPIC_DEFAULT_*_MODEL`, `ANTHROPIC_CUSTOM_MODEL_OPTION*`) are scrubbed before the launcher publishes its own, so a nested run never shows ghost entries.
 
 ## Auto-downloading models
 
@@ -423,7 +441,7 @@ For gated Hugging Face repositories, set `HF_TOKEN` or
 
 ```bash
 # Server + Claude Code in a project folder
-./llama-runner -alias qwen3-coder -claude-dir ~/my-project
+./llama-runner -alias qwen2.5-0.5b -claude-dir ~/my-project
 
 # Server only on a different port
 ./llama-runner -server -port 9090
@@ -451,7 +469,7 @@ For gated Hugging Face repositories, set `HF_TOKEN` or
 ./llama-runner -update -cuda-arch 61 && ./llama-runner -server -model ~/GGUF/model.gguf
 
 # Profile from the config file
-./llama-runner -p coder
+./llama-runner -p a3b
 
 # Download a model from Hugging Face and launch with it
 ./llama-runner -download ~/GGUF/https://huggingface.co/AtomicChat/DeepSeek-V4.1-Flash-1017-Uncensored-GSQ-RCO-GGUF/resolve/main/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00004.gguf

@@ -106,6 +106,20 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 	// CLI-chosen model, and its alias derives from the fetched GGUF.
 	cfg.Alias, _ = cli.ResolveAlias(cfg)
 
+	// Ensure the running alias is in the profile catalog so that
+	// switch-to:<cfg.Alias> (Custom 1) resolves for the swapper. When
+	// -model X.gguf is given and X is not a declared profile, cfg.Alias is
+	// derived from the file name and would otherwise be missing from the
+	// catalog. The copy is shallow but with Profiles nil'ed to avoid a
+	// self-reference.
+	if len(cfg.Profiles) > 0 && cfg.Alias != "" {
+		if _, ok := cfg.Profiles[cfg.Alias]; !ok {
+			cp := *cfg
+			cp.Profiles = nil
+			cfg.Profiles[cfg.Alias] = &cp
+		}
+	}
+
 	// We pick up the external provider's key ONLY if the external provider
 	// is actually requested. Otherwise a developer with OPENAI_API_KEY in the environment
 	// would get "-openai is required when using -key" on a local
@@ -140,6 +154,22 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		return 0
 	}
 
+	// Eagerly validate every catalog profile so a broken one is excluded
+	// from the /model menu now instead of failing at swap time.
+	for alias, pc := range cfg.Profiles {
+		if err := cli.ValidateConfig(pc); err != nil {
+			fmt.Fprint(stderr, i18n.TF(i18n.MsgWarnProfileInvalid, alias, err))
+			delete(cfg.Profiles, alias)
+			delete(cfg.ProfileDescriptions, alias)
+			continue
+		}
+		if _, code := SpecForConfig(pc, home, io.Discard, io.Discard); code != 0 {
+			fmt.Fprint(stderr, i18n.TF(i18n.MsgWarnProfileUnlaunchable, alias))
+			delete(cfg.Profiles, alias)
+			delete(cfg.ProfileDescriptions, alias)
+		}
+	}
+
 	// --- Launch plan: resolved paths, server args, working directory ---
 	spec, specCode := SpecForConfig(cfg, home, stdout, stderr)
 	if specCode != 0 {
@@ -163,6 +193,12 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 	shut := NewShutdown()
 	mgr := NewServerManager(cmdRunner, shut, stdout, stderr)
 
+	var swapper proxy.Swapper
+	var swapperImpl *profileSwapper
+	if len(cfg.Profiles) > 0 {
+		swapperImpl = NewProfileSwapper(mgr, cfg.Profiles, cfg.Alias, home, sink.Writer, stdout, stderr)
+		swapper = swapperImpl
+	}
 	if cfg.Verbose {
 		fmt.Fprint(stdout, i18n.TF(i18n.MsgWorkDirLine, spec.WorkDir))
 		fmt.Fprint(stdout, i18n.TF(i18n.MsgCommandLine, spec.Bin, strings.Join(spec.Args, " ")), "\n")
@@ -223,11 +259,16 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 
 	var claudeProcess *proc.Tracked
 	cleanup := func() {
+		if swapperImpl != nil {
+			swapperImpl.Stop()
+		}
 		shut.StopAll()
 		if claudeProcess != nil {
 			<-claudeProcess.Done
 		}
-		_ = serverProcess.Wait()
+		if cur := mgr.Current(); cur != nil {
+			_ = cur.Wait()
+		}
 	}
 	defer cleanup()
 
@@ -317,6 +358,7 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 			LlamaServerURL: llamaTargetURL,
 			Cfg:            cfg,
 			LogWriter:      proxyLogWriter,
+			Swapper:        swapper,
 		})
 		if err != nil {
 			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrProxyStart, err))

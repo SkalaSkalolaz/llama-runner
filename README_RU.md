@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/i
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/install.sh \
-  | sh -s -- --version v1.8.0 --with-agents --with-default-model
+  | sh -s -- --version v1.9.0 --with-agents --with-default-model
 ```
 
 Полный список флагов — `install.sh --help`. Что делает installer:
@@ -85,11 +85,11 @@ go build -o llama-runner ./cmd/llama-runner
 - **Конфиг-файл:** `~/.config/llama-runner/config.json` (или `-config <path>`). Приоритет:
   CLI > файл > встроенные дефолты. `-config ""` — не читать. Секреты (`openaiKey`,
   `proxyToken`) в файле поддерживаются, но рекомендуется env / `credentials` / флаг.
-- **Профили:** `-p coder` — короткие пресеты из `profiles: {…}` в конфиге.
+- **Профили:** `-p small` — короткие пресеты из `profiles: {…}` в конфиге.
   Профиль задаёт модель, алиас и прочие настройки единственной локальной
   модели этого запуска (см. «Меню `/model`»).
 - **Пересечение по моделям (per-model parallel):** `parallel` задаётся в каждом
-  профиле; `-p coder` использует значение профиля, `-model <чужой.gguf>` сбрасывает
+  профиле; `-p a3b` использует значение профиля, `-model <чужой.gguf>` сбрасывает
   в `"1"`.
 - **`-doctor`:** показать разрешённые пути, версию и итоговую команду без запуска процессов.
 - **Корректная остановка:** Ctrl-C/SIGTERM останавливает claude, сервер и MCP с эскалацией
@@ -105,24 +105,25 @@ go build -o llama-runner ./cmd/llama-runner
 | `-bin` | `~/.local/bin/llama-server` | Путь к llama-server |
 | `-host` / `-port` | `127.0.0.1` / `8080` | Адрес и порт сервера |
 | `-alias` | из `-model`, иначе конфиг/профиль, иначе `local` | Алиас модели — `--alias` llama-server и `ANTHROPIC_DEFAULT_*_MODEL` |
-| `-c`, `-b`, `-ub` | `65536` / `2048` / `1024` | Контекст / батч / микро-батч |
+| `-c`, `-b`, `-ub` | `32768` / `2048` / `512` | Контекст / батч / микро-батч (значения из конфига; дефолты CLI — `65536` / `2048` / `1024`) |
 | `-fa` | `auto` | Flash attention |
-| `-parallel` | `1` | Кол-во параллельных слотов; в конфиг-файле можно задать per-profile |
+| `-parallel` | `1` | Кол-во параллельных слотов; можно задать per-profile в конфиге (дефолт CLI — `1`) |
 | `-tools` | `all` | Режим инструментов |
 | `-jinja` | `true` | Jinja-шаблоны |
 | `-chat-template` | `auto` | `auto` / `""` / путь к `.jinja` |
 | `-ngl` | _(не передаётся)_ | Слоёв на GPU |
 | `-mmproj` | _(не передаётся)_ | Мультимодальный проектор |
-| `-temp`, `-top-p` | _(не передаются)_ | Сэмплинг |
-| `-cache-type-k`, `-cache-type-v` | _(не передаются)_ | Типы KV-кэша |
-| `-fit` | _(не передаётся)_ | Режим `--fit` (`on`/`off`) |
+| `-temp`, `-top-p` | _(не передаётся)_ | Сэмплинг; `temp` задаётся per-profile в примере конфига |
+| `-cache-type-k`, `-cache-type-v` | _(не передаётся)_ | Типы KV-кэша |
+| `-fit` | _(не передаётся)_ | Режим `--fit` (on/off); в примере конфига `"on"` |
 | `-lv` | _(не передаётся)_ | Уровень логов llama.cpp |
-| `-lm-lazy` | `false` | mmap с ленивым режимом |
-| `-reasoning` | _(не передаётся)_ | Режим размышлений: `on`/`off`/`auto` |
-| `-reasoning-budget` | _(не передаётся)_ | Бюджет токенов на размышления: `-1`/`0`/`N` |
-| `-spec-type` | _(не передаётся)_ | Тип spec-декодирования (`draft-mtp`, `draft-dflash`) |
+| `-reasoning` | _(не передаётся)_ | Режим размышлений: on/off/auto; в примере `"on"` per-profile |
+| `-reasoning-budget` | _(не передаётся)_ | Бюджет токенов на размышления: -1/0/N; в примере `"2048"` |
+| `-spec-type` | _(не передаётся)_ | Тип spec-декодирования |
 | `-spec-draft-model` | _(не передаётся)_ | Путь к драфтеру |
-| `-spec-draft-n-max`, `-spec-draft-ngl` | _(не передаются)_ | Параметры драфтера |
+| `-spec-draft-n-max` | _(не передаётся)_ | Макс. черновых токенов |
+| `-spec-draft-ngl` | _(не передаётся)_ | Слоёв драфтера на GPU |
+| `-lm-lazy` | `false` | mmap с ленивым режимом |
 | `-dir` | текущая директория | Рабочая директория llama-server |
 
 ### Claude Code
@@ -264,9 +265,9 @@ VLM.run) обслуживают endpoint по «голому» базовому 
 **CLI > конфиг > встроенные дефолты**. Флаг `-config ""` отключает чтение файла.
 В файле доступны все настраиваемые параметры (имена близки к флагам:
 `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`, `jinja`,
-`tools`, `parallel`, `temp`, `topP`, `cacheTypeK/V`, `fit`, `logVerbosity`,
-`reasoning`, `reasoningBudget`, `specType`, `specDraftModel`,
-`specDraftNMax`, `specDraftNGL`, `mmproj`, `chatTemplate`,
+`tools`, `parallel`, `mmproj`, `temp`, `topP`, `cacheTypeK`,
+`cacheTypeV`, `fit`, `logVerbosity`, `reasoning`, `reasoningBudget`,
+`specType`, `specDraftModel`, `specDraftNMax`, `specDraftNGL`, `chatTemplate`,
 `chatTemplateFallback`, `logFile`, `logMaxMB`, `logKeep`, `quietServer`,
 `mcpAddr`, `mcpStrict`, `webuiMcpProxy`, `alias`, `claudeBin`, `claudeDir`,
 `serverOnly`, `readyTimeout` (duration-строка, например `"180s"`), `openai`,
@@ -307,7 +308,11 @@ VLM.run) обслуживают endpoint по «голому» базовому 
       "b": "2048",
       "ub": "512",
       "fa": "auto",
-      "parallel": "1"
+      "parallel": "1",
+      "temp": "0.2",
+      "fit": "on",
+      "reasoning": "on",
+      "reasoningBudget": "2048"
     },
     "a3b": {
       "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
@@ -316,13 +321,26 @@ VLM.run) обслуживают endpoint по «голому» базовому 
       "b": "4196",
       "ub": "1024",
       "fa": "auto",
-      "parallel": "1"
+      "parallel": "1",
+      "temp": "0.2",
+      "fit": "on",
+      "reasoning": "on",
+      "reasoningBudget": "2048"
     }
   }
 }
 ```
 
 `install.sh` пишет ровно этот файл при чистой установке (см. `examples/config.example.json`); отредактируйте `model` и `profiles` под свои GGUF-файлы.
+
+### Профили
+
+| Профиль | Алиас | Модель | Контекст | Parallel | Назначение |
+|---------|-------|--------|----------|----------|-----------|
+| `small` | `qwen2.5-0.5b` | Qwen2.5-0.5B-Instruct | 32768 | 1 | Маленькая модель для лёгких задач |
+| `a3b` | `qwen3.8-a3b` | Qwen3.8-35B-A3B | 262144 | 1 | Большая MoE-модель для сложных задач |
+
+Профили выбираются флагом `-p <имя>` (они применяют модель, алиас и прочие настройки профиля как единственную рабочую локальную модель). Если в конфиг-файле задана секция `profiles`, они также появляются в меню `/model` как записи `switch-to:<alias-профиля>` — см. «Меню `/model`» ниже.
 
 Заметки:
 
@@ -340,20 +358,25 @@ VLM.run) обслуживают endpoint по «голому» базовому 
 
 ### Меню `/model`
 
-В локальном режиме все пять позиций (Opus, Sonnet, Haiku, Fable и кастомная
-запись) несут единственную локальную модель — выбранную через `-model` / `-p`
-или дефолтную из конфиг-файла.
+Если в конфиг-файле есть секция `profiles`, меню `/model` строится динамически (`cli.buildDynamicMenu`):
 
-В гибридном режиме (`-openai` + `-model-openai` + ключ или `-key none`)
-четыре стандартных позиции несут внешнюю модель, а кастомная запись — локальную.
-Выбор кастомной записи направляет запрос в llama-server через прокси.
-Запрос к локальной модели идёт verbatim на `/v1/messages` (нативный Anthropic API);
-без конвертации в OpenAI — это обходит задержки SSE-заголовков при `-reasoning auto` /
-`-reasoning-budget`, которые иначе вызвали бы ~5-минутный retry-loop в Claude Code.
+- Opus (слот «Default») несёт `switch-to:<стартовый-alias>` — алиас, с которым лаунчер запустился (из `-p`, `-model` или корня конфига);
+- Sonnet / Fable несут `switch-to:<alias-другого-профиля>` для первых двух «других» профилей;
+- Haiku несёт голое имя primary-модели (`cfg.Alias` в локальном режиме, `cfg.OpenAIModel` в гибридном) и никогда не триггерит переключение — фоновый трафик Claude Code (заголовки сессий, компакция, субагенты) идёт на уже запущенный сервер;
+- Custom 1 несёт `switch-to:<третий-другой-профиль>` (появляется, только если задано минимум три «других» профиля).
 
-Профили из конфиг-файла по-прежнему выбираются флагом `-p <имя>` (они
-применяют модель, алиас и прочие настройки профиля как единственную рабочую
-локальную модель), но в меню отдельными записями больше не показываются.
+Для примера конфига (`small` с алиасом `qwen2.5-0.5b`, `a3b` с алиасом `qwen3.8-a3b`) меню выглядит так:
+
+    switch-to:qwen2.5-0.5b      (Opus / Default)
+    switch-to:qwen3.8-a3b       (Sonnet)
+    qwen2.5-0.5b                (Haiku)
+    (пусто)                     (Fable)
+
+Перезапуск llama-server происходит только на записях с префиксом `switch-to:`; голое primary (Haiku) всегда уходит на текущий сервер.
+
+**Известный косметический дефект (исправление запланировано в 1.9.1):** стандартные слоты показывают префикс `switch-to:`. Работает, но планируется показывать там голые имена профилей, а `switch-to:` оставить только в value.
+
+Если секции `profiles` нет, используется статическое меню: все пять позиций несут единственную локальную модель (или, в гибридном режиме, четыре стандартные позиции несут внешнюю модель, а кастомная — локальную). Переменные меню, унаследованные из окружения (`ANTHROPIC_DEFAULT_*_MODEL`, `ANTHROPIC_CUSTOM_MODEL_OPTION*`), удаляются до того, как лаунчер опубликует свои, поэтому вложенный запуск не показывает ghost-записей.
 
 ## Авто-загрузка моделей
 
@@ -412,7 +435,7 @@ Hugging Face обслуживает большие GGUF как пронумер�
 
 ```bash
 # Сервер + Claude Code в папке проекта
-./llama-runner -alias qwen3-coder -claude-dir ~/my-project
+./llama-runner -alias qwen2.5-0.5b -claude-dir ~/my-project
 
 # Только сервер на другом порту
 ./llama-runner -server -port 9090
@@ -440,7 +463,7 @@ Hugging Face обслуживает большие GGUF как пронумер�
 ./llama-runner -update -cuda-arch 61 && ./llama-runner -server -model ~/GGUF/model.gguf
 
 # Профиль из конфиг-файла
-./llama-runner -p coder
+./llama-runner -p a3b
 
 # Скачать модель с HuggingFace и запустить с ней
 ./llama-runner -download ~/GGUF/https://huggingface.co/AtomicChat/DeepSeek-V4.1-Flash-1017-Uncensored-GSQ-RCO-GGUF/resolve/main/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00004.gguf

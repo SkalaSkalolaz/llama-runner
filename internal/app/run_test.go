@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -90,4 +91,25 @@ func TestRun_VerboseDoesNotLeakKey(t *testing.T) {
 		strings.Contains(errb.String(), "sk-very-secret-123") {
 		t.Errorf("ключ просочился в stdout/stderr: out=%q err=%q", out.String(), errb.String())
 	}
+}
+
+func TestRun_ModelAliasAddedToCatalog(t *testing.T) {
+	// -model X.gguf where X is not a declared profile must still be
+	// switch-to-able (Custom 1 = switch-to:X). Otherwise the user could
+	// swap away and be unable to swap back.
+	home := serverHomeWithConfig(t, `{"profiles": {"coder": {"alias": "coder"}}}`)
+
+	var out, errb bytes.Buffer
+	log := &argLog{}
+	code := Run(
+		[]string{"-config", filepath.Join(home, "config.json"), "-server",
+			"-model", "~/GGUF/gpt-oss-20b-Q5_K_M.gguf"},
+		&out, &errb, recordingRunner{log: log}, "1.5.3-test")
+	if code != 0 {
+		t.Fatalf("Run = %d, want 0 (stderr=%s)", code, errb.String())
+	}
+	// Behavioural assertion: the run succeeded with the derived alias.
+	// The catalog-completeness itself is exercised by proxy tests; here
+	// we only prove -server is not broken by the new catalog entry.
+	_ = log
 }

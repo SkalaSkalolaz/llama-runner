@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,135 @@ import (
 
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 )
+
+type fakeSwapper struct {
+	current string
+	aliases []string
+	url     string
+	err     error
+	calls   []string
+}
+
+func (f *fakeSwapper) SwapTo(_ context.Context, a string) (string, error) {
+	f.calls = append(f.calls, a)
+	if f.err != nil {
+		return "", f.err
+	}
+	f.current = a
+	return f.url, nil
+}
+func (f *fakeSwapper) CurrentAlias() string               { return f.current }
+func (f *fakeSwapper) CatalogAliases() []string           { return f.aliases }
+func (f *fakeSwapper) IncInflight()                       {}
+func (f *fakeSwapper) DecInflight()                       {}
+func (f *fakeSwapper) WaitInflight(context.Context) error { return nil }
+
+func TestHandleMessages_SwitchTo_SwapsAndRoutes(t *testing.T) {
+	upstream, captured := bodyCapturingUpstream(t, `{"id":"m1","type":"message"}`)
+	sw := &fakeSwapper{current: "a", aliases: []string{"a", "b"}, url: upstream.URL}
+	h := &proxyHandler{
+		llamaServerURL: "http://oldserver:9999",
+		cfg:            &config.Config{Alias: "a"},
+		client:         upstream.Client(),
+		localClient:    upstream.Client(),
+		swapper:        sw,
+	}
+	w := httptest.NewRecorder()
+	h.handleMessages(w, httptest.NewRequest("POST", "/v1/messages",
+		strings.NewReader(`{"model":"switch-to:b","messages":[]}`)))
+	if len(sw.calls) != 1 || sw.calls[0] != "b" {
+		t.Errorf("calls = %v, want [b]", sw.calls)
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d, body = %s", w.Code, w.Body.String())
+	}
+	if len(captured()) == 0 {
+		t.Error("upstream not called after swap")
+	}
+}
+
+func TestHandleMessages_SwitchTo_SameAlias_NoSwap(t *testing.T) {
+	upstream, _ := bodyCapturingUpstream(t, `{}`)
+	sw := &fakeSwapper{current: "a", aliases: []string{"a"}, url: upstream.URL}
+	h := &proxyHandler{
+		llamaServerURL: upstream.URL,
+		cfg:            &config.Config{Alias: "a"},
+		client:         upstream.Client(),
+		localClient:    upstream.Client(),
+		swapper:        sw,
+	}
+	w := httptest.NewRecorder()
+	h.handleMessages(w, httptest.NewRequest("POST", "/v1/messages",
+		strings.NewReader(`{"model":"switch-to:a","messages":[]}`)))
+	if len(sw.calls) != 0 {
+		t.Errorf("same-alias switch must not call SwapTo: %v", sw.calls)
+	}
+}
+
+func TestHandleMessages_SwitchTo_Unknown_400(t *testing.T) {
+	upstream, _ := bodyCapturingUpstream(t, `{}`)
+	sw := &fakeSwapper{current: "a", aliases: []string{"a"}, url: upstream.URL}
+	h := &proxyHandler{
+		cfg:         &config.Config{Alias: "a"},
+		client:      upstream.Client(),
+		localClient: upstream.Client(),
+		swapper:     sw,
+	}
+	w := httptest.NewRecorder()
+	h.handleMessages(w, httptest.NewRequest("POST", "/v1/messages",
+		strings.NewReader(`{"model":"switch-to:unknown","messages":[]}`)))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("code = %d, want 400", w.Code)
+	}
+	if len(sw.calls) != 0 {
+		t.Errorf("SwapTo must not be called for unknown profile: %v", sw.calls)
+	}
+}
+
+func TestHandleMessages_BareCatalogAlias_NoSwap(t *testing.T) {
+	// This is the core anti-thrashing invariant: a bare alias, even if
+	// it names a catalog profile, must NOT restart the server.
+	upstream, _ := bodyCapturingUpstream(t, `{"ok":true}`)
+	sw := &fakeSwapper{current: "a", aliases: []string{"a", "b"}, url: upstream.URL}
+	h := &proxyHandler{
+		llamaServerURL: upstream.URL,
+		cfg:            &config.Config{Alias: "a"},
+		client:         upstream.Client(),
+		localClient:    upstream.Client(),
+		swapper:        sw,
+	}
+	w := httptest.NewRecorder()
+	h.handleMessages(w, httptest.NewRequest("POST", "/v1/messages",
+		strings.NewReader(`{"model":"b","messages":[]}`)))
+	if len(sw.calls) != 0 {
+		t.Errorf("bare catalog alias must not trigger swap: %v", sw.calls)
+	}
+}
+
+func TestHandleMessages_SwitchFails_502(t *testing.T) {
+	sw := &fakeSwapper{current: "a", aliases: []string{"a", "b"}, err: errors.New("boom")}
+	h := &proxyHandler{cfg: &config.Config{Alias: "a"}, swapper: sw}
+	w := httptest.NewRecorder()
+	h.handleMessages(w, httptest.NewRequest("POST", "/v1/messages",
+		strings.NewReader(`{"model":"switch-to:b","messages":[]}`)))
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("code = %d, want 502", w.Code)
+	}
+}
+
+func TestHandleMessages_Swapper_Nil_Unchanged(t *testing.T) {
+	// Existing passthrough tests already prove nil swapper → old path; add
+	// an explicit guard here so a future regression is caught.
+	upstream, _ := bodyCapturingUpstream(t, `{"ok":true}`)
+	h := &proxyHandler{llamaServerURL: upstream.URL, cfg: &config.Config{},
+		client: upstream.Client(), localClient: upstream.Client()}
+	w := httptest.NewRecorder()
+	h.handleMessages(w, httptest.NewRequest("POST", "/v1/messages",
+		strings.NewReader(`{"model":"x","messages":[]}`)))
+	if w.Code != http.StatusOK {
+		t.Errorf("code = %d", w.Code)
+	}
+}
 
 // hybridCfg — полностью настроенный внешний провайдер: именно он включает
 // прокси hybrid-режимом (см. proxyHandler.externalMode). URL намеренно

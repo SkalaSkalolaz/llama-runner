@@ -4,7 +4,7 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/install.sh | sh
-#   curl -fsSL .../install.sh | sh -s -- --version v1.8.0 --with-agents
+#   curl -fsSL .../install.sh | sh -s -- --version vX.Y.Z --with-agents
 #
 # See --help for all options.
 
@@ -280,7 +280,11 @@ write_config() {
       "b": "2048",
       "ub": "512",
       "fa": "auto",
-      "parallel": "1"
+      "parallel": "1",
+      "temp": "0.2",
+      "fit": "on",
+      "reasoning": "on",
+      "reasoningBudget": "2048"
     },
     "a3b": {
       "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
@@ -289,7 +293,11 @@ write_config() {
       "b": "4196",
       "ub": "1024",
       "fa": "auto",
-      "parallel": "1"
+      "parallel": "1",
+      "temp": "0.2",
+      "fit": "on",
+      "reasoning": "on",
+      "reasoningBudget": "2048"
     }
   }
 }

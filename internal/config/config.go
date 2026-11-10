@@ -157,6 +157,18 @@ type Config struct {
 	// explicit (see ParseFlagsWithHome). Set by flag.Visit, like the other
 	// origin flags above.
 	ParallelSet bool
+	// Profiles holds the fully merged, launch-ready config of every named
+	// profile declared in the config file (root config overlaid with the
+	// profile's FileConfig, with the profile's alias resolved independently).
+	// Empty when the config file has no "profiles" section: that is the
+	// signal that the launcher serves a single model, exactly as before.
+	// When non-empty, the /model menu advertises every profile and the
+	// proxy hot-swaps llama-server on a change of the requested model.
+	Profiles map[string]*Config
+	// ProfileDescriptions maps a profile's resolved alias to the optional
+	// human description from the config file ("description": "..."). Only
+	// used to annotate custom /model entries. May be nil.
+	ProfileDescriptions map[string]string
 }
 
 // OpenAIProviderConfigured reports whether an external OpenAI-compatible

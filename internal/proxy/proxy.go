@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 	"github.com/SkalaSkalolaz/llama-runner/internal/convert"
@@ -28,6 +29,9 @@ type Options struct {
 	Cfg *config.Config
 	// LogWriter receives [proxy]-prefixed diagnostics under -v.
 	LogWriter io.Writer
+	// Swapper is nil in the single-model case; set when the config file
+	// declares profiles, enabling hot-swap on model change.
+	Swapper Swapper
 }
 
 // Start binds an HTTP listener on opts.ProxyAddr and starts serving the proxy
@@ -49,8 +53,8 @@ func Start(opts Options) (*http.Server, error) {
 		client:         newProxyClient(),
 		localClient:    newLocalProxyClient(),
 		logWriter:      opts.LogWriter,
+		swapper:        opts.Swapper,
 	}
-
 	mux := newProxyMux(h)
 
 	ln, err := net.Listen("tcp", opts.ProxyAddr)
@@ -93,6 +97,9 @@ type proxyHandler struct {
 	// logWriter receives [proxy]-prefixed diagnostic lines when -v is set;
 	// nil disables logging entirely.
 	logWriter io.Writer
+	swapper   Swapper
+	swapMu    sync.RWMutex
+	mu        sync.RWMutex
 }
 
 // externalMode reports whether the proxy runs in hybrid mode: an external
@@ -195,4 +202,18 @@ func (h *proxyHandler) convert(req map[string]any) (map[string]any, error) {
 		h.logf(i18n.T(i18n.MsgProxyDropped), st.Summary())
 	}
 	return out, err
+}
+
+// currentServerURL returns llamaServerURL under the read lock. Used by
+// passthrough and handleModels; a hot-swap may rewrite it at any time.
+func (h *proxyHandler) currentServerURL() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.llamaServerURL
+}
+
+func (h *proxyHandler) setServerURL(u string) {
+	h.mu.Lock()
+	h.llamaServerURL = u
+	h.mu.Unlock()
 }

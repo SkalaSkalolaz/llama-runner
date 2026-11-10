@@ -314,3 +314,27 @@ func TestBuildClaudeEnv_WithOpenAI(t *testing.T) {
 		t.Errorf("fable = %q, want gpt-4", m["ANTHROPIC_DEFAULT_FABLE_MODEL"])
 	}
 }
+
+func TestContextTokensPerSlot(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *config.Config
+		want int
+	}{
+		{"single slot", &config.Config{CtxSize: "262144", Parallel: "1"}, 262144},
+		{"two slots", &config.Config{CtxSize: "262144", Parallel: "2"}, 131072},
+		{"agent profile (c=73728, parallel=3)", &config.Config{CtxSize: "73728", Parallel: "3"}, 24576},
+		{"parallel unset → 1", &config.Config{CtxSize: "147456"}, 147456},
+		{"auto → unknown", &config.Config{CtxSize: "auto", Parallel: "1"}, 0},
+		{"negative → unknown", &config.Config{CtxSize: "-1", Parallel: "1"}, 0},
+		{"garbage parallel → unknown", &config.Config{CtxSize: "262144", Parallel: "two"}, 0},
+		{"nil cfg", nil, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ContextTokensPerSlot(tt.cfg); got != tt.want {
+				t.Errorf("ContextTokensPerSlot(%+v) = %d, want %d", tt.cfg, got, tt.want)
+			}
+		})
+	}
+}

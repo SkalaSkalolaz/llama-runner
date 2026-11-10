@@ -26,6 +26,7 @@ func PrintClaudeDiagnostics(stdout io.Writer, cfg *config.Config, claudePath, wo
 		fmt.Fprint(stdout, "  ", i18n.TF(i18n.MsgAnthropicTokenHidden))
 	}
 	for _, want := range []string{
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
 		"ANTHROPIC_DEFAULT_FABLE_MODEL",

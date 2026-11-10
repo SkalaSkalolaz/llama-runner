@@ -2,11 +2,16 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/SkalaSkalolaz/llama-runner/internal/cli"
@@ -28,22 +33,21 @@ import (
 // instance: the verified binary and command line, the working directory, the
 // log target and the health probe to wait on after Start.
 type ServerSpec struct {
-	// Bin is the absolute llama-server binary path.
-	Bin string
-	// Args is the complete command line (without the binary).
-	Args []string
-	// WorkDir is the absolute working directory for the process
-	// ("" means: inherit the launcher's cwd).
+	Bin     string
+	Args    []string
 	WorkDir string
-	// Log receives the process stdout/stderr; nil means inherit the
-	// manager's streams.
-	Log io.Writer
-	// HealthURL is polled by WaitReady (normally <base>/health).
+	Log     io.Writer
+	// BaseURL is the http base URL used to reach the server from the
+	// launcher (e.g. "http://127.0.0.1:8080", no trailing slash).
+	BaseURL string
+	// HealthURL is BaseURL + "/health".
 	HealthURL string
-	// ReadyTimeout bounds the health wait.
+	// Port is the TCP port the server listens on, kept separately from
+	// Args so SwapTo can rewrite it to a fresh free port without string
+	// parsing. Informational for the initial launch.
+	Port         string
 	ReadyTimeout time.Duration
-	// Verbose enables the launcher's -v diagnostics around the start.
-	Verbose bool
+	Verbose      bool
 }
 
 // SpecForConfig turns a resolved configuration — the root config, or a copy
@@ -64,6 +68,7 @@ func SpecForConfig(cfg *config.Config, home string, stdout, stderr io.Writer) (S
 	if wdCode != 0 {
 		return ServerSpec{}, wdCode
 	}
+	base := ServerBaseURL(cfg)
 	return ServerSpec{
 		Bin: paths.ServerBin,
 		Args: cli.BuildServerArgs(cfg, cli.ServerPaths{
@@ -71,7 +76,9 @@ func SpecForConfig(cfg *config.Config, home string, stdout, stderr io.Writer) (S
 			Draft: paths.Draft, Template: paths.Template,
 		}),
 		WorkDir:      workDir,
-		HealthURL:    ServerBaseURL(cfg) + "/health",
+		BaseURL:      base,
+		HealthURL:    base + "/health",
+		Port:         cfg.Port,
 		ReadyTimeout: cfg.ReadyTimeout,
 		Verbose:      cfg.Verbose,
 	}, 0
@@ -98,6 +105,7 @@ type ServerManager struct {
 	shut    *shutdown
 	stdout  io.Writer
 	stderr  io.Writer
+	mu      sync.RWMutex
 	current *exec.Cmd
 	tracked *proc.Tracked
 }
@@ -145,17 +153,113 @@ func (m *ServerManager) Start(spec ServerSpec) error {
 // WaitReady polls spec.HealthURL until the server answers, the process
 // exits, or ReadyTimeout elapses.
 func (m *ServerManager) WaitReady(spec ServerSpec) error {
-	if m.tracked == nil {
+	m.mu.RLock()
+	tracked := m.tracked
+	m.mu.RUnlock()
+	if tracked == nil {
 		return errors.New("server is not started")
 	}
-	return proc.WaitForServerProcess(spec.HealthURL, spec.ReadyTimeout, m.tracked)
+	return proc.WaitForServerProcess(spec.HealthURL, spec.ReadyTimeout, tracked)
 }
 
-// Current returns the tracked process of the running instance, or nil before
-// the first successful Start.
-func (m *ServerManager) Current() *proc.Tracked { return m.tracked }
+func (m *ServerManager) Current() *proc.Tracked {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.tracked
+}
 
-// CurrentCmd returns the *exec.Cmd of the running instance (nil before the
-// first Start). A swapping caller keeps it to stop the old process once the
-// replacement is healthy.
-func (m *ServerManager) CurrentCmd() *exec.Cmd { return m.current }
+func (m *ServerManager) CurrentCmd() *exec.Cmd {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.current
+}
+
+// Stop terminates the current llama-server: SIGTERM to its process group,
+// wait up to 5s for a clean exit, escalate to SIGKILL, then clear the
+// tracked state. Safe before the first Start and idempotent after a
+// successful Stop.
+func (m *ServerManager) Stop() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cmd, tracked := m.current, m.tracked
+	if cmd == nil || cmd.Process == nil {
+		m.current, m.tracked = nil, nil
+		m.shut.SetServer(nil)
+		return nil
+	}
+	signalChild(cmd, syscall.SIGTERM)
+	if tracked != nil {
+		select {
+		case <-tracked.Done:
+		case <-time.After(15 * time.Second):
+			signalChild(cmd, syscall.SIGKILL)
+			select {
+			case <-tracked.Done:
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+	m.current, m.tracked = nil, nil
+	m.shut.SetServer(nil)
+	return nil
+}
+
+// StopAndStart replaces the current server with one built from spec on a
+// fresh free port (avoids TIME_WAIT races on the old port) and returns the
+// spec that is now running. Does NOT wait for readiness; see SwapTo.
+func (m *ServerManager) StopAndStart(spec ServerSpec) (ServerSpec, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return ServerSpec{}, fmt.Errorf("allocate port: %w", err)
+	}
+	newPort := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	_ = ln.Close()
+
+	newSpec := rewriteSpecPort(spec, newPort)
+	if err := m.Stop(); err != nil {
+		return ServerSpec{}, fmt.Errorf("stop old server: %w", err)
+	}
+	if err := m.Start(newSpec); err != nil {
+		return ServerSpec{}, fmt.Errorf("start new server: %w", err)
+	}
+	return newSpec, nil
+}
+
+// SwapTo replaces the current server with one built from spec and waits
+// for it to become ready. On any error the old server is already stopped
+// and no new server is guaranteed to be running.
+func (m *ServerManager) SwapTo(spec ServerSpec) (ServerSpec, error) {
+	newSpec, err := m.StopAndStart(spec)
+	if err != nil {
+		return ServerSpec{}, err
+	}
+	if err := m.WaitReady(newSpec); err != nil {
+		_ = m.Stop()
+		return ServerSpec{}, fmt.Errorf("wait ready: %w", err)
+	}
+	return newSpec, nil
+}
+
+// rewriteSpecPort returns a copy of spec with --port rewritten to newPort
+// and BaseURL/HealthURL recomputed against it.
+func rewriteSpecPort(spec ServerSpec, newPort string) ServerSpec {
+	args := make([]string, len(spec.Args))
+	copy(args, spec.Args)
+	for i := 1; i < len(args); i++ {
+		if args[i-1] == "--port" {
+			args[i] = newPort
+		}
+	}
+	host := "127.0.0.1"
+	if u, err := url.Parse(spec.BaseURL); err == nil {
+		if h := u.Hostname(); h != "" && h != "0.0.0.0" && h != "::" {
+			host = h
+		}
+	}
+	base := "http://" + net.JoinHostPort(host, newPort)
+	spec.Args = args
+	spec.Port = newPort
+	spec.BaseURL = base
+	spec.HealthURL = base + "/health"
+	return spec
+}
