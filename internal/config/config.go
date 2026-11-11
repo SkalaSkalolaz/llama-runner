@@ -105,8 +105,13 @@ type Config struct {
 	ProxyToken       string
 	ProxyAllowRemote bool
 
-	ConfigPath           string
-	Profile              string
+	ConfigPath string
+	Profile    string
+	// Mode is the profile's declared operating mode ("mode" in the config
+	// file): "" — the ordinary single-model launch, ModeAuto — the
+	// autonomous orchestrator. It is not inherited by profiles from the
+	// root section; see AutoMode and cli.ParseFlagsWithHome.
+	Mode                 string
 	DoctorFlag           bool
 	ChatTemplateFallback string
 

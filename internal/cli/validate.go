@@ -28,6 +28,9 @@ import (
 //     parseable absolute URL, and -proxy-addr (if set) must be a valid
 //     host:port pair.
 func ValidateConfig(cfg *config.Config) error {
+	if !config.ValidMode(cfg.Mode) {
+		return i18n.Errorv(i18n.MsgErrModeBad, cfg.Mode)
+	}
 	if cfg.ReadyTimeout <= 0 {
 		return i18n.Errorv(i18n.MsgErrReadyTimeoutPositive)
 	}

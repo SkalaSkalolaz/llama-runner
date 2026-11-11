@@ -21,6 +21,8 @@ const (
 	MsgErrConfigFileNotFound   = "err_config_file_not_found"
 	MsgErrProfileNoConfig      = "err_profile_no_config"
 	MsgErrProfileNotFound      = "err_profile_not_found"
+	MsgErrAutoFlagConflict     = "err_auto_flag_conflict"
+	MsgErrModeBad              = "err_mode_bad"
 	MsgErrReadyTimeoutPositive = "err_ready_timeout_positive"
 	MsgErrHostEmpty            = "err_host_empty"
 	MsgErrPortBad              = "err_port_bad"
@@ -169,6 +171,8 @@ const (
 	MsgWarnProfileUnlaunchable = "warn_profile_unlaunchable"
 	MsgWarnProfileDupAlias     = "warn_profile_dup_alias"
 	MsgSwapFailed              = "proxy_swap_failed"
+	MsgAutoModeLine            = "auto_mode_line"
+	MsgAutoServerOnly          = "auto_server_only"
 
 	// --- Update mode (run.go, update.go) ---
 	MsgUpdateSuccess       = "update_success"
@@ -215,6 +219,8 @@ const (
 	MsgDoctorConfig       = "doctor_config"
 	MsgDoctorConfigMiss   = "doctor_config_missing"
 	MsgDoctorProfile      = "doctor_profile"
+	MsgDoctorModeAuto     = "doctor_mode_auto"
+	MsgDoctorAutoCtx      = "doctor_auto_ctx"
 	MsgErrDoctorConfig    = "doctor_err_config"
 	MsgLblModel           = "lbl_model"
 	MsgLblServerBin       = "lbl_server_bin"
@@ -261,6 +267,7 @@ const (
 	MsgSummaryMessages   = "summary_messages"
 	MsgErrUnknownProfile = "err_unknown_profile"
 	MsgSwapVerbose       = "swap_verbose"
+	MsgAutoSwitchIgnored = "auto_switch_ignored"
 )
 
 // messages is the complete translation catalog: one entry per key with the
@@ -278,10 +285,18 @@ var messages = map[string]i18nMessage{
 	MsgMcpKillUnconfirmed: {"предупреждение: процесс mcp-search-server не подтвердил завершение после Kill", "warning: mcp-search-server did not confirm termination after Kill"},
 
 	// --- Config resolution and validation ---
-	MsgErrHomeDir:              {"не удалось получить домашний каталог", "failed to get home directory"},
-	MsgErrConfigFileNotFound:   {"конфиг-файл %q не найден", "config file %q not found"},
-	MsgErrProfileNoConfig:      {"профиль %q не найден: конфиг-файл отсутствует", "profile %q not found: config file is missing"},
-	MsgErrProfileNotFound:      {"профиль %q не найден в конфиге", "profile %q not found in config"},
+	MsgErrHomeDir:            {"не удалось получить домашний каталог", "failed to get home directory"},
+	MsgErrConfigFileNotFound: {"конфиг-файл %q не найден", "config file %q not found"},
+	MsgErrProfileNoConfig:    {"профиль %q не найден: конфиг-файл отсутствует", "profile %q not found: config file is missing"},
+	MsgErrProfileNotFound:    {"профиль %q не найден в конфиге", "profile %q not found in config"},
+	MsgErrAutoFlagConflict: {
+		"режим auto: флаги %s запрещены — профиль планировщика самодостаточен; уберите флаги или измените профиль в конфиге",
+		"auto mode: flags %s are not allowed — the planner profile is self-contained; drop the flags or edit the profile in the config file",
+	},
+	MsgErrModeBad: {
+		"некорректный mode %q: ожидается \"auto\" или пустое значение",
+		"invalid mode %q: expected \"auto\" or an empty value",
+	},
 	MsgErrReadyTimeoutPositive: {"-ready-timeout должен быть больше нуля", "-ready-timeout must be greater than zero"},
 	MsgErrHostEmpty:            {"-host не может быть пустым", "-host cannot be empty"},
 	MsgErrPortBad:              {"некорректный -port %q: ожидается число от 1 до 65535", "invalid -port %q: expected a number from 1 to 65535"},
@@ -307,6 +322,14 @@ var messages = map[string]i18nMessage{
 	MsgWarnProfileUnlaunchable: {"предупреждение: профиль %q не запускается; исключён из меню /model", "warning: profile %q cannot launch; excluded from /model menu"},
 	MsgWarnProfileDupAlias:     {"предупреждение: профиль %q пропущен — алиас %q уже занят", "warning: profile %q skipped — alias %q already taken"},
 	MsgSwapFailed:              {"переключение на %q не удалось: %v", "swap to %q failed: %v"},
+	MsgAutoModeLine: {
+		"Режим: auto — планировщик %s, профилей в каталоге: %d",
+		"Mode: auto — planner %s, profiles in catalog: %d",
+	},
+	MsgAutoServerOnly: {
+		"режим auto: -server — запускается только планировщик, без оркестрации",
+		"auto mode: -server — starting the planner only, no orchestration",
+	},
 
 	// --- Flag help descriptions ---
 	MsgFlagDir:             {"рабочая директория...", "working directory..."},
@@ -497,10 +520,15 @@ var messages = map[string]i18nMessage{
 	},
 
 	// --- Doctor report ---
-	MsgDoctorVersion:      {"  версия:         %s", "  version:        %s"},
-	MsgDoctorConfig:       {"  конфиг:         %s", "  config:         %s"},
-	MsgDoctorConfigMiss:   {"  конфиг:         %s (не найден — встроенные дефолты)", "  config:         %s (not found — built-in defaults)"},
-	MsgDoctorProfile:      {"  профиль:        %s", "  profile:        %s"},
+	MsgDoctorVersion:    {"  версия:         %s", "  version:        %s"},
+	MsgDoctorConfig:     {"  конфиг:         %s", "  config:         %s"},
+	MsgDoctorConfigMiss: {"  конфиг:         %s (не найден — встроенные дефолты)", "  config:         %s (not found — built-in defaults)"},
+	MsgDoctorProfile:    {"  профиль:        %s", "  profile:        %s"},
+	MsgDoctorModeAuto:   {"  режим:          auto (планировщик)", "  mode:           auto (planner)"},
+	MsgDoctorAutoCtx: {
+		"  контекст auto:  %d (максимум по профилям с parallel=1)",
+		"  auto context:   %d (max over profiles with parallel=1)",
+	},
 	MsgErrDoctorConfig:    {"  ошибка конфига: %v", "  config error: %v"},
 	MsgLblModel:           {"модель:", "model:"},
 	MsgLblServerBin:       {"llama-server:", "llama-server:"},
@@ -552,5 +580,9 @@ var messages = map[string]i18nMessage{
 	MsgSwapVerbose: {
 		"переключение профиля: %s → %s",
 		"switching profile: %s → %s",
+	},
+	MsgAutoSwitchIgnored: {
+		"auto: ручное переключение на %q проигнорировано — моделью владеет оркестратор",
+		"auto: manual switch to %q ignored — the orchestrator owns the model",
 	},
 }

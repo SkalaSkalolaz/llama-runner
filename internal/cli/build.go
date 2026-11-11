@@ -158,8 +158,18 @@ func BuildClaudeEnv(cfg *config.Config, baseURL string, baseEnv []string) []stri
 	// --ctx-size across all --parallel slots.
 	// A value the user already exported in baseEnv wins, so
 	// CLAUDE_CODE_MAX_CONTEXT_TOKENS=... llama-runner -p coder keeps working.
-	if ctx := ContextTokensPerSlot(cfg); ctx > 0 {
-		budget := strconv.Itoa(ctx)
+
+	// Auto mode publishes the catalog ceiling (see AutoContextBudget);
+	// every other mode keeps the exact per-slot value of the running model.
+	// Both variables carry the same number — one rule, as before.
+	ctxBudget := ContextTokensPerSlot(cfg)
+	if cfg.AutoMode() {
+		if b := AutoContextBudget(cfg); b > 0 {
+			ctxBudget = b
+		}
+	}
+	if ctxBudget > 0 {
+		budget := strconv.Itoa(ctxBudget)
 		if !envHasKey(baseEnv, "CLAUDE_CODE_MAX_CONTEXT_TOKENS") {
 			env = append(env, "CLAUDE_CODE_MAX_CONTEXT_TOKENS="+budget)
 		}
@@ -319,6 +329,45 @@ func ContextTokensPerSlot(cfg *config.Config) int {
 		p = v
 	}
 	return c / p
+}
+
+// AutoContextBudget returns the context window published to the interactive
+// Claude Code session in auto mode: the largest per-slot window among the
+// catalog profiles that serve ONE session (effective parallel == 1).
+//
+// Why a maximum: the child's environment is fixed at launch, but auto mode
+// hot-swaps the local model underneath it. Publishing the planner's (small)
+// window would make Claude Code compact long before a large worker's real
+// limit. Profiles with parallel > 1 are deliberately excluded — their -c is
+// split across slots, so it is not what one agent gets.
+//
+// The orchestrator does NOT use this for its own steps: it builds each
+// step's environment from that worker's profile config, whose Mode is empty
+// (mode is not inherited), so ContextTokensPerSlot gives the exact value.
+//
+// Returns 0 when nothing qualifies (no catalog, every profile multi-slot,
+// or no numeric context) — the caller falls back to ContextTokensPerSlot.
+// An empty Parallel means one slot, matching ContextTokensPerSlot.
+func AutoContextBudget(cfg *config.Config) int {
+	if cfg == nil {
+		return 0
+	}
+	best := 0
+	for _, pc := range cfg.Profiles {
+		if pc == nil {
+			continue
+		}
+		if p := strings.TrimSpace(pc.Parallel); p != "" {
+			n, err := strconv.Atoi(p)
+			if err != nil || n != 1 {
+				continue
+			}
+		}
+		if ctx := ContextTokensPerSlot(pc); ctx > best {
+			best = ctx
+		}
+	}
+	return best
 }
 
 // envHasKey reports whether env already contains a KEY=VALUE entry for key.

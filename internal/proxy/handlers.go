@@ -112,10 +112,19 @@ func (h *proxyHandler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// request (including the background traffic Claude Code generates for
 	// session titles and compaction) is routed to the running server.
 	if target, ok := strings.CutPrefix(model, config.SwitchPrefix); ok {
-		h.handleSwitch(w, r, strings.TrimSpace(target), body, req, stream)
-		return
+		if !h.cfg.AutoMode() {
+			h.handleSwitch(w, r, strings.TrimSpace(target), body, req, stream)
+			return
+		}
+		// Auto mode: the orchestrator is the only driver of swaps. A
+		// manual switch-to: must not pull the server out from under a
+		// running plan — but it is not an error either. The request is
+		// served by the RUNNING server (200, no restart) and the refusal
+		// is logged. Routing uses the canonical local token so hybrid
+		// mode cannot mistake the prefixed name for an external model.
+		h.logf(i18n.T(i18n.MsgAutoSwitchIgnored), strings.TrimSpace(target))
+		model = localModelName
 	}
-
 	// Non-swap path: bracket with in-flight tracking so a future swap
 	// waits for us before killing the server.
 	if h.swapper != nil {

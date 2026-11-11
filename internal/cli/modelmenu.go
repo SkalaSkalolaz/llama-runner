@@ -82,6 +82,14 @@ func BuildModelMenu(cfg *config.Config) []ModelSlot {
 	if cfg == nil {
 		return nil
 	}
+	// Auto mode: the orchestrator owns the local model and the proxy
+	// ignores manual switch-to: requests (see proxy.handleMessages).
+	// Advertising switch entries would offer choices that do nothing, so
+	// the static layout is published: every slot carries the bare planner
+	// alias, which never restarts the server.
+	if cfg.AutoMode() {
+		return buildStaticMenu(cfg)
+	}
 	if len(cfg.Profiles) > 0 {
 		return buildDynamicMenu(cfg)
 	}

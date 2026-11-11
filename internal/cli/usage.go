@@ -116,7 +116,8 @@ Claude Code:
 Конфиг:
   -config string       путь к конфиг-файлу (по умолчанию
                        "~/.config/llama-runner/config.json"; "" — не читать)
-  -p string            профиль из конфиг-файла (profiles: {имя: {...}})
+  -p string            профиль из конфиг-файла (profiles: {имя: {...}});
+                       профиль с "mode": "auto" включает автоматический режим
   -doctor              показать разрешённые пути и версию, не запуская процессы
 
 Обновление llama.cpp:
@@ -144,6 +145,9 @@ Claude Code:
 
   # Профиль из конфиг-файла
   llama-runner -p coder
+
+  # Автоматический режим: профиль-планировщик с "mode": "auto"
+  llama-runner -p auto
 
   # Скачать модель с HuggingFace и запустить с ней
   llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
@@ -254,7 +258,8 @@ Claude Code:
 Config:
   -config string       config file path (default
                        "~/.config/llama-runner/config.json"; "" = don't read)
-  -p string            profile from config file (profiles: {name: {...}})
+  -p string            profile from config file (profiles: {name: {...}});
+                       a profile with "mode": "auto" enables automatic mode
   -doctor              show resolved paths and version without starting processes
 
 llama.cpp update:
@@ -282,6 +287,9 @@ Examples:
 
   # Profile from config file
   llama-runner -p coder
+
+  # Automatic mode: a planner profile declaring "mode": "auto"
+  llama-runner -p auto
 
   # Download a model from Hugging Face and launch with it
   llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf

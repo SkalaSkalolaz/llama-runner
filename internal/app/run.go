@@ -170,6 +170,18 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		}
 	}
 
+	// --- auto mode: state the mode explicitly ---
+	// The mode must never be implicit: the user sees which model is the
+	// planner and how large the worker catalog is. With -server there is
+	// no Claude Code to orchestrate, so this is a plain planner launch —
+	// said out loud rather than silently implied.
+	// (The orchestrator itself hooks in below, after the server is ready.)
+	if cfg.AutoMode() {
+		fmt.Fprint(stdout, i18n.TF(i18n.MsgAutoModeLine, cfg.Alias, len(cfg.Profiles)))
+		if cfg.ServerOnly {
+			fmt.Fprint(stdout, i18n.TF(i18n.MsgAutoServerOnly))
+		}
+	}
 	// --- Launch plan: resolved paths, server args, working directory ---
 	spec, specCode := SpecForConfig(cfg, home, stdout, stderr)
 	if specCode != 0 {

@@ -45,6 +45,16 @@ func RunDoctor(cfg *config.Config, home string, cmdRunner runner.CommandRunner, 
 		fmt.Fprint(stdout, i18n.TF(i18n.MsgDoctorProfile, cfg.Profile))
 	}
 
+	if cfg.AutoMode() {
+		fmt.Fprint(stdout, i18n.TF(i18n.MsgDoctorModeAuto))
+		// Doctor reports the config as written: unlike run() it does not
+		// prune unlaunchable profiles, so this ceiling may include one
+		// that a real launch would drop.
+		if b := cli.AutoContextBudget(cfg); b > 0 {
+			fmt.Fprint(stdout, i18n.TF(i18n.MsgDoctorAutoCtx, b))
+		}
+	}
+
 	// The name llama-server will advertise (--alias, and with it the card in
 	// its WebUI) and the name Claude Code will show in /model come from one
 	// place, so the report states both the value and where it came from.

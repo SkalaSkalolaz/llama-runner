@@ -125,6 +125,7 @@ type FileConfig struct {
 	ClaudeBin            *string `json:"claudeBin,omitempty"`
 	ClaudeDir            *string `json:"claudeDir,omitempty"`
 	Alias                *string `json:"alias,omitempty"`
+	Mode                 *string `json:"mode,omitempty"`
 	Description          *string `json:"description,omitempty"`
 	ReadyTimeout         *string `json:"readyTimeout,omitempty"` // duration string, e.g. "180s"
 	ChatTemplate         *string `json:"chatTemplate,omitempty"`
@@ -216,6 +217,7 @@ func ApplyFileConfig(cfg *Config, fc FileConfig) error {
 	set(&cfg.ClaudeBin, fc.ClaudeBin)
 	set(&cfg.ClaudeDir, fc.ClaudeDir)
 	set(&cfg.Alias, fc.Alias)
+	set(&cfg.Mode, fc.Mode)
 	set(&cfg.ChatTemplate, fc.ChatTemplate)
 	set(&cfg.ChatTemplateFallback, fc.ChatTemplateFallback)
 	set(&cfg.LogFile, fc.LogFile)

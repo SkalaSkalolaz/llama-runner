@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 	"github.com/SkalaSkalolaz/llama-runner/internal/i18n"
@@ -106,6 +107,9 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 			if !ok {
 				return nil, i18n.Errorv(i18n.MsgErrProfileNotFound, profileName)
 			}
+			// mode belongs to the profile alone: a root planner must not
+			// leak into a worker selected with -p.
+			cfg.Mode = ""
 			if err := config.ApplyFileConfig(cfg, p); err != nil {
 				return nil, err
 			}
@@ -199,9 +203,13 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
-	var sawModel, sawDownload bool
+	var sawModel, sawDownload, sawCtx bool
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "c":
+			// Only the fact that the flag was given matters: an explicit
+			// -c contradicts the context contract of an auto planner.
+			sawCtx = true
 		case "chat-template":
 			cfg.ChatTemplateSet = true
 		case "alias":
@@ -252,6 +260,42 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	if cfg.ModelSet && !cfg.ParallelSet {
 		cfg.Parallel = "1"
 	}
+	// --- auto mode: the planner profile is self-contained ---
+	//
+	// These flags break a contract the orchestrator relies on, so they are
+	// rejected (exit 2) rather than warned about:
+	//   -model / -download  replace the planner while mode stays "auto"
+	//                       (ResolveAlias would also discard its alias);
+	//   -alias              renames the running model, so switch-to:<alias>
+	//                       no longer names it and the catalog gains a
+	//                       second entry for the same GGUF;
+	//   -parallel           changes the slot count and the per-slot context;
+	//   -c                  changes the context budget published to Claude.
+	// Tuning flags (-temp, -ngl, -fit, -reasoning*, -b/-ub, …) stay allowed:
+	// they affect quality, not identity/context/concurrency.
+	//
+	// The guard is AutoMode(), so nothing here touches ordinary launches:
+	// -p coder -model X keeps working exactly as before.
+	if cfg.AutoMode() {
+		var banned []string
+		for _, f := range []struct {
+			name string
+			set  bool
+		}{
+			{"model", sawModel},
+			{"download", sawDownload},
+			{"alias", cfg.AliasFromCLI},
+			{"parallel", cfg.ParallelSet},
+			{"c", sawCtx},
+		} {
+			if f.set {
+				banned = append(banned, "-"+f.name)
+			}
+		}
+		if len(banned) > 0 {
+			return nil, i18n.Errorv(i18n.MsgErrAutoFlagConflict, strings.Join(banned, ", "))
+		}
+	}
 	// --- Profile catalog (opt-in hot-swap) ---
 	// When the config file declares profiles, build each one as a fully
 	// merged Config, resolved independently of the active CLI profile.
@@ -261,12 +305,17 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	if fc != nil && len(fc.Profiles) > 0 {
 		cfg.Profiles = make(map[string]*config.Config, len(fc.Profiles)+1)
 		cfg.ProfileDescriptions = make(map[string]string, len(fc.Profiles))
+
 		for name := range fc.Profiles {
 			pfc := fc.Profiles[name]
 			pc := config.DefaultConfig()
 			if err := config.ApplyFileConfig(pc, *fc); err != nil {
 				return nil, err
 			}
+			// Same non-inheritance rule as above; rootCfg below keeps the
+			// root's own mode, so a root planner is a legitimate catalog
+			// entry.
+			pc.Mode = ""
 			if err := config.ApplyFileConfig(pc, pfc); err != nil {
 				return nil, err
 			}
