@@ -64,6 +64,12 @@ go build -o llama-runner ./cmd/llama-runner
   native Anthropic API at `/v1/messages`, with Anthropic-specific features (thinking,
   cache_control, tool_use/tool_result) preserved verbatim. Token authentication via
   `-proxy-token`.
+- **Auto mode:** a profile declaring `"mode": "auto"` becomes the
+  planner — it decomposes the task into steps, picks a model from
+  `profiles` for each step (by `description`), and the orchestrator
+  executes the plan with hot-swapping between models. Entry points:
+  `-p auto -task "..."` (headless) or `-p auto` (interactive loop).
+  See the "Auto orchestration" section.
 - **MCP proxy:** `-webui-mcp-proxy` starts `mcp-search-server`, generates a temporary
   MCP config and passes CORS through. With `-mcp-strict` — only this MCP, no third-party
   servers from `~/.claude.json`.
@@ -162,7 +168,9 @@ go build -o llama-runner ./cmd/llama-runner
 |------|---------|-------------|
 | `-config` | `~/.config/llama-runner/config.json` | Path to the config file; `""` — don't read |
 | `-download` | _(not set)_ | Download a model before launch: `<dir><URL>` as one argument, e.g. `~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf`. Sharded models are expanded to the full set. After the download, `-model` points at the fetched file; a CLI `-model` is ignored. Not compatible with `-update`. |
-| `-p` | _(not set)_ | Profile from the config file |
+| `-p` | _(not set)_ | Profile from the config file; a profile with `"mode": "auto"` enables auto mode |
+| `-task` | _(not set)_ | Task for the planner: build the plan and execute it (only for a profile with `"mode": "auto"`) |
+| `-plan-only` | | Build the plan and exit, without executing it (requires `-task`; only with `"mode": "auto"`) |
 | `-doctor` | | Diagnostics without spawning processes |
 | `-v` | | Print the command before running it |
 | `-version` | | Print the version |
@@ -215,6 +223,8 @@ VLM.run) serve the endpoint at the bare base URL and reject the extra
 - If the proxy listens on a non-loopback address without a token, a warning is shown
   (anyone on the network could use your paid key). A set token or an explicit
   `-proxy-allow-remote` silences it.
+
+
 
 ## Getting the provider key
 
@@ -341,6 +351,7 @@ match the flags: `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`,
 
 | Profile | Alias | Model | Context | Parallel | Purpose |
 |---------|-------|-------|---------|----------|---------|
+| `auto` | `auto` | Qwen3.5-9B-Agentic-Coder | 32768 | 1 | Planner (`mode: "auto"`) |
 | `small` | `qwen2.5-0.5b` | Qwen2.5-0.5B-Instruct | 32768 | 1 | Small model for lightweight tasks |
 | `a3b` | `qwen3.8-a3b` | Qwen3.8-35B-A3B | 262144 | 1 | Large MoE model for complex tasks |
 
@@ -359,6 +370,9 @@ Notes:
 - `parallel` can be set per-profile; if the model is overridden via `-model` on
   the CLI, the inherited parallel resets to `"1"`, except in the case of an
   explicit `-parallel N`.
+- a profile with `"mode": "auto"` is not applied as the single running
+  model: it becomes the planner, and the rest of the profiles are its
+  workers (see "Auto orchestration").
 
 ### The `/model` menu
 
@@ -381,6 +395,94 @@ Only entries starting with `switch-to:` restart llama-server; the bare primary (
 **Known cosmetic issue (fix planned for 1.9.1):** standard slots display the `switch-to:` prefix. It works, but the plan is to show bare profile names there and keep `switch-to:` only in the model value.
 
 Without a `profiles` section the static menu is used: all five positions carry the single local model (or, in hybrid mode, the four standard slots carry the external model and the custom entry carries the local alias). Menu variables inherited from the environment (`ANTHROPIC_DEFAULT_*_MODEL`, `ANTHROPIC_CUSTOM_MODEL_OPTION*`) are scrubbed before the launcher publishes its own, so a nested run never shows ghost entries.
+
+## Auto orchestration
+
+A profile with `"mode": "auto"` in `~/.config/llama-runner/config.json`
+declares itself as the planner. The planner decomposes the user's task
+into steps, picks a model from profiles for each step (by the
+`description` field), and the orchestrator executes the plan: it groups
+steps by model, hot-swaps llama-server between models, and runs up to
+`parallel` agents of one model at a time.
+
+In auto mode Claude Code and the routing proxy are not started: the
+orchestrator owns the model.
+
+### Headless: `-task "..."`
+
+```bash
+llama-runner -p auto -task "refactor the config package"
+```
+
+The planner builds a plan, the orchestrator executes it, then
+llama-server is stopped. Ctrl-C cancels the current step and stops the
+server.
+
+### Dry-run: `-plan-only`
+
+```bash
+llama-runner -p auto -task "..." -plan-only > plan.json
+```
+
+The "Plan (N steps):" header and the JSON go to stdout; every
+diagnostic line (including "Planner … is building a plan …") goes to
+stderr. For machine processing:
+
+```bash
+llama-runner -p auto -task "..." -plan-only | sed -n '/^{/,$p' | jq '.steps'
+```
+
+sed -n '/^{/,$p' prints everything starting from the first { — robust against any future diagnostic line in stdout; tail -n +2 works but breaks on a single extra line.
+
+### Interactive: `-p auto` without `-task`
+
+```bash
+llama-runner -p auto
+```
+
+llama-server starts with the planner, then the program enters a
+"task → plan → execute" loop:
+
+```
+Task (or 'exit' to quit): refactor the config package
+Planner auto is building a plan ... [stderr]
+Plan (3 steps): [stdout]
+Step 1/3: ...
+...
+Task (or 'exit' to quit): exit
+Bye.
+```
+
+- Ctrl-C during a step cancels the step and returns to the prompt.
+- Ctrl-C at the prompt exits.
+- Ctrl-D (EOF) also exits.
+- `exit` or `quit` exits.
+- An empty line re-prompts without doing anything.
+
+stdin can be piped; the loop then exits after the first task via EOF:
+
+```bash
+echo "refactor the config package" | llama-runner -p auto
+```
+
+### The `auto` profile in the config file
+
+Example (see `examples/config.example.json`):
+
+```json
+"auto": {
+  "mode": "auto",
+  "model": "~/GGUF/Qwen3.5-9B-Agentic-Coder-Q5_K_M.gguf",
+  "alias": "auto",
+  "parallel": "1",
+  "description": "Planner: task decomposition and executor selection"
+}
+```
+
+The `description` field is embedded in the planner's system prompt —
+the planner uses it to decide which profile gets each step. Every other
+profile (`big`, `coder`, …) is a worker; its `parallel` caps the number
+of agents that may run on that model at once.
 
 ## Auto-downloading models
 

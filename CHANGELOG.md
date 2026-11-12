@@ -4,6 +4,34 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [SemVer](https://semver.org/).
 
+## v1.10.0
+
+### Added
+- Auto mode orchestration: a profile with `"mode": "auto"` declares the
+  planner; the planner decomposes a task into steps, assigns each step to
+  a catalog profile, and `internal/orchestrator` executes the plan,
+  hot-swapping llama-server between models. Two entry points:
+  `-task "..."` (headless) and interactive (`-p auto` without `-task`).
+- `-plan-only` prints the plan JSON to stdout with all diagnostics on
+  stderr, so `-plan-only > plan.json` produces parseable output.
+- `proxy.Swapper.CurrentURL()` — the proxy now asks the swapper for the
+  live URL instead of caching it, so an executor-driven swap is visible
+  to the proxy immediately.
+
+### Fixed
+- `MsgServerReady` no longer prints "starting Claude Code" in headless
+  auto mode where Claude Code is not started; `MsgServerReadyAuto` is
+  printed instead.
+- `buildPlan` progress (`MsgPlanBuilding`, `MsgPlanRepaired`) moved from
+  stdout to stderr.
+
+### Changed
+- `examples/config.example.json` and the `install.sh` heredoc now include
+  a reference `auto` profile (`Qwen3.5-9B-Agentic-Coder-Q5_K_M.gguf`).
+- `AGENTS.md` and `workflow-policy.md` updated to describe auto mode and
+  the hot-swap behaviour (the "model fixed at launch" rule now applies to
+  non-auto mode only).
+
 ## v1.9.0
 
 ### Added
