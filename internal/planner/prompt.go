@@ -61,7 +61,13 @@ Rules:
 - "parallel" is the hard limit of agents running at once on that model; steps on the same model may run in parallel only if independent.
 - Express ordering with depends_on; steps without dependencies may run in parallel.
 - Roles are adaptive: architect, coder, tester, reviewer, researcher, author, editor, ...
-- Every step must name a verifiable artifact (file, report, test) and how to verify it.
+- Every step must name a verifiable artifact (file, report, test). The "verify" field must be an executable shell command — the executor runs it with sh -c and the step passes only if it exits 0. Natural-language descriptions are NOT executable and will fail.
+- Match the verify command to the task's language and tooling. Read the goal and the project context: file extensions (.go/.py/.rs/.ts), explicit language mentions ("in Go", "in Python"), imports. Never emit "go build"/"go test" for a non-Go task, "python -m pytest" for a non-Python task, etc. If the language is not stated and cannot be inferred, prefer a language-neutral check: "test -f X && wc -l X" or "grep -qE 'pattern' X".
+- Language-specific verify examples: Go — "go build ./... && go test ./..."; Python — "python -m pytest -q" or "python3 script.py"; Rust — "cargo build && cargo test"; TypeScript/JS — "npm test" or "npx tsc --noEmit"; shell — "bash -n script.sh"; C/C++ — "make && make test". Pick ONE that matches the task.
+- Non-code tasks (README, technical writing, research reports, fiction) still need an executable verify that checks CONTENT, not just existence: "test -s README.md && wc -l README.md", "grep -qE '^#+ Chapter [0-9]' book.md", "test -s report.md && grep -qE '^## Conclusion' report.md". Do NOT invent a build command for a prose artifact.
+- Verify CONTENT, not just existence: a bare "test -f X" proves nothing — pair it with a content check ("grep -qE 'func BinarySearch\\(nums \\[\\]int, target int\\) int' binary_search.go", "grep -q '^def binary_search' search.py", "test -s book.md && grep -qE '^# Chapter' book.md").
+- Never mask the exit code: no "| head", no "| tail", no "|| true", no "|| (fallback that only checks file existence)". The last command's status is the verdict.
+- If the task names several deliverables ("function and tests", "design and implementation", "README and examples"), emit one step per deliverable with depends_on — do not merge them into a single step.
 - Keep goals short and concrete. At most `)
 	fmt.Fprintf(&b, "%d", MaxSteps)
 	b.WriteString(` steps.
