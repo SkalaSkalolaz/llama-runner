@@ -278,6 +278,22 @@ write_config() {
   "fa": "auto",
 
   "profiles": {
+    "auto": {
+      "mode": "auto",
+      "model": "~/GGUF/Qwen3.5-9B-Agentic-Coder-Q5_K_M.gguf",
+      "alias": "auto",
+      "c": "32768",
+      "b": "2048",
+      "ub": "512",
+      "fa": "auto",
+      "parallel": "1",
+      "temp": "0.1",
+      "fit": "on",
+      "chatTemplate": "",
+      "reasoning": "on",
+      "reasoningBudget": "256",
+      "description": "Planner: task decomposition and executor selection"
+    },
     "small": {
       "model": "~/GGUF/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
       "alias": "qwen2.5-0.5b",
