@@ -323,44 +323,54 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		fmt.Fprint(stderr, i18n.TF(i18n.MsgErrResolved, waitErr))
 		return 1
 	}
-	fmt.Fprint(stdout, i18n.TF(i18n.MsgServerReady))
-	// --- auto mode, headless: build the plan and stop ---
-	// Placed before the proxy on purpose: planning talks to llama-server
-	// directly and needs no routing, no Claude Code and no MCP config.
-	// The deferred cleanup above stops the server on return.
-	if cfg.PlanOnly {
-		ctx, cancel := context.WithTimeout(context.Background(), planTimeout)
-		defer cancel()
-		return runPlanOnly(ctx, cfg, ServerBaseURL(cfg), stdout, stderr)
+	// The "server ready" banner names Claude Code — that is the wrong
+	// promise in headless auto mode and in the interactive loop. Print it
+	// only when Claude Code is actually about to start; the auto branches
+	// below announce themselves with MsgServerReadyAuto.
+	if !cfg.AutoMode() {
+		fmt.Fprint(stdout, i18n.TF(i18n.MsgServerReady))
 	}
-
-	// --- auto mode, headless execution: plan + execute, then stop ---
-	// Steps talk to llama-server directly (the executor drives every swap
-	// and knows the current URL); the proxy stays out of a headless run.
-	// Ctrl-C cancels the run: the signal handler already running above
-	// stops the server and MCP, this channel additionally cancels the
-	// step context so a long claude -p dies promptly instead of running
-	// against a dead server.
-	if cfg.AutoMode() && cfg.Task != "" && !cfg.PlanOnly {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		execSig := make(chan os.Signal, 1)
-		signal.Notify(execSig, os.Interrupt, syscall.SIGTERM)
-		defer signal.Stop(execSig)
-		go func() {
-			select {
-			case <-execSig:
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
+	if cfg.AutoMode() {
 		var sw orchestrator.Swapper
 		if swapperImpl != nil {
 			sw = swapperImpl
 		}
-		return runExecute(ctx, cfg, home, ServerBaseURL(cfg), sw, cmdRunner, stdout, stderr)
-	}
+		switch {
+		case cfg.PlanOnly:
+			// Headless dry-run: build the plan, print it, exit. Cleanup
+			// above stops the server.
+			ctx, cancel := context.WithTimeout(context.Background(), planTimeout)
+			defer cancel()
+			return runPlanOnly(ctx, cfg, ServerBaseURL(cfg), stdout, stderr)
 
+		case cfg.Task != "":
+			// Headless execution: plan + execute, then stop. Ctrl-C
+			// cancels the running step AND (via HandleSignals, still
+			// active here) stops the server.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			execSig := make(chan os.Signal, 1)
+			signal.Notify(execSig, os.Interrupt, syscall.SIGTERM)
+			defer signal.Stop(execSig)
+			go func() {
+				select {
+				case <-execSig:
+					cancel()
+				case <-ctx.Done():
+				}
+			}()
+			return runExecute(ctx, cfg, home, ServerBaseURL(cfg), sw, cmdRunner, stdout, stderr)
+
+		default:
+			// Interactive: this is the only auto entry point where "type a
+			// task" makes sense — headless runs already have their task and
+			// -plan-only exits before any prompt could appear.
+			fmt.Fprint(stdout, i18n.TF(i18n.MsgServerReadyAuto))
+			signal.Stop(sigCh)
+			return runInteractive(context.Background(), cfg, home,
+				ServerBaseURL(cfg), sw, cmdRunner, os.Stdin, stdout, stderr)
+		}
+	}
 	// --- Local proxy: always in front of Claude Code ---
 	// Hybrid mode routes by model name between llama-server and the external
 	// provider; without a provider the proxy is a verbatim passthrough to

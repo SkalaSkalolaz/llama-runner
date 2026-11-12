@@ -280,6 +280,12 @@ const (
 	MsgSwapVerbose       = "swap_verbose"
 	MsgAutoSwitchIgnored = "auto_switch_ignored"
 
+	// --- Auto mode, interactive loop (internal/app/interactive.go) ---
+	MsgServerReadyAuto       = "server_ready_auto"
+	MsgInteractivePrompt     = "interactive_prompt"
+	MsgInteractiveBye        = "interactive_bye"
+	MsgInteractiveTaskFailed = "interactive_task_failed"
+
 	// --- Planner (internal/planner) ---
 	MsgErrPlanNoJSON    = "err_plan_no_json"
 	MsgErrPlanJSON      = "err_plan_json"
@@ -644,6 +650,22 @@ var messages = map[string]i18nMessage{
 	MsgSwapVerbose: {
 		"переключение профиля: %s → %s",
 		"switching profile: %s → %s",
+	},
+	MsgServerReadyAuto: {
+		"llama-server готов. Режим auto — введите задачу.",
+		"llama-server is ready. Auto mode — type a task.",
+	},
+	MsgInteractivePrompt: {
+		"Задача (или 'exit' для выхода): ",
+		"Task (or 'exit' to quit): ",
+	},
+	MsgInteractiveBye: {
+		"Выход.",
+		"Bye.",
+	},
+	MsgInteractiveTaskFailed: {
+		"Задача завершилась с кодом %d. Введите новую задачу или 'exit'.",
+		"Task exited with code %d. Enter a new task or 'exit'.",
 	},
 	MsgAutoSwitchIgnored: {
 		"auto: ручное переключение на %q проигнорировано — моделью владеет оркестратор",
