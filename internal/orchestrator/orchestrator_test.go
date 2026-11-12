@@ -80,7 +80,7 @@ func baseOpts(t *testing.T, claudeScript string) Options {
 }
 
 func TestRun_ExecutesInOrderSwapsAndVerifies(t *testing.T) {
-    opts := baseOpts(t, "echo step-done; touch file.txt")
+	opts := baseOpts(t, "echo step-done; touch file.txt")
 	sw := &fakeSwapper{current: "auto", urls: map[string]string{
 		"auto": "http://u:1", "worker": "http://u:2",
 	}}
