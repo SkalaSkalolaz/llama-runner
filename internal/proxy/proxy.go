@@ -204,9 +204,20 @@ func (h *proxyHandler) convert(req map[string]any) (map[string]any, error) {
 	return out, err
 }
 
-// currentServerURL returns llamaServerURL under the read lock. Used by
-// passthrough and handleModels; a hot-swap may rewrite it at any time.
+// currentServerURL returns the base URL of the local llama-server that
+// should receive a local-route request.
+//
+// When a Swapper is installed it is the source of truth: the orchestrator
+// and the interactive switch handler both drive swaps through it, and a
+// swap reallocates the port (ServerManager.StopAndStart). The cached
+// llamaServerURL is a fallback for the no-swapper case (single-model
+// launch, or a handler constructed by hand in a test).
 func (h *proxyHandler) currentServerURL() string {
+	if h.swapper != nil {
+		if u := h.swapper.CurrentURL(); u != "" {
+			return u
+		}
+	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.llamaServerURL

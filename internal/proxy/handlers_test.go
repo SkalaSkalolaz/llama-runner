@@ -30,7 +30,13 @@ func (f *fakeSwapper) SwapTo(_ context.Context, a string) (string, error) {
 	f.current = a
 	return f.url, nil
 }
-func (f *fakeSwapper) CurrentAlias() string               { return f.current }
+func (f *fakeSwapper) CurrentAlias() string { return f.current }
+func (f *fakeSwapper) CurrentURL() string {
+	if f.current == "" {
+		return ""
+	}
+	return f.url
+}
 func (f *fakeSwapper) CatalogAliases() []string           { return f.aliases }
 func (f *fakeSwapper) IncInflight()                       {}
 func (f *fakeSwapper) DecInflight()                       {}

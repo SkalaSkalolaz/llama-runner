@@ -17,6 +17,13 @@ type Swapper interface {
 	SwapTo(ctx context.Context, alias string) (baseURL string, err error)
 	// CurrentAlias is the alias of the currently active server ("" if none).
 	CurrentAlias() string
+	// CurrentURL returns the base URL of the currently active server, or
+	// "" when no server is running. It exposes the actual port the server
+	// listens on — a port that StopAndStart reallocates on every swap — so
+	// the proxy always agrees with the orchestrator about where the live
+	// server is, even when the swap was driven by the executor and not by
+	// a manual switch-to: request.
+	CurrentURL() string
 	// CatalogAliases lists every alias the swapper can launch. Used to
 	// decide whether an incoming model name triggers a swap.
 	CatalogAliases() []string
@@ -35,6 +42,7 @@ func (NoopSwapper) SwapTo(context.Context, string) (string, error) {
 	return "", errSwappingDisabled
 }
 func (NoopSwapper) CurrentAlias() string               { return "" }
+func (NoopSwapper) CurrentURL() string                 { return "" }
 func (NoopSwapper) CatalogAliases() []string           { return nil }
 func (NoopSwapper) IncInflight()                       {}
 func (NoopSwapper) DecInflight()                       {}

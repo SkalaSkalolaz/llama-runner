@@ -60,6 +60,29 @@ func (s *profileSwapper) CatalogAliases() []string {
 	return out
 }
 
+// CurrentURL returns the base URL of the running server, or "" when no
+// server is loaded. It derives the URL from the profile's own host:port
+// through ServerBaseURL, so the answer matches what ServerManager started
+// the process with — including the fresh port StopAndStart allocated.
+//
+// The mutex is the same one SwapTo holds for its whole duration (drain,
+// stop, start, health wait — up to minutes). A proxy request arriving
+// during a swap therefore blocks until the swap completes and then sees
+// the new URL; blocking is deliberate, sending the request to a
+// half-torn-down server is worse.
+func (s *profileSwapper) CurrentURL() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.currentAlias == "" {
+		return ""
+	}
+	cfg, ok := s.profiles[s.currentAlias]
+	if !ok || cfg == nil {
+		return ""
+	}
+	return ServerBaseURL(cfg)
+}
+
 func (s *profileSwapper) IncInflight() { s.inflight.Add(1) }
 func (s *profileSwapper) DecInflight() { s.inflight.Add(-1) }
 
