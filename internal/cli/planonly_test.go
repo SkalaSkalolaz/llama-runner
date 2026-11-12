@@ -20,7 +20,7 @@ func TestValidateConfig_TaskAndPlanOnly(t *testing.T) {
 		{"ok", func(c *config.Config) { c.Mode, c.Task, c.PlanOnly = "auto", "t", true }, ""},
 		{"task without auto", func(c *config.Config) { c.Task, c.PlanOnly = "t", true }, "mode"},
 		{"plan-only without auto", func(c *config.Config) { c.PlanOnly = true }, "mode"},
-		{"task without plan-only", func(c *config.Config) { c.Mode, c.Task = "auto", "t" }, "-plan-only"},
+		{"task without plan-only executes", func(c *config.Config) { c.Mode, c.Task = "auto", "t" }, ""},
 		{"plan-only without task", func(c *config.Config) { c.Mode, c.PlanOnly = "auto", true }, "-task"},
 		{"blank task", func(c *config.Config) { c.Mode, c.Task, c.PlanOnly = "auto", "   ", true }, "-task"},
 		{"with server", func(c *config.Config) {

@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/SkalaSkalolaz/llama-runner/internal/orchestrator"
 	"github.com/SkalaSkalolaz/llama-runner/internal/cli"
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 	"github.com/SkalaSkalolaz/llama-runner/internal/doctor"
@@ -332,6 +333,34 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		defer cancel()
 		return runPlanOnly(ctx, cfg, ServerBaseURL(cfg), stdout, stderr)
 	}
+
+	// --- auto mode, headless execution: plan + execute, then stop ---
+	// Steps talk to llama-server directly (the executor drives every swap
+	// and knows the current URL); the proxy stays out of a headless run.
+	// Ctrl-C cancels the run: the signal handler already running above
+	// stops the server and MCP, this channel additionally cancels the
+	// step context so a long claude -p dies promptly instead of running
+	// against a dead server.
+	if cfg.AutoMode() && cfg.Task != "" && !cfg.PlanOnly {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		execSig := make(chan os.Signal, 1)
+		signal.Notify(execSig, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(execSig)
+		go func() {
+			select {
+			case <-execSig:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		var sw orchestrator.Swapper
+		if swapperImpl != nil {
+			sw = swapperImpl
+		}
+		return runExecute(ctx, cfg, home, ServerBaseURL(cfg), sw, cmdRunner, stdout, stderr)
+	}
+
 	// --- Local proxy: always in front of Claude Code ---
 	// Hybrid mode routes by model name between llama-server and the external
 	// provider; without a provider the proxy is a verbatim passthrough to

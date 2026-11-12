@@ -24,7 +24,6 @@ const (
 	MsgErrAutoFlagConflict     = "err_auto_flag_conflict"
 	MsgErrModeBad              = "err_mode_bad"
 	MsgErrTaskNeedsAuto        = "err_task_needs_auto"
-	MsgErrTaskNeedsPlanOnly    = "err_task_needs_plan_only"
 	MsgErrPlanOnlyNoTask       = "err_plan_only_no_task"
 	MsgErrPlanOnlyServer       = "err_plan_only_server"
 	MsgErrPlanOnlyUpdate       = "err_plan_only_update"
@@ -295,6 +294,17 @@ const (
 	MsgErrPlanCycle     = "err_plan_cycle"
 	MsgErrPlannerHTTP   = "err_planner_http"
 	MsgErrPlannerEmpty  = "err_planner_empty"
+	// --- Auto executor (internal/orchestrator, app/execute.go) ---
+	MsgExecStepStart      = "exec_step_start"
+	MsgExecSwap           = "exec_swap"
+	MsgErrExecSwap        = "err_exec_swap"
+	MsgExecStepOK         = "exec_step_ok"
+	MsgExecStepFail       = "exec_step_fail"
+	MsgErrExecStepTimeout = "err_exec_step_timeout"
+	MsgErrExecArtifact    = "err_exec_artifact"
+	MsgErrExecVerify      = "err_exec_verify"
+	MsgErrExecPlan        = "err_exec_plan"
+	MsgExecDone           = "exec_done"
 )
 
 // messages is the complete translation catalog: one entry per key with the
@@ -327,10 +337,6 @@ var messages = map[string]i18nMessage{
 	MsgErrTaskNeedsAuto: {
 		"-task и -plan-only доступны только в профиле с \"mode\": \"auto\"",
 		"-task and -plan-only are available only in a profile declaring \"mode\": \"auto\"",
-	},
-	MsgErrTaskNeedsPlanOnly: {
-		"-task требует -plan-only: исполнение плана пока не реализовано",
-		"-task requires -plan-only: plan execution is not implemented yet",
 	},
 	MsgErrPlanOnlyNoTask: {
 		"-plan-only требует -task: нечего планировать",
@@ -656,4 +662,15 @@ var messages = map[string]i18nMessage{
 	MsgErrPlanCycle:     {"зависимости плана образуют цикл", "the plan dependencies form a cycle"},
 	MsgErrPlannerHTTP:   {"planner: HTTP %d: %s", "planner: HTTP %d: %s"},
 	MsgErrPlannerEmpty:  {"planner: модель вернула пустой ответ", "planner: the model returned an empty reply"},
+	// --- Auto executor ---
+	MsgExecStepStart:      {"Шаг %d/%d: %s (%s) — модель %s", "Step %d/%d: %s (%s) — model %s"},
+	MsgExecSwap:           {"переключение модели: %s → %s", "switching model: %s → %s"},
+	MsgErrExecSwap:        {"переключение на %q не удалось: %v", "swap to %q failed: %v"},
+	MsgExecStepOK:         {"шаг %s выполнен", "step %s done"},
+	MsgExecStepFail:       {"шаг %s не выполнен: %v", "step %s failed: %v"},
+	MsgErrExecStepTimeout: {"шаг %s не завершился за %v", "step %s did not finish within %v"},
+	MsgErrExecArtifact:    {"артефакт %q не найден: %v", "artifact %q not found: %v"},
+	MsgErrExecVerify:      {"проверка %q не прошла: %s", "verification %q failed: %s"},
+	MsgErrExecPlan:        {"не удалось упорядочить план: %v", "failed to order the plan: %v"},
+	MsgExecDone:           {"Исполнение завершено: выполнено %d из %d шагов (в плане %d)", "Execution finished: %d of %d steps done (%d in plan)"},
 }

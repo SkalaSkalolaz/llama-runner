@@ -31,15 +31,13 @@ func ValidateConfig(cfg *config.Config) error {
 	if !config.ValidMode(cfg.Mode) {
 		return i18n.Errorv(i18n.MsgErrModeBad, cfg.Mode)
 	}
+
 	// -task / -plan-only belong to the auto planner and to nothing else.
-	// Execution does not exist yet, so a task without -plan-only is an
-	// explicit error rather than a silent no-op.
+	// -task alone builds AND executes the plan; -plan-only stops after
+	// printing it.
 	if cfg.PlanOnly || cfg.Task != "" {
 		if !cfg.AutoMode() {
 			return i18n.Errorv(i18n.MsgErrTaskNeedsAuto)
-		}
-		if !cfg.PlanOnly {
-			return i18n.Errorv(i18n.MsgErrTaskNeedsPlanOnly)
 		}
 		if strings.TrimSpace(cfg.Task) == "" {
 			return i18n.Errorv(i18n.MsgErrPlanOnlyNoTask)

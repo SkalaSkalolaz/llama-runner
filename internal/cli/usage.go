@@ -119,7 +119,8 @@ Claude Code:
   -p string            профиль из конфиг-файла (profiles: {имя: {...}});
                        профиль с "mode": "auto" включает автоматический режим
   -doctor              показать разрешённые пути и версию, не запуская процессы
-  -task string         задача для планировщика (профиль с "mode": "auto")
+  -task string         задача для планировщика: построить план и исполнить его
+                       (профиль с "mode": "auto"); -plan-only — только план
   -plan-only           построить план и выйти, без исполнения
 
 Обновление llama.cpp:
@@ -153,6 +154,9 @@ Claude Code:
 
   # План без исполнения: JSON в stdout, диагностика в stderr
   llama-runner -p auto -task "отрефакторить пакет config" -plan-only
+
+  # Автоматическое исполнение задачи планировщиком и агентами
+  llama-runner -p auto -task "отрефакторить пакет config"
 
   # Скачать модель с HuggingFace и запустить с ней
   llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
@@ -266,7 +270,8 @@ Config:
   -p string            profile from config file (profiles: {name: {...}});
                        a profile with "mode": "auto" enables automatic mode
   -doctor              show resolved paths and version without starting processes
-  -task string         task for the planner (a profile declaring "mode": "auto")
+  -task string         task for the planner: build the plan and execute it
+                       (a profile declaring "mode": "auto"); -plan-only = plan only
   -plan-only           build the plan and exit, without executing it
 
 llama.cpp update:
@@ -300,6 +305,9 @@ Examples:
 
   # Plan without execution: JSON on stdout, diagnostics on stderr
   llama-runner -p auto -task "refactor the config package" -plan-only
+
+  # Automatic execution of a task by the planner and its agents
+  llama-runner -p auto -task "refactor the config package"
 
   # Download a model from Hugging Face and launch with it
   llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
