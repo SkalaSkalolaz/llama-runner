@@ -52,7 +52,7 @@ func catalogModels(cfg *config.Config) []planner.Model {
 // the caller must stop.
 func buildPlan(ctx context.Context, cfg *config.Config, baseURL string,
 	stdout, stderr io.Writer) (planner.Plan, bool) {
-	fmt.Fprint(stdout, i18n.TF(i18n.MsgPlanBuilding, cfg.Alias))
+	fmt.Fprint(stderr, i18n.TF(i18n.MsgPlanBuilding, cfg.Alias))
 	p := planner.New(planner.Options{
 		BaseURL: baseURL,
 		Alias:   cfg.Alias,
@@ -67,7 +67,7 @@ func buildPlan(ctx context.Context, cfg *config.Config, baseURL string,
 	case res.Fallback:
 		fmt.Fprint(stderr, i18n.TF(i18n.MsgPlanFallback, res.LastErr))
 	case res.Repaired:
-		fmt.Fprint(stdout, i18n.TF(i18n.MsgPlanRepaired))
+		fmt.Fprint(stderr, i18n.TF(i18n.MsgPlanRepaired))
 	}
 	return res.Plan, true
 }

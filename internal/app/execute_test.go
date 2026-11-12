@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -26,8 +27,16 @@ func TestRunExecute_EndToEnd(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %s", code, errb.String())
 	}
-	if errb.Len() != 0 {
-		t.Errorf("unexpected stderr: %s", errb.String())
+	// MsgPlanBuilding goes to stderr by design — that IS the diagnostics
+	// channel now. The check is that the progress line is there, not that
+	// stderr is empty.
+	if !strings.Contains(errb.String(), "Planner") &&
+		!strings.Contains(errb.String(), "Планировщик") {
+		t.Errorf("building-progress missing from stderr: %q", errb.String())
+	}
+	// The plan header must be on stdout: it is the machine-visible part.
+	if !strings.Contains(out.String(), "Plan") && !strings.Contains(out.String(), "План") {
+		t.Errorf("plan header missing from stdout: %q", out.String())
 	}
 }
 

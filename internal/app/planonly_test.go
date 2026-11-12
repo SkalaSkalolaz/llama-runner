@@ -78,8 +78,15 @@ func TestRunPlanOnly_PrintsJSONPlan(t *testing.T) {
 	if len(plan.Steps) != 1 || plan.Steps[0].Alias != "coder" {
 		t.Errorf("plan = %+v", plan)
 	}
-	if errb.Len() != 0 {
-		t.Errorf("unexpected stderr: %s", errb.String())
+	// MsgPlanBuilding goes to stderr by design. It MUST be there
+	// (progress is diagnostics) and it MUST NOT be in stdout (stdout is
+	// the machine-readable channel for -plan-only > plan.json).
+	if !strings.Contains(errb.String(), "Planner") &&
+		!strings.Contains(errb.String(), "Планировщик") {
+		t.Errorf("expected the building-progress line on stderr: %q", errb.String())
+	}
+	if strings.Contains(out.String(), "Planner") || strings.Contains(out.String(), "Планировщик") {
+		t.Errorf("progress leaked into stdout: %q", out.String())
 	}
 }
 
