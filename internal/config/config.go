@@ -111,7 +111,12 @@ type Config struct {
 	// file): "" — the ordinary single-model launch, ModeAuto — the
 	// autonomous orchestrator. It is not inherited by profiles from the
 	// root section; see AutoMode and cli.ParseFlagsWithHome.
-	Mode                 string
+	Mode string
+	// Task is the user task handed to the planner (-task). PlanOnly asks
+	// for the plan without executing it (-plan-only). Both are per-run CLI
+	// intent, not persisted settings, so neither has a FileConfig field.
+	Task                 string
+	PlanOnly             bool
 	DoctorFlag           bool
 	ChatTemplateFallback string
 

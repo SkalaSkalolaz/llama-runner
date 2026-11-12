@@ -323,7 +323,15 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 		return 1
 	}
 	fmt.Fprint(stdout, i18n.TF(i18n.MsgServerReady))
-
+	// --- auto mode, headless: build the plan and stop ---
+	// Placed before the proxy on purpose: planning talks to llama-server
+	// directly and needs no routing, no Claude Code and no MCP config.
+	// The deferred cleanup above stops the server on return.
+	if cfg.PlanOnly {
+		ctx, cancel := context.WithTimeout(context.Background(), planTimeout)
+		defer cancel()
+		return runPlanOnly(ctx, cfg, ServerBaseURL(cfg), stdout, stderr)
+	}
 	// --- Local proxy: always in front of Claude Code ---
 	// Hybrid mode routes by model name between llama-server and the external
 	// provider; without a provider the proxy is a verbatim passthrough to

@@ -23,6 +23,11 @@ const (
 	MsgErrProfileNotFound      = "err_profile_not_found"
 	MsgErrAutoFlagConflict     = "err_auto_flag_conflict"
 	MsgErrModeBad              = "err_mode_bad"
+	MsgErrTaskNeedsAuto        = "err_task_needs_auto"
+	MsgErrTaskNeedsPlanOnly    = "err_task_needs_plan_only"
+	MsgErrPlanOnlyNoTask       = "err_plan_only_no_task"
+	MsgErrPlanOnlyServer       = "err_plan_only_server"
+	MsgErrPlanOnlyUpdate       = "err_plan_only_update"
 	MsgErrReadyTimeoutPositive = "err_ready_timeout_positive"
 	MsgErrHostEmpty            = "err_host_empty"
 	MsgErrPortBad              = "err_port_bad"
@@ -104,6 +109,8 @@ const (
 	MsgFlagConfig          = "flag_config"
 	MsgFlagP               = "flag_p"
 	MsgFlagDoctor          = "flag_doctor"
+	MsgFlagTask            = "flag_task"
+	MsgFlagPlanOnly        = "flag_plan_only"
 
 	// --- Launch flow (run.go) ---
 	MsgWarnOpenaiIgnored       = "warn_openai_ignored"
@@ -173,6 +180,11 @@ const (
 	MsgSwapFailed              = "proxy_swap_failed"
 	MsgAutoModeLine            = "auto_mode_line"
 	MsgAutoServerOnly          = "auto_server_only"
+	MsgPlanBuilding            = "plan_building"
+	MsgPlanRepaired            = "plan_repaired"
+	MsgPlanFallback            = "plan_fallback"
+	MsgPlanHeader              = "plan_header"
+	MsgErrPlanBuild            = "err_plan_build"
 
 	// --- Update mode (run.go, update.go) ---
 	MsgUpdateSuccess       = "update_success"
@@ -268,6 +280,21 @@ const (
 	MsgErrUnknownProfile = "err_unknown_profile"
 	MsgSwapVerbose       = "swap_verbose"
 	MsgAutoSwitchIgnored = "auto_switch_ignored"
+
+	// --- Planner (internal/planner) ---
+	MsgErrPlanNoJSON    = "err_plan_no_json"
+	MsgErrPlanJSON      = "err_plan_json"
+	MsgErrPlanEmpty     = "err_plan_empty"
+	MsgErrPlanTooMany   = "err_plan_too_many"
+	MsgErrPlanStepID    = "err_plan_step_id"
+	MsgErrPlanDupID     = "err_plan_dup_id"
+	MsgErrPlanStepField = "err_plan_step_field"
+	MsgErrPlanAlias     = "err_plan_alias"
+	MsgErrPlanDep       = "err_plan_dep"
+	MsgErrPlanSelfDep   = "err_plan_self_dep"
+	MsgErrPlanCycle     = "err_plan_cycle"
+	MsgErrPlannerHTTP   = "err_planner_http"
+	MsgErrPlannerEmpty  = "err_planner_empty"
 )
 
 // messages is the complete translation catalog: one entry per key with the
@@ -296,6 +323,26 @@ var messages = map[string]i18nMessage{
 	MsgErrModeBad: {
 		"некорректный mode %q: ожидается \"auto\" или пустое значение",
 		"invalid mode %q: expected \"auto\" or an empty value",
+	},
+	MsgErrTaskNeedsAuto: {
+		"-task и -plan-only доступны только в профиле с \"mode\": \"auto\"",
+		"-task and -plan-only are available only in a profile declaring \"mode\": \"auto\"",
+	},
+	MsgErrTaskNeedsPlanOnly: {
+		"-task требует -plan-only: исполнение плана пока не реализовано",
+		"-task requires -plan-only: plan execution is not implemented yet",
+	},
+	MsgErrPlanOnlyNoTask: {
+		"-plan-only требует -task: нечего планировать",
+		"-plan-only requires -task: there is nothing to plan",
+	},
+	MsgErrPlanOnlyServer: {
+		"-plan-only несовместим с -server: планировщику нужен режим Claude Code",
+		"-plan-only is not compatible with -server: the planner needs the Claude Code mode",
+	},
+	MsgErrPlanOnlyUpdate: {
+		"-plan-only несовместим с -update",
+		"-plan-only is not compatible with -update",
 	},
 	MsgErrReadyTimeoutPositive: {"-ready-timeout должен быть больше нуля", "-ready-timeout must be greater than zero"},
 	MsgErrHostEmpty:            {"-host не может быть пустым", "-host cannot be empty"},
@@ -330,6 +377,14 @@ var messages = map[string]i18nMessage{
 		"режим auto: -server — запускается только планировщик, без оркестрации",
 		"auto mode: -server — starting the planner only, no orchestration",
 	},
+	MsgPlanBuilding: {"Планировщик %s строит план ...", "Planner %s is building a plan ..."},
+	MsgPlanRepaired: {"план принят после исправления", "plan accepted after a repair round"},
+	MsgPlanFallback: {
+		"предупреждение: валидный план не получен (%v) — показан одношаговый запасной план",
+		"warning: no valid plan was produced (%v) — showing a single-step fallback plan",
+	},
+	MsgPlanHeader:   {"План (%d шагов):", "Plan (%d steps):"},
+	MsgErrPlanBuild: {"не удалось построить план: %v", "failed to build the plan: %v"},
 
 	// --- Flag help descriptions ---
 	MsgFlagDir:             {"рабочая директория...", "working directory..."},
@@ -391,6 +446,8 @@ var messages = map[string]i18nMessage{
 	MsgFlagConfig:          {"путь к конфиг-файлу (\"\" — не читать)", "config file path (\"\" = don't read)"},
 	MsgFlagP:               {"профиль из конфиг-файла", "profile from config file"},
 	MsgFlagDoctor:          {"показать разрешённые пути и версию, не запуская процессы", "show resolved paths and version without starting processes"},
+	MsgFlagTask:            {"задача для планировщика (профиль с \"mode\": \"auto\")", "task for the planner (a profile declaring \"mode\": \"auto\")"},
+	MsgFlagPlanOnly:        {"построить план и выйти, без исполнения", "build the plan and exit, without executing it"},
 
 	// --- Launch flow ---
 	MsgWarnOpenaiIgnored:    {"предупреждение: -openai/-key/-model-openai игнорируются в режиме -server", "warning: -openai/-key/-model-openai are ignored in -server mode"},
@@ -585,4 +642,18 @@ var messages = map[string]i18nMessage{
 		"auto: ручное переключение на %q проигнорировано — моделью владеет оркестратор",
 		"auto: manual switch to %q ignored — the orchestrator owns the model",
 	},
+	// --- Planner ---
+	MsgErrPlanNoJSON:    {"в ответе модели нет JSON", "no JSON found in the model reply"},
+	MsgErrPlanJSON:      {"не удалось разобрать JSON плана", "failed to parse the plan JSON"},
+	MsgErrPlanEmpty:     {"план не содержит шагов", "the plan contains no steps"},
+	MsgErrPlanTooMany:   {"шагов %d больше лимита %d", "%d steps exceed the limit of %d"},
+	MsgErrPlanStepID:    {"шаг %d: пустой id", "step %d: empty id"},
+	MsgErrPlanDupID:     {"повторяющийся id шага %q", "duplicate step id %q"},
+	MsgErrPlanStepField: {"шаг %q: не заполнено поле %s", "step %q: field %s is empty"},
+	MsgErrPlanAlias:     {"шаг %q: алиас %q отсутствует в каталоге", "step %q: alias %q is not in the catalog"},
+	MsgErrPlanDep:       {"шаг %q: зависимость %q не найдена в плане", "step %q: dependency %q is not in the plan"},
+	MsgErrPlanSelfDep:   {"шаг %q зависит сам от себя", "step %q depends on itself"},
+	MsgErrPlanCycle:     {"зависимости плана образуют цикл", "the plan dependencies form a cycle"},
+	MsgErrPlannerHTTP:   {"planner: HTTP %d: %s", "planner: HTTP %d: %s"},
+	MsgErrPlannerEmpty:  {"planner: модель вернула пустой ответ", "planner: the model returned an empty reply"},
 }

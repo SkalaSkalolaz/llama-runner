@@ -199,6 +199,9 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	fs.StringVar(&cfg.ConfigPath, "config", cfg.ConfigPath, i18n.T(i18n.MsgFlagConfig))
 	fs.StringVar(&cfg.Profile, "p", cfg.Profile, i18n.T(i18n.MsgFlagP))
 	fs.BoolVar(&cfg.DoctorFlag, "doctor", false, i18n.T(i18n.MsgFlagDoctor))
+	// auto mode: the task and the headless plan-only dry run.
+	fs.StringVar(&cfg.Task, "task", cfg.Task, i18n.T(i18n.MsgFlagTask))
+	fs.BoolVar(&cfg.PlanOnly, "plan-only", false, i18n.T(i18n.MsgFlagPlanOnly))
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
