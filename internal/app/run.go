@@ -16,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/SkalaSkalolaz/llama-runner/internal/orchestrator"
 	"github.com/SkalaSkalolaz/llama-runner/internal/cli"
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 	"github.com/SkalaSkalolaz/llama-runner/internal/doctor"
 	"github.com/SkalaSkalolaz/llama-runner/internal/i18n"
+	"github.com/SkalaSkalolaz/llama-runner/internal/orchestrator"
 	"github.com/SkalaSkalolaz/llama-runner/internal/proc"
 	"github.com/SkalaSkalolaz/llama-runner/internal/proxy"
 	"github.com/SkalaSkalolaz/llama-runner/internal/runner"

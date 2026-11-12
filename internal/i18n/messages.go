@@ -297,6 +297,7 @@ const (
 	// --- Auto executor (internal/orchestrator, app/execute.go) ---
 	MsgExecStepStart      = "exec_step_start"
 	MsgExecSwap           = "exec_swap"
+	MsgExecWave           = "exec_wave"
 	MsgErrExecSwap        = "err_exec_swap"
 	MsgExecStepOK         = "exec_step_ok"
 	MsgExecStepFail       = "exec_step_fail"
@@ -665,6 +666,7 @@ var messages = map[string]i18nMessage{
 	// --- Auto executor ---
 	MsgExecStepStart:      {"Шаг %d/%d: %s (%s) — модель %s", "Step %d/%d: %s (%s) — model %s"},
 	MsgExecSwap:           {"переключение модели: %s → %s", "switching model: %s → %s"},
+	MsgExecWave:           {"волна на модели %s: шагов %d, слотов %d", "wave on model %s: %d steps, %d slots"},
 	MsgErrExecSwap:        {"переключение на %q не удалось: %v", "swap to %q failed: %v"},
 	MsgExecStepOK:         {"шаг %s выполнен", "step %s done"},
 	MsgExecStepFail:       {"шаг %s не выполнен: %v", "step %s failed: %v"},

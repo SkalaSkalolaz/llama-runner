@@ -33,7 +33,10 @@ func (f *fakeSwapper) SwapTo(_ context.Context, alias string) (string, error) {
 func (f *fakeSwapper) CurrentAlias() string { return f.current }
 
 // scriptRunner stands in for runner.CommandRunner: claude becomes the
-// "claude" script, verify shells ("sh") become the "shell" script.
+// "claude" script, verify shells ("sh") become the "shell" script. Claude's
+// real arguments are forwarded as positional parameters ($1 onward), so a
+// script can branch on the prompt content — e.g. fail steps whose goal
+// carries a marker.
 type scriptRunner struct {
 	claude string
 	shell  string
@@ -43,7 +46,13 @@ func (r scriptRunner) Command(name string, args ...string) *exec.Cmd {
 	if name == "sh" {
 		return exec.Command("sh", "-c", r.shell)
 	}
-	return exec.Command("sh", "-c", r.claude)
+	// sh -c 'script' sh arg1 arg2...
+	// $0="sh", $1=arg1, $2=arg2. The script can use "$@" or "$*" if needed.
+	// We do NOT append "$@" to the script text, otherwise in multi-command
+	// scripts (separated by ";") the arguments would be passed to the last
+	// command (e.g. `touch` would receive `-p` and fail).
+	cmdArgs := append([]string{"-c", r.claude, "sh"}, args...)
+	return exec.Command("sh", cmdArgs...)
 }
 
 func (r scriptRunner) LookPath(file string) (string, error) { return "/fake/claude", nil }

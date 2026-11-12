@@ -150,7 +150,6 @@ func (p *Plan) Validate(catalog []string) error {
 	return p.checkAcyclic()
 }
 
-
 // checkAcyclic delegates to Order, which reports a cycle when it cannot
 // emit every step.
 func (p *Plan) checkAcyclic() error {
