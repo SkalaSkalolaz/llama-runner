@@ -183,8 +183,15 @@ const (
 	MsgPlanRepaired            = "plan_repaired"
 	MsgPlanFallback            = "plan_fallback"
 	MsgPlanHeader              = "plan_header"
+	MsgPlanSummary             = "plan_summary"
+	MsgPlanModels              = "plan_models"
+	MsgPlanStepLine            = "plan_step_line"
+	MsgPlanGoal                = "plan_goal"
+	MsgPlanArtifact            = "plan_artifact"
+	MsgPlanVerify              = "plan_verify"
+	MsgPlanDepends             = "plan_depends"
+	MsgPlanModelCount          = "plan_model_count"
 	MsgErrPlanBuild            = "err_plan_build"
-
 	// --- Update mode (run.go, update.go) ---
 	MsgUpdateSuccess       = "update_success"
 	MsgErrUpdate           = "err_update"
@@ -396,8 +403,16 @@ var messages = map[string]i18nMessage{
 		"предупреждение: валидный план не получен (%v) — показан одношаговый запасной план",
 		"warning: no valid plan was produced (%v) — showing a single-step fallback plan",
 	},
-	MsgPlanHeader:   {"План (%d шагов):", "Plan (%d steps):"},
-	MsgErrPlanBuild: {"не удалось построить план: %v", "failed to build the plan: %v"},
+	MsgPlanHeader:     {"План (%d шагов):", "Plan (%d steps):"},
+	MsgPlanSummary:    {"сводка:", "summary:"},
+	MsgPlanModels:     {"модели:", "models:"},
+	MsgPlanStepLine:   {"%d/%d [%s] %s · %s", "%d/%d [%s] %s · %s"},
+	MsgPlanGoal:       {"цель:", "goal:"},
+	MsgPlanArtifact:   {"артефакт:", "artifact:"},
+	MsgPlanVerify:     {"проверка:", "verify:"},
+	MsgPlanDepends:    {"зависит:", "depends:"},
+	MsgPlanModelCount: {"%s × %d", "%s × %d"},
+	MsgErrPlanBuild:   {"не удалось построить план: %v", "failed to build the plan: %v"},
 
 	// --- Flag help descriptions ---
 	MsgFlagDir:             {"рабочая директория...", "working directory..."},
@@ -690,11 +705,11 @@ var messages = map[string]i18nMessage{
 	MsgExecSwap:           {"переключение модели: %s → %s", "switching model: %s → %s"},
 	MsgExecWave:           {"волна на модели %s: шагов %d, слотов %d", "wave on model %s: %d steps, %d slots"},
 	MsgErrExecSwap:        {"переключение на %q не удалось: %v", "swap to %q failed: %v"},
-	MsgExecStepOK:         {"шаг %s выполнен", "step %s done"},
-	MsgExecStepFail:       {"шаг %s не выполнен: %v", "step %s failed: %v"},
+	MsgExecStepOK:         {"шаг %s выполнен за %s", "step %s done in %s"},
+	MsgExecStepFail:       {"шаг %s не выполнен за %s: %v", "step %s failed in %s: %v"},
 	MsgErrExecStepTimeout: {"шаг %s не завершился за %v", "step %s did not finish within %v"},
 	MsgErrExecArtifact:    {"артефакт %q не найден: %v", "artifact %q not found: %v"},
 	MsgErrExecVerify:      {"проверка %q не прошла: %s", "verification %q failed: %s"},
 	MsgErrExecPlan:        {"не удалось упорядочить план: %v", "failed to order the plan: %v"},
-	MsgExecDone:           {"Исполнение завершено: выполнено %d из %d шагов (в плане %d)", "Execution finished: %d of %d steps done (%d in plan)"},
+	MsgExecDone:           {"Исполнение завершено за %s: выполнено %d из %d шагов (в плане %d)", "Execution finished in %s: %d of %d steps done (%d in plan)"},
 }
