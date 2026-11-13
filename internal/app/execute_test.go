@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -37,6 +38,17 @@ func TestRunExecute_EndToEnd(t *testing.T) {
 	// The plan header must be on stdout: it is the machine-visible part.
 	if !strings.Contains(out.String(), "Plan") && !strings.Contains(out.String(), "План") {
 		t.Errorf("plan header missing from stdout: %q", out.String())
+	}
+	// The human-readable listing replaces the old header-only output.
+	if !strings.Contains(out.String(), "1/1 [1] coder · auto") {
+		t.Errorf("plan listing missing from stdout: %q", out.String())
+	}
+	// Orchestrator lines carry an HH:MM:SS prefix; the listing does not.
+	if !regexp.MustCompile(`(?m)^\d{2}:\d{2}:\d{2} `).Match(out.Bytes()) {
+		t.Errorf("orchestrator output lacks time prefixes: %q", out.String())
+	}
+	if strings.Contains(out.String(), `"steps"`) {
+		t.Errorf("JSON leaked into the execution output: %q", out.String())
 	}
 }
 
