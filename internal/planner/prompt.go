@@ -69,6 +69,7 @@ Rules:
 - awk and grep-pipelines: awk exits 0 even when its pattern matches nothing, so "wc -w < X | awk '$1 >= 400'" always passes. Use "test \"$(wc -w < X)\" -ge 400" (test propagates the comparison) or "grep -qE '^(4[0-9]{2}|5[0-9]{2}|600)$'" (grep -q propagates: 0 on match, 1 on no match). If you must use awk, make it explicit: "awk '{ exit ($1 >= 400) ? 0 : 1 }'".
 - Verify CONTENT, not just existence: a bare "test -f X" proves nothing — pair it with a content check ("grep -qE 'func BinarySearch\\(nums \\[\\]int, target int\\) int' binary_search.go", "grep -q '^def binary_search' search.py", "test -s book.md && grep -qE '^# Chapter' book.md").
 - Never mask the exit code: no "| head", no "| tail", no "|| true", no "|| (fallback that only checks file existence)". The last command's status is the verdict.
+- If a later step must fix problems found by a review step, the review step must NOT fail its verify on failing tests: it writes its findings to a report file and its verify only checks that the report exists (e.g. "test -s review-report.md"); the fix step depends on the review step and reads that report file.
 - If the task names several deliverables ("function and tests", "design and implementation", "README and examples"), emit one step per deliverable with depends_on — do not merge them into a single step.
 - Keep goals short and concrete. At most `)
 	fmt.Fprintf(&b, "%d", MaxSteps)

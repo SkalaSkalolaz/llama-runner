@@ -85,6 +85,8 @@ type StepResult struct {
 	Output string
 	// Err is set when OK is false.
 	Err error
+	// Duration is how long the step took, including its verification.
+	Duration time.Duration
 }
 
 // Result summarises a run.
@@ -93,6 +95,9 @@ type Result struct {
 	// Failed is true when any executed step failed, a swap failed, or the
 	// run could not even start (bad plan order).
 	Failed bool
+	// Duration is the total wall-clock time of Run: scheduling, model
+	// swaps, successful and failed steps — everything up to the return.
+	Duration time.Duration
 }
 
 // Run executes the plan in model-grouped waves (see the package doc) and
@@ -102,7 +107,9 @@ type Result struct {
 // half-written artifacts. Cancelling ctx stops the run between waves and
 // kills the steps in flight. Result.Steps is always in plan order,
 // whatever the completion order of concurrent steps was.
-func Run(ctx context.Context, plan planner.Plan, opts Options) Result {
+func Run(ctx context.Context, plan planner.Plan, opts Options) (result Result) {
+	start := time.Now()
+	defer func() { result.Duration = time.Since(start) }()
 	steps, err := plan.Order()
 	if err != nil {
 		fmt.Fprint(opts.Stderr, i18n.TF(i18n.MsgErrExecPlan, err))
@@ -202,16 +209,16 @@ func Run(ctx context.Context, plan planner.Plan, opts Options) Result {
 			fmt.Fprint(opts.Stdout, i18n.TF(i18n.MsgExecStepStart,
 				number[s.ID], len(steps), s.ID, s.Role, s.Alias))
 		}
-		for _, r := range runWave(ctx, wave, opts, currentURL) {
+		for _, r := range runWave(ctx, wave, opts, currentURL, steps, byID) {
 			byID[r.Step.ID] = r
 			if r.OK {
 				if r.Output != "" {
 					fmt.Fprintf(opts.Stdout, "  %s\n", r.Output)
 				}
-				fmt.Fprint(opts.Stdout, i18n.TF(i18n.MsgExecStepOK, r.Step.ID))
+				fmt.Fprint(opts.Stdout, i18n.TF(i18n.MsgExecStepOK, r.Step.ID, formatDuration(r.Duration)))
 			} else {
 				failed = true
-				fmt.Fprint(opts.Stderr, i18n.TF(i18n.MsgExecStepFail, r.Step.ID, r.Err))
+				fmt.Fprint(opts.Stderr, i18n.TF(i18n.MsgExecStepFail, r.Step.ID, formatDuration(r.Duration), r.Err))
 			}
 		}
 		if failed {
@@ -231,7 +238,8 @@ func Run(ctx context.Context, plan planner.Plan, opts Options) Result {
 			done++
 		}
 	}
-	fmt.Fprint(opts.Stdout, i18n.TF(i18n.MsgExecDone, done, len(out.Steps), len(steps)))
+	fmt.Fprint(opts.Stdout, i18n.TF(i18n.MsgExecDone,
+		formatDuration(time.Since(start)), done, len(out.Steps), len(steps)))
 	return out
 }
 
@@ -240,14 +248,19 @@ func Run(ctx context.Context, plan planner.Plan, opts Options) Result {
 // multiplex the requests — and waits for the whole wave to finish. Results
 // are indexed by wave position, which is plan order, so reporting stays
 // deterministic whatever the completion order.
-func runWave(ctx context.Context, wave []planner.Step, opts Options, baseURL string) []StepResult {
+//
+// steps is the topologically ordered plan and byID the results collected so
+// far; both are READ-ONLY for the whole wave (Run appends to byID only after
+// runWave returns), so the concurrent prior-context reads are race-free.
+func runWave(ctx context.Context, wave []planner.Step, opts Options, baseURL string,
+	steps []planner.Step, byID map[string]StepResult) []StepResult {
 	results := make([]StepResult, len(wave))
 	var wg sync.WaitGroup
 	for i, step := range wave {
 		wg.Add(1)
 		go func(i int, s planner.Step) {
 			defer wg.Done()
-			results[i] = runStep(ctx, s, opts, baseURL)
+			results[i] = runStep(ctx, s, opts, baseURL, steps, byID)
 		}(i, step)
 	}
 	wg.Wait()
@@ -265,4 +278,82 @@ func modelParallel(profiles map[string]*config.Config, alias string) int {
 		}
 	}
 	return 1
+}
+
+// priorContextCap bounds how many prior steps one prompt carries. When the
+// transitive dependency closure is larger, the OLDEST entries are dropped.
+const priorContextCap = 8
+
+// priorContext returns the results of every step this one transitively
+// depends on, in plan order (oldest first), without duplicates. Dependencies
+// missing from byID are skipped silently: a partially executed plan must
+// still be able to build a prompt.
+func priorContext(step planner.Step, steps []planner.Step, byID map[string]StepResult) []StepResult {
+	need := make(map[string]bool)
+	var visit func(id string)
+	visit = func(id string) {
+		r, ok := byID[id]
+		if !ok || need[id] {
+			return
+		}
+		need[id] = true
+		for _, d := range r.Step.DependsOn {
+			visit(d)
+		}
+	}
+	for _, d := range step.DependsOn {
+		visit(d)
+	}
+	if len(need) == 0 {
+		return nil
+	}
+	var out []StepResult
+	for _, s := range steps { // plan order = oldest first
+		if need[s.ID] {
+			out = append(out, byID[s.ID])
+		}
+	}
+	if len(out) > priorContextCap {
+		out = out[len(out)-priorContextCap:] // drop the oldest
+	}
+	return out
+}
+
+// buildPriorBlock renders the prior-step context for the next step's prompt.
+// English, like stepPrompt: this is model input, not user-facing text. dir is
+// the step's working directory, used to resolve relative artifact paths.
+func buildPriorBlock(priors []StepResult, dir string) string {
+	if len(priors) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Completed steps this one depends on (oldest first):\n")
+	for _, r := range priors {
+		status := "done"
+		if !r.OK {
+			status = "failed"
+		}
+		fmt.Fprintf(&b, "\n[step %s] role: %s | model: %s | status: %s\n",
+			r.Step.ID, r.Step.Role, r.Alias, status)
+		fmt.Fprintf(&b, "goal: %s\n", r.Step.Goal)
+		if r.Step.Artifact != "" {
+			if looksLikePath(r.Step.Artifact) {
+				fmt.Fprintf(&b, "artifact: %s\n", r.Step.Artifact)
+				if content := readArtifact(r.Step.Artifact, dir); content != "" {
+					fmt.Fprintf(&b, "--- begin artifact %s ---\n%s\n--- end artifact %s ---\n",
+						r.Step.Artifact, content, r.Step.Artifact)
+				}
+			} else {
+				fmt.Fprintf(&b, "artifact (description, NOT a file path): %s\n", r.Step.Artifact)
+			}
+		}
+		if r.OK {
+			if r.Output != "" {
+				fmt.Fprintf(&b, "summary: %s\n", r.Output)
+			}
+		} else if r.Err != nil {
+			fmt.Fprintf(&b, "error: %v\n", r.Err)
+		}
+	}
+	return b.String()
 }
