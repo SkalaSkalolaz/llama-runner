@@ -17,7 +17,7 @@ import (
 
 // execStepTimeout bounds one executed step (claude -p) and, separately,
 // its verification command — each gets the full budget.
-const execStepTimeout = 30 * time.Minute
+const execStepTimeout = 300 * time.Minute
 
 // runExecute is the headless auto-mode run: build the plan, print the
 // human-readable listing, then execute it step by step. Only the
