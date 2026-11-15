@@ -127,6 +127,7 @@ Claude Code:
   -git-guard-allow-dirty разрешить -git-guard на грязном дереве
   -repo-map            добавить карту проекта в промпт планировщика (auto-режим)
   -preflight           проверить verify-команды и артефакты плана до исполнения
+  -stream-output       печатать живой вывод шагов в терминал (auto-режим)
 
 Обновление llama.cpp:
   -update
@@ -295,6 +296,7 @@ Config:
   -git-guard-allow-dirty allow -git-guard on a dirty working tree
   -repo-map            add a project map to the planner prompt (auto mode)
   -preflight           check the plan verify commands and artifacts before execution
+  -stream-output       print each step's live output to the terminal (auto mode)
 
 llama.cpp update:
   -update

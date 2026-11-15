@@ -341,6 +341,7 @@ const (
 	// --- Repo map & plan preflight (internal/repomap, internal/preflight, app/planonly.go) ---
 	MsgFlagRepoMap        = "flag_repo_map"
 	MsgFlagPreflight      = "flag_preflight"
+	MsgFlagStreamOutput   = "flag_stream_output"
 	MsgRepoMapLine        = "repo_map_line"
 	MsgWarnRepoMap        = "warn_repo_map"
 	MsgPreflightFinding   = "preflight_finding"
@@ -349,9 +350,6 @@ const (
 	MsgPreflightOutside   = "preflight_outside"
 	MsgPreflightDangerous = "preflight_dangerous"
 	MsgPreflightFailed    = "preflight_failed"
-
-	// --- Streaming & resume (internal/orchestrator, app/execute.go) ---
-	MsgFlagStreamOutput = "flag_stream_output"
 )
 
 // messages is the complete translation catalog: one entry per key with the
@@ -767,6 +765,7 @@ var messages = map[string]i18nMessage{
 	// --- Repo map & plan preflight ---
 	MsgFlagRepoMap:        {"добавить карту проекта в промпт планировщика", "add a project map to the planner prompt"},
 	MsgFlagPreflight:      {"проверить verify-команды и артефакты плана до исполнения", "check the plan verify commands and artifacts before execution"},
+	MsgFlagStreamOutput:   {"печатать живой вывод шагов в терминал (auto-режим)", "print each step's live output to the terminal (auto mode)"},
 	MsgRepoMapLine:        {"карта проекта: %s (стек: %s)", "project map: %s (stack: %s)"},
 	MsgWarnRepoMap:        {"предупреждение: карта проекта недоступна: %v", "warning: project map unavailable: %v"},
 	MsgPreflightFinding:   {"[preflight] шаг %s: %s", "[preflight] step %s: %s"},
@@ -777,5 +776,4 @@ var messages = map[string]i18nMessage{
 	MsgPreflightFailed:    {"план не прошёл preflight: %s", "the plan failed preflight: %s"},
 
 	// --- Streaming & resume (internal/orchestrator, app/execute.go) ---
-	MsgFlagStreamOutput: {"печатать живой вывод шагов в терминал (auto-режим)", "print each step's live output to the terminal (auto mode)"},
 }
