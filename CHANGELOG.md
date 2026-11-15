@@ -4,7 +4,7 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [SemVer](https://semver.org/).
 
-## Unreleased
+## v1.11.0
 ### Added
 - **Git guard:** a new optional `-git-guard` flag for auto mode: a dedicated
   `llama-runner/run-<timestamp>` branch, a checkpoint commit after each
