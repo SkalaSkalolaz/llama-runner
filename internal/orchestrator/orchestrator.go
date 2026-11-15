@@ -30,6 +30,7 @@ import (
 	"github.com/SkalaSkalolaz/llama-runner/internal/i18n"
 	"github.com/SkalaSkalolaz/llama-runner/internal/planner"
 	"github.com/SkalaSkalolaz/llama-runner/internal/runner"
+	"github.com/SkalaSkalolaz/llama-runner/internal/vcs"
 )
 
 // DefaultStepTimeout bounds a single step (claude -p plus its verify
@@ -69,8 +70,17 @@ type Options struct {
 	// Swapper switches models between steps; nil disables switching.
 	Swapper Swapper
 	// StepTimeout bounds one step; 0 means DefaultStepTimeout.
-	StepTimeout    time.Duration
-	Stdout, Stderr io.Writer
+	StepTimeout time.Duration
+	// GitGuard turns on the git insurance for the run: a dedicated branch,
+	// a checkpoint commit per successful wave, a rollback on a failed one.
+	// It operates on the agent's working directory and only BETWEEN waves —
+	// steps inside a wave write concurrently, so no commit is taken while
+	// a wave is in flight.
+	GitGuard bool
+	// GitGuardAllowDirty starts the guard on a dirty working tree instead
+	// of refusing to run.
+	GitGuardAllowDirty bool
+	Stdout, Stderr     io.Writer
 }
 
 // StepResult reports how one step ended.
@@ -117,6 +127,24 @@ func Run(ctx context.Context, plan planner.Plan, opts Options) (result Result) {
 	}
 	if opts.StepTimeout <= 0 {
 		opts.StepTimeout = DefaultStepTimeout
+	}
+	var guard *vcs.Guard
+	if opts.GitGuard {
+		dir, derr := stepWorkDir(opts)
+		if derr == nil {
+			guard, derr = vcs.New(ctx, dir, opts.Runner, opts.GitGuardAllowDirty, opts.Stdout)
+		}
+		if derr != nil {
+			fmt.Fprint(opts.Stderr, i18n.TF(i18n.MsgErrGitGuard, derr))
+			return Result{Failed: true}
+		}
+		fmt.Fprint(opts.Stdout, i18n.TF(i18n.MsgGitGuardBranch, guard.Branch(), guard.Base()))
+		defer func() {
+			s, serr := guard.Summary(context.WithoutCancel(ctx))
+			if serr == nil && strings.TrimSpace(s) != "" {
+				fmt.Fprint(opts.Stdout, i18n.TF(i18n.MsgGitGuardSummary, guard.Branch(), s))
+			}
+		}()
 	}
 	number := make(map[string]int, len(steps))
 	for i, s := range steps {
@@ -219,6 +247,23 @@ func Run(ctx context.Context, plan planner.Plan, opts Options) (result Result) {
 			} else {
 				failed = true
 				fmt.Fprint(opts.Stderr, i18n.TF(i18n.MsgExecStepFail, r.Step.ID, formatDuration(r.Duration), r.Err))
+			}
+		}
+		// Git guard bookkeeping, strictly between waves: a checkpoint
+		// commit only when the whole wave succeeded, a hard reset to the
+		// last checkpoint (or the base) when the wave contains a failure.
+		if guard != nil {
+			if failed {
+				if rerr := guard.Rollback(ctx); rerr != nil {
+					fmt.Fprint(opts.Stderr, i18n.TF(i18n.MsgErrGitGuardRollback, rerr))
+				} else {
+					fmt.Fprint(opts.Stdout, i18n.TF(i18n.MsgGitGuardRollback))
+				}
+			} else if hash, cerr := guard.Checkpoint(ctx,
+				fmt.Sprintf("wave (%d steps done)", len(byID))); cerr != nil {
+				fmt.Fprint(opts.Stderr, i18n.TF(i18n.MsgErrGitGuardCheckpoint, cerr))
+			} else {
+				fmt.Fprint(opts.Stdout, i18n.TF(i18n.MsgGitGuardCheckpoint, hash))
 			}
 		}
 		if failed {

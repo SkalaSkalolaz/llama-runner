@@ -151,6 +151,11 @@ type FileConfig struct {
 
 	// Profiles
 	Profiles map[string]FileConfig `json:"profiles,omitempty"`
+
+	// GitGuard enables a Git safety net for auto mode (branch + checkpoint + rollback).
+	GitGuard *bool `json:"gitGuard,omitempty"`
+	// GitGuardAllowDirty permits -git-guard on a dirty working tree.
+	GitGuardAllowDirty *bool `json:"gitGuardAllowDirty,omitempty"`
 }
 
 // ApplyFileConfig overlays the set (non-nil) fields of fc onto cfg; nil
@@ -240,6 +245,9 @@ func ApplyFileConfig(cfg *Config, fc FileConfig) error {
 	set(&cfg.ProxyAddr, fc.ProxyAddr)
 	set(&cfg.ProxyToken, fc.ProxyToken)
 	setB(&cfg.ProxyAllowRemote, fc.ProxyAllowRemote)
+
+	setB(&cfg.GitGuard, fc.GitGuard)
+	setB(&cfg.GitGuardAllowDirty, fc.GitGuardAllowDirty)
 
 	if fc.ReadyTimeout != nil {
 		d, err := time.ParseDuration(*fc.ReadyTimeout)

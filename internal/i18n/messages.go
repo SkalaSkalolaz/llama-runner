@@ -319,6 +319,22 @@ const (
 	MsgErrExecVerify      = "err_exec_verify"
 	MsgErrExecPlan        = "err_exec_plan"
 	MsgExecDone           = "exec_done"
+
+	// --- Git guard (internal/vcs) ---
+	MsgFlagGitGuard           = "flag_git_guard"
+	MsgFlagGitGuardAllowDirty = "flag_git_guard_allow_dirty"
+	MsgErrGitGuard            = "err_git_guard"
+	MsgGitGuardBranch         = "git_guard_branch"
+	MsgGitGuardCheckpoint     = "git_guard_checkpoint"
+	MsgErrGitGuardCheckpoint  = "err_git_guard_checkpoint"
+	MsgGitGuardRollback       = "git_guard_rollback"
+	MsgErrGitGuardRollback    = "err_git_guard_rollback"
+	MsgGitGuardSummary        = "git_guard_summary"
+	MsgVcsNotRepo             = "vcs_not_repo"
+	MsgVcsDirty               = "vcs_dirty"
+	MsgVcsNoCommits           = "vcs_no_commits"
+	MsgVcsCmd                 = "vcs_cmd"
+	MsgVcsUntrackedLeft       = "vcs_untracked_left"
 )
 
 // messages is the complete translation catalog: one entry per key with the
@@ -712,4 +728,20 @@ var messages = map[string]i18nMessage{
 	MsgErrExecVerify:      {"проверка %q не прошла: %s", "verification %q failed: %s"},
 	MsgErrExecPlan:        {"не удалось упорядочить план: %v", "failed to order the plan: %v"},
 	MsgExecDone:           {"Исполнение завершено за %s: выполнено %d из %d шагов (в плане %d)", "Execution finished in %s: %d of %d steps done (%d in plan)"},
+
+	// --- Git guard (internal/vcs) ---
+	MsgFlagGitGuard:           {"ветка + коммит-чекпоинт на волну + откат при провале (auto-режим)", "branch + checkpoint commit per wave + rollback on failure (auto mode)"},
+	MsgFlagGitGuardAllowDirty: {"разрешить -git-guard на грязном дереве", "allow -git-guard on a dirty working tree"},
+	MsgErrGitGuard:            {"git-страховка не включена: %v", "git guard not enabled: %v"},
+	MsgGitGuardBranch:         {"[git] ветка %s от %s", "[git] branch %s from %s"},
+	MsgGitGuardCheckpoint:     {"[git] чекпоинт %s", "[git] checkpoint %s"},
+	MsgErrGitGuardCheckpoint:  {"[git] чекпоинт не создан: %v", "[git] checkpoint failed: %v"},
+	MsgGitGuardRollback:       {"[git] откат к последнему чекпоинту", "[git] rolled back to the last checkpoint"},
+	MsgErrGitGuardRollback:    {"[git] откат не удался: %v", "[git] rollback failed: %v"},
+	MsgGitGuardSummary:        {"[git] изменения прогона (ветка %s):\n%s", "[git] run changes (branch %s):\n%s"},
+	MsgVcsNotRepo:             {"%s не является git-репозиторием", "%s is not a git repository"},
+	MsgVcsDirty:               {"в %s есть незакоммиченные изменения: закоммитьте их или укажите -git-guard-allow-dirty", "%s has uncommitted changes: commit them or pass -git-guard-allow-dirty"},
+	MsgVcsNoCommits:           {"в %s нет ни одного коммита", "%s has no commits yet"},
+	MsgVcsCmd:                 {"git %s: %v", "git %s: %v"},
+	MsgVcsUntrackedLeft:       {"[git] остались неотслеживаемые файлы (не удалены):\n%s", "[git] untracked files left in place (not removed):\n%s"},
 }

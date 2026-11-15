@@ -122,6 +122,8 @@ Claude Code:
   -task string         задача для планировщика: построить план и исполнить его
                        (профиль с "mode": "auto"); -plan-only — только план
   -plan-only           построить план и выйти, без исполнения
+  -git-guard           ветка + чекпоинт на волну + откат при провале (auto-режим)
+  -git-guard-allow-dirty разрешить -git-guard на грязном дереве
 
 Обновление llama.cpp:
   -update
@@ -273,6 +275,8 @@ Config:
   -task string         task for the planner: build the plan and execute it
                        (a profile declaring "mode": "auto"); -plan-only = plan only
   -plan-only           build the plan and exit, without executing it
+  -git-guard           branch + checkpoint commit per wave + rollback on failure (auto mode)
+  -git-guard-allow-dirty allow -git-guard on a dirty working tree
 
 llama.cpp update:
   -update

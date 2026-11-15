@@ -64,7 +64,7 @@ go build -o llama-runner ./cmd/llama-runner
   native Anthropic API at `/v1/messages`, with Anthropic-specific features (thinking,
   cache_control, tool_use/tool_result) preserved verbatim. Token authentication via
   `-proxy-token`.
-- **Auto mode:** a profile declaring `"mode": "auto"` becomes the
+- **Git-guard:** the flag `-git-guard` enables a temporary branch for the plan run, checkpoints after each successful wave, and automatic rollback to the last checkpoint on failure.
   planner — it decomposes the task into steps, picks a model from
   `profiles` for each step (by `description`), and the orchestrator
   executes the plan with hot-swapping between models. Entry points:

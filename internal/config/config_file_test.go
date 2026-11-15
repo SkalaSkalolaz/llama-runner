@@ -91,3 +91,49 @@ func TestLoadConfigFile_InvalidJSON(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+// --- GitGuard / GitGuardAllowDirty ---
+
+func TestApplyFileConfig_GitGuard(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// nil must not overwrite the default (false).
+	if cfg.GitGuard {
+		t.Error("GitGuard should be false by default")
+	}
+	if cfg.GitGuardAllowDirty {
+		t.Error("GitGuardAllowDirty should be false by default")
+	}
+
+	// true in the file must be applied.
+	fc := FileConfig{
+		GitGuard:           boolPtr(true),
+		GitGuardAllowDirty: boolPtr(true),
+	}
+	if err := ApplyFileConfig(cfg, fc); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.GitGuard {
+		t.Error("GitGuard should be true after ApplyFileConfig")
+	}
+	if !cfg.GitGuardAllowDirty {
+		t.Error("GitGuardAllowDirty should be true after ApplyFileConfig")
+	}
+
+	// nil must leave the field untouched.
+	cfg2 := DefaultConfig()
+	cfg2.GitGuard = true
+	cfg2.GitGuardAllowDirty = true
+	fc2 := FileConfig{} // all nil
+	if err := ApplyFileConfig(cfg2, fc2); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg2.GitGuard {
+		t.Error("GitGuard should remain true when FileConfig field is nil")
+	}
+	if !cfg2.GitGuardAllowDirty {
+		t.Error("GitGuardAllowDirty should remain true when FileConfig field is nil")
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }

@@ -7,6 +7,9 @@ versioning follows [SemVer](https://semver.org/).
 ## v1.10.1
 
 ### Added
+- **Git guard:** a new optional `-git-guard` flag for auto-mode. It enables a temporary branch for the plan run, checkpoints after each successful wave, and automatic rollback to the last checkpoint on failure.
+
+### Added
 - Per-step and total execution timing. `StepResult.Duration` records how
   long each step took (including verification, on every exit path), and
   `Result.Duration` records the whole run. `formatDuration` renders

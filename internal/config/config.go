@@ -115,8 +115,15 @@ type Config struct {
 	// Task is the user task handed to the planner (-task). PlanOnly asks
 	// for the plan without executing it (-plan-only). Both are per-run CLI
 	// intent, not persisted settings, so neither has a FileConfig field.
-	Task                 string
-	PlanOnly             bool
+	Task     string
+	PlanOnly bool
+	// GitGuard enables a Git safety net for auto mode: creates a branch,
+	// checkpoints per wave, and rolls back on failure. It is a per-run
+	// user intent, not a persisted setting.
+	GitGuard bool
+	// GitGuardAllowDirty permits -git-guard to start even when the working
+	// tree is dirty (uncommitted changes are ignored).
+	GitGuardAllowDirty   bool
 	DoctorFlag           bool
 	ChatTemplateFallback string
 

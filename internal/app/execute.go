@@ -38,17 +38,20 @@ func runExecute(ctx context.Context, cfg *config.Config, home, baseURL string,
 	defer func() { _ = outW.Flush(); _ = errW.Flush() }()
 
 	res := orchestrator.Run(ctx, plan, orchestrator.Options{
-		Cfg:         cfg,
-		Profiles:    cfg.Profiles,
-		Home:        home,
-		Runner:      cmdRunner,
-		Task:        cfg.Task,
-		BaseURL:     baseURL,
-		Swapper:     sw,
-		StepTimeout: execStepTimeout,
-		Stdout:      outW,
-		Stderr:      errW,
+		Cfg:                cfg,
+		Profiles:           cfg.Profiles,
+		Home:               home,
+		Runner:             cmdRunner,
+		Task:               cfg.Task,
+		BaseURL:            baseURL,
+		Swapper:            sw,
+		StepTimeout:        execStepTimeout,
+		GitGuard:           cfg.GitGuard,
+		GitGuardAllowDirty: cfg.GitGuardAllowDirty,
+		Stdout:             outW,
+		Stderr:             errW,
 	})
+
 	if res.Failed {
 		return 1
 	}
