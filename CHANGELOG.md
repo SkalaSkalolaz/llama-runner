@@ -4,6 +4,19 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [SemVer](https://semver.org/).
 
+## v1.11.1
+### Added
+- **Git guard** (`-git-guard`) — branch creation, per-wave checkpoints, rollback on failure
+- **Step retries** (`-max-retries`) — retries with error context injection into the prompt
+- **Project map** (`-repo-map`) — working directory context in the planner prompt
+- **Plan preflight** (`-preflight`) — verify command validation before execution
+- **Prior-context propagation** — artifact embedding between dependent steps
+- **Human-readable plan listing** — per-line timestamps and step summaries
+- **Per-step and total execution timing** — `formatDuration` with millisecond/second/minute/hour formatting
+- **Resume support** (`-resume`) — continue last run from journal at `~/.cache/llama-runner/last-run.json`
+- **Live step streaming** (`-stream-output`) — step output to terminal with `[step-id]` prefix
+
+
 ## v1.11.0
 ### Added
 - **Git guard:** a new optional `-git-guard` flag for auto mode: a dedicated

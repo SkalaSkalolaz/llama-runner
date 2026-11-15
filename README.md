@@ -1,10 +1,9 @@
-# llama-runner
+# README.md
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](https://go.dev/)
 [![Tests](https://img.shields.io/badge/tests-135%2B-brightgreen.svg)](#development)
 [![Race](https://img.shields.io/badge/race-clean-brightgreen.svg)](#development)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
-
 [![CI](https://github.com/SkalaSkalolaz/llama-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/SkalaSkalolaz/llama-runner/actions/workflows/ci.yml)
 
 **English** · [Русский](README_RU.md)
@@ -14,199 +13,115 @@ A local launcher: starts `llama-server` with your GGUF model and automatically o
 
 ## Install
 
-One-liner — downloads a pre-built binary (no Go required):
-
+One-liner (no Go required):
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/install.sh | sh
 ```
 
-With options (agents, model download, exact version):
-
+With options:
 ```sh
-curl -fsSL https://raw.githubusercontent.com/SkalaSkalolaz/llama-runner/master/install.sh \
-  | sh -s -- --version v1.9.0 --with-agents --with-default-model
+curl -fsSL .../install.sh | sh -s -- --version v1.9.0 --with-agents --with-default-model
 ```
 
-`install.sh --help` lists every flag. What the installer does:
+The installer places the binary in `~/.local/bin/`, creates config directories,
+verifies SHA-256, optionally installs agent files and downloads a small default
+Qwen model (~400 MB). It never runs sudo or touches paths outside `$HOME`.
 
-- places the binary in `~/.local/bin/llama-runner` (`llama-runner.exe` on Windows/Git Bash; override with `--dir`);
-- creates `~/GGUF/`, `~/.cache/llama-runner/`, `~/.config/llama-runner/` (mode 0700) and writes `~/.config/llama-runner/config.json` if it does not exist;
-- verifies the binary against a SHA-256 hash embedded in `install.sh` for that version; for latest without an embedded hash it falls back to the release's `sha256sums.txt` — and only with an explicit `--allow-unverified-hash` (or `-y`);
-- optionally installs `~/.config/agents/AGENTS.md` and `~/.config/agents/workflow-policy.md` (selected by console locale: `.ru.md` for Russian, plain `.md` otherwise) and appends the matching `@-references` to `~/.claude/CLAUDE.md` (existing content is preserved, duplicates avoided);
-- optionally downloads a small default Qwen model (`Qwen2.5-0.5B-Instruct-Q4_K_M.gguf`, ~400 MB) — pass `--with-default-model`, or say "y" at the prompt, or skip with `--no-default-model`;
-- checks for `llama-server`, `claude` and `mcp-search-server` and prints warnings if they are not on PATH (it does not install them automatically).
+**Note:** `mcp-search-server` (for `-webui-mcp-proxy`) is separate — https://github.com/SkalaSkalolaz/mcp-search-server
 
-The installer never runs sudo, never touches paths outside `$HOME`, and never overwrites an existing `~/.config/llama-runner/config.json`.
-
-**Note:** `mcp-search-server` (used by `-webui-mcp-proxy`) is a separate project — https://github.com/SkalaSkalolaz/mcp-search-server. Install it separately if you need web search. Any other MCP server (including a remote one) can be wired via `-mcp-config`.
-
-## Quick start (from source)
-
-Building from source requires Go 1.26. For pre-built binaries, see [Install](#install) above.
+## Quick Start
 
 ```bash
 git clone https://github.com/SkalaSkalolaz/llama-runner.git
 cd llama-runner
 go build -o llama-runner ./cmd/llama-runner
-
 ./llama-runner                  # llama-server + Claude Code (default)
-./llama-runner -server          # llama-server only (legacy behavior)
-./llama-runner -webui-mcp-proxy # + search MCP server and CORS proxy
+./llama-runner -server          # llama-server only
+./llama-runner -webui-mcp-proxy # + search MCP server
 ```
 
 ## Features
 
-- **Automatic startup:** checks that the model exists, starts the server, waits for
-  `/health` to pass and opens Claude Code.
-- **One-shot installer:** `curl … | sh` with SHA-256-verified pre-built binaries for linux/darwin/windows × amd64/arm64, optional global agent files and a small default model.
-- **Hybrid mode:** a built-in proxy routes Claude Code requests between the local
-  `llama-server` and an external OpenAI-compatible API. The local model uses the
-  native Anthropic API at `/v1/messages`, with Anthropic-specific features (thinking,
-  cache_control, tool_use/tool_result) preserved verbatim. Token authentication via
-  `-proxy-token`.
-- **Auto mode:** a profile declaring `"mode": "auto"` becomes the
-planner — it decomposes the task into steps, picks a model from
-`profiles` for each step (by `description`), and the orchestrator
-executes the plan with hot-swapping between models. Entry points:
-`-p auto -task "..."` (headless) or `-p auto` (interactive loop).
-See the "Auto orchestration" section.
-- **Git guard:** `-git-guard` creates a run branch, a checkpoint commit after each successful wave, and a rollback on failure (auto mode).
-- **Step retries:** `-max-retries N` (0..5) retries a failed step with the previous error injected into the prompt; timeouts and Ctrl-C are never retried.
-- **Project map:** `-repo-map` adds the working directory's stack, directory tree and languages to the planner prompt.
-- **Plan preflight:** `-preflight` checks verify commands (`sh -n`, PATH) and artifact paths before execution; errors go back to the planner for repair.
-- **MCP proxy:** `-webui-mcp-proxy` starts `mcp-search-server`, generates a temporary
-  MCP config and passes CORS through. With `-mcp-strict` — only this MCP, no third-party
-  servers from `~/.claude.json`.
-- **llama.cpp updates:** `-update` runs `git pull --ff-only` → `cmake configure/build/install`.
-- **Speculative decoding:** `-spec-type`, `-spec-draft-model`, `-spec-draft-n-max`,
-  `-spec-draft-ngl`.
-- **Multimodality:** `-mmproj` attaches a vision projector.
-- **Model alias:** `-alias` sets `--alias` in llama-server (its WebUI card) and
-  `ANTHROPIC_DEFAULT_*_MODEL` in Claude Code (its `/model` entry). Without
-  `-alias` the name follows the model actually chosen: derived from the GGUF
-  file name given on the command line (`gpt-oss-20b-Q5_K_M.gguf` →
-  `gpt-oss-20b-Q5_K_M`), else the config file/profile alias, else `local`.
-  A profile keeps its own alias, since it brings its own model too.
-- **Chat template:** `-chat-template "auto"` (picked by model file name, e.g.
-  `qwen-fixed-chat-template.jinja`), an explicit path, or `""`.
-- **Reasoning control:** `-reasoning` and `-reasoning-budget` (works only for models
-  with reasoning support).
-- **Logs with rotation:** llama-server output goes to a file (by default
-  `~/.cache/llama-runner/llama-server.log`) and is rotated by size.
-- **Config file:** `~/.config/llama-runner/config.json` (or `-config <path>`). Priority:
-  CLI > file > built-in defaults. `-config ""` disables reading it. Secrets (`openaiKey`,
-  `proxyToken`) are supported in the file, but env / `credentials` / a flag are recommended.
-- **Profiles:** `-p small` — short presets from `profiles: {…}` in the config
-  file. A profile supplies the model, alias and other settings of the one
-  local model this run serves (see «The `/model` menu`).
-- **Per-model parallel:** parallel is set per-profile; `-p a3b` uses the
-  profile value, `-model <other.gguf>` resets it to `"1"`.
-- **`-doctor`:** show resolved paths, version and the final command without spawning
-  any processes.
-- **Clean shutdown:** Ctrl-C/SIGTERM stops claude, the server and MCP with
-  SIGTERM → SIGKILL escalation; a repeated signal escalates faster.
+- **Auto mode:** a profile with `"mode": "auto"` becomes the planner — it decomposes
+  tasks, picks models from `profiles`, and the orchestrator executes with hot-swapping
+- **Git guard:** `-git-guard` creates a run branch, checkpoints per wave, rolls back on failure
+- **Step retries:** `-max-retries N` (0..5) retries failed steps with error context
+- **Project map:** `-repo-map` adds working directory context to the planner prompt
+- **Plan preflight:** `-preflight` checks verify commands and artifacts before execution
+- **Hybrid mode:** proxy routes between local llama-server (native Anthropic API) and
+  external OpenAI-compatible API
+- **Auto-download:** `-download` fetches GGUF models (single or sharded) before launch
+- **MCP proxy:** `-webui-mcp-proxy` starts search server with CORS proxy
+- **Speculative decoding:** `-spec-type`, `-spec-draft-model`, etc.
+- **Multimodality:** `-mmproj` for vision projector
+- **Model alias:** `-alias` sets llama-server `--alias` and Claude Code `/model` entry
+- **Chat template:** `-chat-template "auto"` or explicit path
+- **Reasoning control:** `-reasoning` and `-reasoning-budget`
+- **Logs with rotation:** size-based rotation in `~/.cache/llama-runner/`
+- **Config file:** `~/.config/llama-runner/config.json` with profiles
+- **Per-model parallel:** set per-profile, CLI `-model` resets to `"1"`
+- **`-doctor`:** diagnostics without spawning processes
+- **Clean shutdown:** Ctrl-C/SIGTERM with SIGTERM → SIGKILL escalation
 
 ## Flags
 
 ### Server and llama.cpp
-
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-model` | `~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf` | Path to the GGUF file |
-| `-bin` | `~/.local/bin/llama-server` | Path to llama-server |
-| `-host` / `-port` | `127.0.0.1` / `8080` | Server address and port |
-| `-alias` | derived from `-model`, else config file/profile, else `local` | Model alias — llama-server's `--alias` and `ANTHROPIC_DEFAULT_*_MODEL` |
-| `-c`, `-b`, `-ub` | `32768` / `2048` / `512` | Context / batch / micro-batch (config values; CLI defaults are `65536` / `2048` / `1024`) |
-| `-fa` | `auto` | Flash attention |
-| `-parallel` | `1` | Number of parallel slots; can be set per-profile in config file (CLI default is `1`) |
-| `-tools` | `all` | Tools mode |
-| `-jinja` | `true` | Jinja templates |
-| `-chat-template` | `auto` | `auto` / `""` / path to a `.jinja` file |
-| `-ngl` | _(not passed)_ | Number of layers offloaded to GPU |
-| `-mmproj` | _(not passed)_ | Multimodal projector |
-| `-temp`, `-top-p` | _(not passed)_ | Sampling; `temp` is set per-profile in the example config |
-| `-cache-type-k`, `-cache-type-v` | _(not passed)_ | KV-cache types |
-| `-fit` | _(not passed)_ | `--fit` mode (on/off); example config sets `"on"` |
-| `-lv` | _(not passed)_ | llama.cpp log verbosity |
-| `-reasoning` | _(not passed)_ | Reasoning mode: on/off/auto; example sets `"on"` per-profile |
-| `-reasoning-budget` | _(not passed)_ | Reasoning token budget: -1/0/N; example sets `"2048"` |
-| `-spec-type` | _(not passed)_ | Speculative decoding type |
-| `-spec-draft-model` | _(not passed)_ | Draft model path |
-| `-spec-draft-n-max` | _(not passed)_ | Draft tokens max |
-| `-spec-draft-ngl` | _(not passed)_ | Draft layers on GPU |
-| `-lm-lazy` | `false` | Lazy mmap mode |
-| `-dir` | current directory | Working directory of llama-server |
+| `-model` | `~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf` | GGUF path |
+| `-bin` | `~/.local/bin/llama-server` | llama-server path |
+| `-host` / `-port` | `127.0.0.1` / `8080` | Server address |
+| `-alias` | derived from `-model` or config | Model alias |
+| `-c` / `-b` / `-ub` | `65536` / `2048` / `1024` | Context / batch / micro-batch |
+| `-parallel` | `1` | Parallel slots (per-profile) |
+| `-ngl` | — | GPU layers |
+| `-mmproj` | — | Multimodal projector |
+| `-reasoning` / `-reasoning-budget` | — | Reasoning mode / budget |
+| `-spec-*` | — | Speculative decoding |
+| `-chat-template` | `auto` | Chat template (`auto` / path / `""`) |
+| `-fa` / `-fit` / `-lv` | — | Flash attention / fit mode / log verbosity |
 
 ### Claude Code
-
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-server` | | llama-server only, no Claude Code |
-| `-claude-bin` | `claude` | Path to the Claude Code binary |
-| `-claude-dir` | current directory | Working directory of Claude Code |
-| `-ready-timeout` | `180s` | Timeout for waiting on `/health` |
-| `-log-file` | `~/.cache/llama-runner/llama-server.log` | llama-server log file |
-| `-quiet-server` | `true` | Redirect llama-server logs to the file |
-| `-log-max-mb` | `50` | Max log size in MB before rotation; `0` — no rotation |
-| `-log-keep` | `5` | Number of log archives to keep; `0` — no archives (truncate) |
-| `-webui-mcp-proxy` | `false` | CORS proxy + `mcp-search-server` |
-| `-mcp-addr` | `127.0.0.1:8090` | Address of `mcp-search-server` |
-| `-mcp-config` | temp file | Where to write the MCP config |
-| `-mcp-strict` | `false` | Pass `--strict-mcp-config` |
-| `-git-guard` | `false` | Auto mode: run branch + checkpoint per wave + rollback on failure |
-| `-git-guard-allow-dirty` | `false` | Allow `-git-guard` on a dirty working tree |
+| `-server` | | llama-server only |
+| `-claude-dir` | current dir | Claude working directory |
+| `-ready-timeout` | `180s` | `/health` timeout |
+| `-log-file` | `~/.cache/llama-runner/llama-server.log` | Log file |
+| `-log-max-mb` / `-log-keep` | `50` / `5` | Log rotation |
+| `-git-guard` | `false` | Git safety net (auto mode) |
+| `-max-retries` | `0` | Step retries (0..5) |
+| `-stream-output` | `false` | Live step output to terminal |
+| `-resume` | `false` | Resume last run from journal |
 
-### External provider (hybrid mode)
-
+### External Provider (Hybrid)
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-openai` | | URL of the OpenAI-compatible API |
-| `-key` | | API key for the external provider (see «Getting the provider key»); `none` or `""` — use the provider **without** a key |
-| `-model-openai` | | Model name at the external provider |
-| `-openai-path` | `/chat/completions` | Path suffix appended to `-openai` when forwarding; `""` — no suffix (OVH Kepler, VLM.run) |
-| `-proxy-addr` | `127.0.0.1:8082` | Address of the local routing proxy |
-| `-proxy-token` | _(empty — no check)_ | Token for incoming proxy requests |
-| `-proxy-allow-remote` | `false` | Allow a non-loopback `-proxy-addr` without a warning |
+| `-openai` | | OpenAI-compatible API URL |
+| `-key` | | API key (`none` or `""` = no auth) |
+| `-model-openai` | | External model name |
+| `-openai-path` | `/chat/completions` | Path suffix (`""` for OVH/VLM.run) |
+| `-proxy-addr` | `127.0.0.1:8082` | Local proxy address |
+| `-proxy-token` | | Proxy auth token |
 
-### Config, diagnostics, updates
-
+### Config and Diagnostics
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-config` | `~/.config/llama-runner/config.json` | Path to the config file; `""` — don't read |
-| `-download` | _(not set)_ | Download a model before launch: `<dir><URL>` as one argument, e.g. `~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf`. Sharded models are expanded to the full set. After the download, `-model` points at the fetched file; a CLI `-model` is ignored. Not compatible with `-update`. |
-| `-p` | _(not set)_ | Profile from the config file; a profile with `"mode": "auto"` enables auto mode |
-| `-task` | _(not set)_ | Task for the planner: build the plan and execute it (only for a profile with `"mode": "auto"`) |
-| `-plan-only` | | Build the plan and exit, without executing it (requires `-task`; only with `"mode": "auto"`) |
-| `-max-retries` | `0` | Retries for a failed step, 0..5 (0 = disabled); per-profile field `maxRetries` |
-| `-repo-map` | `false` | Project map (stack, tree, languages) in the planner prompt |
-| `-preflight` | `false` | Check the plan's verify commands and artifacts before execution |
-| `-doctor` | | Diagnostics without spawning processes |
-| `-v` | | Print the command before running it |
-| `-version` | | Print the version |
-| `-update` | | Update llama.cpp (`git pull --ff-only` + build + install) and exit |
-| `-llama-src` | `~/src/llama.cpp` | Path to the llama.cpp sources |
-| `-install-prefix` | `~/.local` | Install prefix |
-| `-cuda` | `true` | Build with CUDA |
-| `-cuda-arch` | `61` | `-DCMAKE_CUDA_ARCHITECTURES` |
+| `-config` | `~/.config/llama-runner/config.json` | Config file (`""` = don't read) |
+| `-download` | | Download model: `<dir><URL>` |
+| `-p` | | Profile name |
+| `-task` | | Task for planner (auto mode) |
+| `-plan-only` | | Build plan only, no execution |
+| `-repo-map` | `false` | Project map in planner prompt |
+| `-preflight` | `false` | Check plan before execution |
+| `-doctor` | | Diagnostics only |
+| `-update` | | Update llama.cpp and exit |
 
-## Hybrid mode: llama-server + external OpenAI API
+## Hybrid Mode
 
-You can use the local llama-server and an external OpenAI-compatible service
-(OrcaRouter, OpenRouter, DeepSeek, …) at the same time. A local proxy is started
-(by default `127.0.0.1:8082`, flag `-proxy-addr`), and Claude Code's
-`ANTHROPIC_BASE_URL` is pointed at it.
-
-Routing by model name in Claude Code (`/model`):
-
-- the local model alias **or** the token `llama-server` (including picking the
-  custom entry from the `/model` menu) → the local
-  llama-server (the request goes verbatim to `/v1/messages`, the native Anthropic
-  API; no OpenAI conversion — Anthropic-specific features such as thinking,
-  cache_control, tool_use/tool_result are preserved as-is);
-- **everything else** (`sonnet`, `haiku`, `opus`, any other name) → the external provider.
-
-The local model alias is also added to the interactive `/model` menu via
-`ANTHROPIC_CUSTOM_MODEL_OPTION` so it can be selected with arrow keys.
+Routes Claude Code requests between local llama-server and external OpenAI-compatible API:
+- Local model alias or `llama-server` → local llama-server (native Anthropic API, verbatim)
+- Everything else → external provider
 
 ```bash
 ./llama-runner \
@@ -215,483 +130,133 @@ The local model alias is also added to the interactive `/model` menu via
   -model-openai deepseek/deepseek-v4-flash-free
 ```
 
-A provider that needs no authentication works the same way — pass `-key none`
-(see «Running the provider without a key»).
+## Provider Key
 
-By default requests are forwarded to `<openai>/chat/completions`. Some
-providers (e.g. OVH Kepler `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`,
-VLM.run) serve the endpoint at the bare base URL and reject the extra
-`/chat/completions` suffix. Pass `-openai-path ""` to send requests to
-`<openai>` as-is, or `-openai-path /custom/path` to use a different suffix.
+Priority: `-key` flag → `LLAMA_RUNNER_OPENAI_KEY` → `OPENAI_API_KEY` →
+`~/.config/llama-runner/credentials` file.
 
-### Proxy protection
+**Keyless mode:** `-key none` or `-key ""` sends no `Authorization` header
+(for providers like OVH Kepler).
 
-- `-proxy-token <token>` — the proxy checks incoming requests via
-  `Authorization: Bearer` or `x-api-key`; the same token is passed to Claude Code
-  in `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`.
-- If the proxy listens on a non-loopback address without a token, a warning is shown
-  (anyone on the network could use your paid key). A set token or an explicit
-  `-proxy-allow-remote` silences it.
+## Config File
 
-
-
-## Getting the provider key
-
-Key source priority:
-
-1. the `-key` flag;
-2. env `LLAMA_RUNNER_OPENAI_KEY`;
-3. env `OPENAI_API_KEY`;
-4. the file `~/.config/llama-runner/credentials` — a simple `KEY=VALUE`
-   file (`OPENAI_KEY` or `OPENAI_API_KEY`, `#` comments supported);
-   permissions `0600` are recommended (otherwise a warning is shown).
-
-The key is resolved only when the external provider is actually requested
-(at least one of `-openai` / `-key` / `-model-openai` is set).
-
-### Running the provider without a key
-
-Some OpenAI-compatible endpoints need no authentication. Say so explicitly:
-
-```bash
-./llama-runner \
-  -openai https://oai.endpoints.kepler.ai.cloud.ovh.net/v1 \
-  -model-openai Qwen3.6-27B \
-  -openai-path "" \
-  -key none
-```
-
-- `-key none` (any case, spaces ignored) and `-key ""` make the request to the
-  provider carry **no `Authorization` header at all** — not an empty one, not
-  `Bearer ` — the same request a bare `curl -H 'Content-Type: application/json'
-  …/chat/completions` sends. Everything else (Anthropic ↔ OpenAI conversion,
-  streaming, routing by model name, the local proxy and its `-proxy-token`)
-  works unchanged.
-- This is a decision, not missing data: with `-key none` neither
-  `LLAMA_RUNNER_OPENAI_KEY`, `OPENAI_API_KEY` nor the credentials file is
-  consulted, so a machine that has a key exported still calls the provider
-  unauthenticated when told to.
-- `"openaiKey": "none"` in the config file or in a profile does the same thing —
-  that is how a keyless provider is stored as a preset. An **empty** `openaiKey`
-  in the file still means "not configured, look in the environment".
-- A value reading `none` found in the environment or in the credentials file is
-  used verbatim as the key: those hold keys, not per-run intent. The trade-off
-  is that a provider key which literally reads `none` cannot be passed on the
-  command line.
-- Omitting `-key` keeps its old meaning (search the environment, then the
-  credentials file); `-doctor` prints `OpenAI key: not required (no key sent)`
-  for the keyless mode, so it is never mistaken for a forgotten key.
-
-## Config file
-
-By default `~/.config/llama-runner/config.json` is read. Value priority:
-**CLI > config > built-in defaults**. The `-config ""` flag disables reading
-the file. All tunable parameters are available in the file (names closely
-match the flags: `model`, `bin`, `host`, `port`, `c`, `b`, `ub`, `fa`, `ngl`,
-`jinja`, `tools`, `parallel`, `mmproj`, `temp`, `topP`, `cacheTypeK`,
-`cacheTypeV`, `fit`, `logVerbosity`, `reasoning`, `reasoningBudget`,
-`specType`, `specDraftModel`, `specDraftNMax`, `specDraftNGL`, `chatTemplate`,
-`chatTemplateFallback`, `logFile`, `logMaxMB`, `logKeep`, `quietServer`,
-`mcpAddr`, `mcpStrict`, `webuiMcpProxy`, `alias`, `claudeBin`, `claudeDir`,
-`serverOnly`, `readyTimeout` (duration string, e.g. `"180s"`), `openai`,
-`openaiKey`, `modelOpenai`, `openaiPath`, `proxyAddr`, `proxyToken`, `proxyAllowRemote`,
-`llamaSrc`, `installPrefix`, `cuda`, `cudaArch`, `dir`, `verbose`, `lmLazy`,
-`mcpConfig`, `download`).
+`~/.config/llama-runner/config.json` with priority: CLI > config > defaults.
 
 ```json
 {
   "host": "127.0.0.1",
   "port": "8080",
-  "jinja": true,
-  "readyTimeout": "180s",
-  "tools": "all",
-  "parallel": "1",
-
-  "logFile": "~/.cache/llama-runner/llama-server.log",
-  "logMaxMB": 50,
-  "logKeep": 5,
-
-  "chatTemplate": "auto",
-  "chatTemplateFallback": "~/GGUF/qwen-fixed-chat-template.jinja",
-
-  "proxyAddr": "127.0.0.1:8082",
-
   "model": "~/GGUF/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
   "alias": "qwen2.5-0.5b",
-  "c": "32768",
-  "b": "2048",
-  "ub": "512",
-  "fa": "auto",
-
   "profiles": {
+    "auto": {
+      "mode": "auto",
+      "model": "~/GGUF/Qwen3.5-9B-Agentic-Coder-Q5_K_M.gguf",
+      "alias": "auto",
+      "parallel": "1",
+      "description": "Planner: task decomposition"
+    },
     "small": {
       "model": "~/GGUF/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
       "alias": "qwen2.5-0.5b",
-      "c": "32768",
-      "b": "2048",
-      "ub": "512",
-      "fa": "auto",
-      "parallel": "1",
-      "temp": "0.2",
-      "fit": "on",
-      "reasoning": "on",
-      "reasoningBudget": "2048"
-    },
-    "a3b": {
-      "model": "~/GGUF/Qwen3.8-35B-A3B-Q4_K_M.gguf",
-      "alias": "qwen3.8-a3b",
-      "c": "262144",
-      "b": "4196",
-      "ub": "1024",
-      "fa": "auto",
-      "parallel": "1",
-      "temp": "0.2",
-      "fit": "on",
-      "reasoning": "on",
-      "reasoningBudget": "2048"
+      "parallel": "1"
     }
   }
 }
 ```
 
-`install.sh` writes exactly this file on a fresh install (see `examples/config.example.json`); edit `model` and `profiles` to match your own GGUF files.
-
 ### Profiles
 
 | Profile | Alias | Model | Context | Parallel | Purpose |
 |---------|-------|-------|---------|----------|---------|
-| `auto` | `auto` | Qwen3.5-9B-Agentic-Coder | 32768 | 1 | Planner (`mode: "auto"`) |
-| `small` | `qwen2.5-0.5b` | Qwen2.5-0.5B-Instruct | 32768 | 1 | Small model for lightweight tasks |
-| `a3b` | `qwen3.8-a3b` | Qwen3.8-35B-A3B | 262144 | 1 | Large MoE model for complex tasks |
+| `auto` | `auto` | Qwen3.5-9B-Agentic-Coder | 32768 | 1 | Planner |
+| `small` | `qwen2.5-0.5b` | Qwen2.5-0.5B-Instruct | 32768 | 1 | Lightweight tasks |
+| `a3b` | `qwen3.8-a3b` | Qwen3.8-35B-A3B | 262144 | 1 | Complex tasks |
 
-Profiles are selected with `-p <name>` (they apply the profile's model, alias and other settings as the one running local model). When the config file declares profiles, they also appear in the `/model` menu as `switch-to:<profile-alias>` entries — see «The `/model` menu» below.
+### The `/model` Menu
 
-Notes:
+With `profiles` section, the menu is dynamic:
+- **Opus** (Default): `switch-to:<startup-alias>`
+- **Sonnet / Fable**: `switch-to:<other-profile>`
+- **Haiku**: bare primary model (never triggers swap)
+- **Custom 1**: `switch-to:<third-profile>`
 
-- a missing config file at the default path is fine; an explicitly given
-  `-config <path>` without a file is an error;
-- `-p <name>` without a config file or with an unknown name is an error (not silent);
-- secrets (`openaiKey`, `proxyToken`) in the file are technically supported, but
-  env or `~/.config/llama-runner/credentials` is recommended;
-- `openaiPath` is the path suffix appended to `openai` (default
-  `"/chat/completions"`); `"openaiPath": ""` sends requests to the bare
-  `openai` URL — what providers like OVH Kepler and VLM.run expect.
-- `parallel` can be set per-profile; if the model is overridden via `-model` on
-  the CLI, the inherited parallel resets to `"1"`, except in the case of an
-  explicit `-parallel N`.
-- a profile with `"mode": "auto"` is not applied as the single running
-  model: it becomes the planner, and the rest of the profiles are its
-  workers (see "Auto orchestration").
+Only `switch-to:` entries restart llama-server.
 
-### The `/model` menu
+## Auto Orchestration
 
-When the config file declares a `profiles` section, the `/model` menu is built dynamically by `cli.buildDynamicMenu`:
+A profile with `"mode": "auto"` becomes the planner. The orchestrator executes
+the plan with hot-swapping between models.
 
-- Opus (the "Default" slot) carries `switch-to:<startup-alias>` — the alias the launcher started with (from `-p`, `-model`, or the root config);
-- Sonnet / Fable carry `switch-to:<other-profile-alias>` for the first two "other" profiles;
-- Haiku carries the bare primary model (`cfg.Alias` in local mode, `cfg.OpenAIModel` in hybrid mode) and never triggers a swap — Claude Code's background traffic (session titles, compaction, subagents) goes to whichever server is currently running;
-- Custom 1 carries `switch-to:<third-other-profile>` (appears only when at least three "other" profiles are declared).
+**Headless:** `llama-runner -p auto -task "refactor config"`
 
-For the example config (`small` with alias `qwen2.5-0.5b`, `a3b` with alias `qwen3.8-a3b`) the menu shows exactly:
+**Dry-run:** `llama-runner -p auto -task "..." -plan-only > plan.json`
 
-    switch-to:qwen2.5-0.5b      (Opus / Default)
-    switch-to:qwen3.8-a3b       (Sonnet)
-    qwen2.5-0.5b                (Haiku)
-    (empty)                     (Fable)
+**Interactive:** `llama-runner -p auto` (task → plan → execute loop)
 
-Only entries starting with `switch-to:` restart llama-server; the bare primary (Haiku) always routes to the current server.
+**Safety nets:**
+- `-git-guard` — branch + checkpoint per wave + rollback
+- `-max-retries N` — retry failed steps with error context
+- `-repo-map` — project context in planner prompt
+- `-preflight` — verify commands and artifacts before execution
+- `-stream-output` — live step output to terminal
+- `-resume` — continue last run from journal
 
-**Known cosmetic issue (fix planned for 1.9.1):** standard slots display the `switch-to:` prefix. It works, but the plan is to show bare profile names there and keep `switch-to:` only in the model value.
-
-Without a `profiles` section the static menu is used: all five positions carry the single local model (or, in hybrid mode, the four standard slots carry the external model and the custom entry carries the local alias). Menu variables inherited from the environment (`ANTHROPIC_DEFAULT_*_MODEL`, `ANTHROPIC_CUSTOM_MODEL_OPTION*`) are scrubbed before the launcher publishes its own, so a nested run never shows ghost entries.
-
-## Auto orchestration
-
-A profile with `"mode": "auto"` in `~/.config/llama-runner/config.json`
-declares itself as the planner. The planner decomposes the user's task
-into steps, picks a model from profiles for each step (by the
-`description` field), and the orchestrator executes the plan: it groups
-steps by model, hot-swaps llama-server between models, and runs up to
-`parallel` agents of one model at a time.
-
-In auto mode Claude Code and the routing proxy are not started: the
-orchestrator owns the model.
-
-### Headless: `-task "..."`
+## Auto-Download Models
 
 ```bash
-llama-runner -p auto -task "refactor the config package"
+./llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
 ```
 
-The planner builds a plan, the orchestrator executes it, then
-llama-server is stopped. Ctrl-C cancels the current step and stops the
-server.
-
-### Dry-run: `-plan-only`
-
-```bash
-llama-runner -p auto -task "..." -plan-only > plan.json
-```
-
-The "Plan (N steps):" header and the JSON go to stdout; every
-diagnostic line (including "Planner … is building a plan …") goes to
-stderr. For machine processing:
-
-```bash
-llama-runner -p auto -task "..." -plan-only | sed -n '/^{/,$p' | jq '.steps'
-```
-
-sed -n '/^{/,$p' prints everything starting from the first { — robust against any future diagnostic line in stdout; tail -n +2 works but breaks on a single extra line.
-
-### Interactive: `-p auto` without `-task`
-
-```bash
-llama-runner -p auto
-```
-
-llama-server starts with the planner, then the program enters a
-"task → plan → execute" loop:
-
-```
-Task (or 'exit' to quit): refactor the config package
-Planner auto is building a plan ... [stderr]
-Plan (3 steps): [stdout]
-Step 1/3: ...
-...
-Task (or 'exit' to quit): exit
-Bye.
-```
-
-- Ctrl-C during a step cancels the step and returns to the prompt.
-- Ctrl-C at the prompt exits.
-- Ctrl-D (EOF) also exits.
-- `exit` or `quit` exits.
-- An empty line re-prompts without doing anything.
-
-stdin can be piped; the loop then exits after the first task via EOF:
-
-```bash
-echo "refactor the config package" | llama-runner -p auto
-```
-
-### The `auto` profile in the config file
-
-Example (see `examples/config.example.json`):
-
-```json
-"auto": {
-  "mode": "auto",
-  "model": "~/GGUF/Qwen3.5-9B-Agentic-Coder-Q5_K_M.gguf",
-  "alias": "auto",
-  "parallel": "1",
-  "description": "Planner: task decomposition and executor selection"
-}
-```
-
-The `description` field is embedded in the planner's system prompt —
-the planner uses it to decide which profile gets each step. Every other
-profile (`big`, `coder`, …) is a worker; its `parallel` caps the number
-of agents that may run on that model at once.
-
-### Git guard (`-git-guard`)
-
-Optional protection for auto-mode runs:
-
-- before the run starts, the agent's working directory must be a git
-  repository with a clean tree (a dirty tree is allowed only with
-  `-git-guard-allow-dirty`);
-- a branch `llama-runner/run-<YYYYMMDD-HHMMSS>` is created from the current
-  HEAD — your branch is never touched;
-- a checkpoint commit is taken after every fully successful wave of steps;
-- if a wave contains a failure, `git reset --hard` rolls back to the last
-  checkpoint;
-- at the end, `git diff --stat` from the base and the branch name are
-  printed: the result stays in the branch, you merge it yourself.
-
-Untracked files are never deleted. Checkpoint commits use local
-`user.name`/`user.email`, skip hooks (`--no-verify`) and GPG signing.
-The flag is off by default.
-
-### Step retries (`-max-retries`)
-
-`-max-retries N` (0..5, default 0 = disabled) retries a failed step on the
-same model, injecting the previous error text and output into the prompt:
-"fix that specific problem, do not start over". Retried: a non-zero model
-exit, a missing artifact, a failed verify. Never retried: the step timeout,
-Ctrl-C, setup failures (claude not found, unavailable working directory).
-The limit can be set per profile via the `"maxRetries"` config field: a
-positive profile value wins over the root one; the result is clamped to
-0..5. The model is never switched between retries — swapping inside a wave
-is forbidden.
-
-### Project map and preflight (`-repo-map`, `-preflight`)
-
-`-repo-map` quickly scans the agent's working directory before planning
-(no models, no network) and adds a "Project context" block to the planner's
-system prompt: the stack detected from root markers (`go.mod`,
-`package.json`, `Cargo.toml`, `pyproject.toml`, …), languages by file
-extension, a shallow directory tree and suggested verify commands. The
-planner no longer guesses the task's language from its wording.
-
-`-preflight` checks every step after plan validation and before execution:
-
-- verify syntax via `sh -n` (the command is only parsed, nothing runs);
-- the first command of each verify segment is looked up on PATH (shell
-  builtins are skipped);
-- the artifact path must stay inside the working directory (a warning);
-- dangerous patterns (`rm -rf`, `sudo`, `git push`, `git reset --hard`, …)
-  produce a warning, not a block.
-
-Errors (syntax, missing command) go back to the planner through the same
-repair round as invalid JSON; warnings are only printed to stderr. Works
-in `-plan-only` too. Both flags are off by default: without them the
-planner prompt is byte-identical to the previous version.
-
-## Auto-downloading models
-
-The installer can optionally fetch the small default Qwen model for you (see [Install](#install)); the `-download` flag below is for choosing your own model.
-
-The `-download` flag fetches a GGUF model from an HTTP(S) URL into a local
-directory and then launches the launcher as usual, with the downloaded
-file as the model. The value is a single argument of the form
-`<directory><URL>` — the split point is the first `http://` or `https://`
-occurrence:
-
-```bash
-./llama-runner -download ~/GGUF/https://huggingface.co/AtomicChat/DeepSeek-V4.1-Flash-1017-Uncensored-GSQ-RCO-GGUF/resolve/main/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00004.gguf
-```
-
-### Sharded models
-
-Hugging Face serves large GGUFs as numbered shards
-(`*-00001-of-00004.gguf`). Passing any shard of such a set downloads the
-**whole** set (all `*-NNNNN-of-MMMMM.gguf` siblings) and points
-`llama-server` at shard 1 — llama.cpp loads the rest itself. Passing a
-shard other than the first produces a warning and still uses shard 1 as
-the entry point.
-
-### Resumable transfers
-
-Files are written to `<name>.partial` and renamed onto `<name>` on
-completion, so an interrupted run never leaves a "complete" file
-half-written. A leftover `.partial` is resumed with a `Range` request on
-the next run. The downloader checks `HEAD` first: a file already present
-with the expected size is reused without any transfer.
-
-### Gated repositories
-
-For gated Hugging Face repositories, set `HF_TOKEN` or
-`HUGGING_FACE_HUB_TOKEN` in the environment. The token is sent as a
-`Bearer` header and never printed.
-
-### Interaction with other flags
-
-- `-model` on the CLI is ignored when `-download` is set (the fetched
-  file wins); `-v` prints a warning.
-- `-update` combined with `-download` is an error (exit 2): `-update`
-  never uses a model.
-- The model alias is derived from the downloaded GGUF file name, exactly
-  as if `-model` had pointed at it.
-
-## Logs
-
-- In Claude Code mode, llama-server (and MCP server) output is written to
-  `~/.cache/llama-runner/llama-server.log` (permissions `0600`) to avoid cluttering the TUI.
-- Rotation by size: when `-log-max-mb` is reached, the file is archived; archives
-  are `<file>.1` (newest) … `<file>.<log-keep>`.
-  `-log-keep 0` — no archives (just truncate), `-log-max-mb 0` — rotation disabled.
-- Routing proxy logs — `~/.cache/llama-runner/proxy.log`.
+Sharded models (`*-00001-of-00004.gguf`) download the entire set. Resumable via
+`.partial` files. Gated repos: set `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`.
 
 ## Examples
 
 ```bash
-# Server + Claude Code in a project folder
+# Server + Claude Code
 ./llama-runner -alias qwen2.5-0.5b -claude-dir ~/my-project
 
-# Server only on a different port
-./llama-runner -server -port 9090
-
-# Server + Claude Code with search
-./llama-runner -webui-mcp-proxy
-
-# Without extra MCP servers from ~/.claude.json
-./llama-runner -webui-mcp-proxy -mcp-strict
-
-# Hybrid mode with a proxy token
+# Hybrid mode with proxy token
 ./llama-runner -openai https://api.orcarouter.ai/v1 \
   -key $ORCAROUTER_API_KEY -model-openai deepseek/deepseek-v4-flash-free \
   -proxy-token $(openssl rand -hex 16)
 
-# With LiLiCorr (speculative decoding)
-./llama-runner -server -model ~/models/nemotron-bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
-  -mmproj ~/models/nemotron-bolt/mmproj-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf \
-  -spec-type draft-dflash -spec-draft-model ~/models/...-LiLiCorr.gguf \
-  -spec-draft-n-max 6 -spec-draft-ngl 999 -ngl 999 \
-  -c 98304 -b 2048 -ub 512 -cache-type-k q8_0 -cache-type-v q8_0 \
-  -temp 1.0 -top-p 0.95 -fa on -jinja -chat-template ""
-
-# Update llama.cpp (Pascal architecture) and start
-./llama-runner -update -cuda-arch 61 && ./llama-runner -server -model ~/GGUF/model.gguf
-
-# Profile from the config file
-./llama-runner -p a3b
-
-# Auto mode with every safety net: git branch, step retries, project map, preflight
+# Auto mode with all safety nets
 ./llama-runner -p auto -git-guard -max-retries 2 -repo-map -preflight \
   -task "refactor the config package"
 
-# Plan only, but with the project map and preflight checks
-./llama-runner -p auto -repo-map -preflight -plan-only -task "add tests for internal/vcs"
+# Download model and launch
+./llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
 
-# Download a model from Hugging Face and launch with it
-./llama-runner -download ~/GGUF/https://huggingface.co/AtomicChat/DeepSeek-V4.1-Flash-1017-Uncensored-GSQ-RCO-GGUF/resolve/main/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00004.gguf
-
-# Diagnostics without starting anything
+# Diagnostics
 ./llama-runner -doctor
 ```
 
-## Environment variables passed to Claude Code
+## Environment Variables
 
-`ANTHROPIC_BASE_URL` (server or proxy address),
-`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` — the value of `-proxy-token`,
-or `local-llama` if no token is set,
-`ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL` and `ANTHROPIC_CUSTOM_MODEL_OPTION*`
-(the whole `/model` menu — see «The `/model` menu»; in local mode every
-position carries the local alias, in hybrid mode the standard positions carry
-the external model and the custom entry the local alias). Variables of
-these families inherited from the environment are dropped first, so nothing
-leaks from an outer llama-runner session.
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+Passed to Claude Code:
+- `ANTHROPIC_BASE_URL` — server/proxy address
+- `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` — proxy token or `local-llama`
+- `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL` — `/model` menu
+- `ANTHROPIC_CUSTOM_MODEL_OPTION*` — custom menu entries
+- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
+- `CLAUDE_CODE_MAX_CONTEXT_TOKENS` — per-slot context
 
-The alias behind those three variables is resolved once per run (`cli.ResolveAlias`),
-so llama-server's `--alias`, its WebUI card and Claude Code's `/model` entry can
-never name different models. `-doctor` prints the resolved value together with its
-origin: `CLI`, `derived from model`, `profile`, `config file` or `default`.
+The alias is resolved once per run (`cli.ResolveAlias`), so llama-server
+`--alias`, WebUI card, and Claude Code `/model` always match.
 
-Note: if llama-runner's stdout/stderr is not a TTY (started from a pipe,
-`… | tee`), Claude Code's stdio is redirected to `/dev/tty` so the TUI stays
-interactive.
-
-## Repository layout
+## Repository Layout
 
 | Path | Contents |
 |------|----------|
-| `cmd/llama-runner/` | executable entry point |
-| `internal/` | implementation packages (see comments in each) |
-| `templates/` | files installed into the user's `$HOME` by `install.sh` |
-| `templates/agents/` | `AGENTS.md`, `workflow-policy.md` (EN and RU variants) |
-| `templates/claude/CLAUDE.md` | reference snippet; `install.sh` writes the same two `@`-references directly |
-| `templates/chat-templates/` | `qwen-fixed-chat-template.jinja` |
-| `packaging/` | distro-facing assets (not installed by `install.sh`) |
-| `packaging/systemd/` | `llama-runner.service` |
-| `packaging/man/` | `llama-runner.1` |
-| `packaging/completions/` | bash and zsh completions |
-| `examples/` | `config.example.json` — reference config written by `install.sh` |
-| `scripts/` | `update-embedded-hashes.py` — CI helper for `install.sh`'s hash table |
-| `install.sh` | one-shot installer (also served via `raw.githubusercontent.com`) |
-| `AGENTS.md`, `CLAUDE.md` | instructions for AI agents working on this repo |
-
-`AGENTS.md` in the repository root is for AI agents working on llama-runner itself. The files under `templates/agents/` are installed by `install.sh` into `~/.config/agents/` for **other** projects; they are deliberately separate.
+| `cmd/llama-runner/` | Executable entry point |
+| `internal/` | Implementation packages |
+| `templates/` | Files installed by `install.sh` |
+| `templates/agents/` | `AGENTS.md`, `workflow-policy.md` (EN/RU) |
+| `examples/` | `config.example.json` |
+| `install.sh` | One-shot installer |
+| `AGENTS.md`, `CLAUDE.md` | Instructions for AI agents |
 
 ## Development
 
@@ -699,14 +264,11 @@ interactive.
 go build ./...
 go vet ./...
 gofmt -l .
-go test -v ./...
-go test -race ./...
+go test -race -cover ./...
 ```
 
-CI (GitHub Actions): gofmt → build → vet → `go test -race -cover`; the binary
-version is injected via `-ldflags "-X main.version=$(git describe --tags --always --dirty)"`.
+CI: gofmt → build → vet → `go test -race -cover`. Binary version injected via `-ldflags`.
 
-`install.sh` is checked with shellcheck in CI in addition to the Go pipeline. Python helpers under `scripts/` are excluded from that step by design.
 ---
 
-[BSD 3-Clause License](LICENSE) · Copyright © 2026 Skala Skalolaz
+[BSD 3-Clause License](LICENSE) · Copyright © 2026 Skala Skalaz
