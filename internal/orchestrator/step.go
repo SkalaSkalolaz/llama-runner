@@ -74,9 +74,17 @@ func runStep(ctx context.Context, step planner.Step, opts Options, baseURL strin
 	cmd := opts.Runner.Command(claudePath, "-p", prompt, "--model", pc.Alias)
 	cmd.Env = cli.BuildClaudeEnv(pc, baseURL, os.Environ())
 	cmd.Dir = dir
-	var stdout, stderr cappedBuffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+
+    var stdout, stderr cappedBuffer
+    if opts.stream != nil {
+        sw := opts.stream.writer(step.ID)
+        defer sw.flush()
+        cmd.Stdout = io.MultiWriter(&stdout, sw)
+        cmd.Stderr = io.MultiWriter(&stderr, sw)
+    } else {
+        cmd.Stdout = &stdout
+        cmd.Stderr = &stderr
+    }
 	if err := cmd.Start(); err != nil {
 		res.Err = err
 		res.kind = failSetup

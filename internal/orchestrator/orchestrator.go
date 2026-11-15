@@ -80,6 +80,13 @@ type Options struct {
 	// GitGuardAllowDirty starts the guard on a dirty working tree instead
 	// of refusing to run.
 	GitGuardAllowDirty bool
+    // StreamOutput tees each step's live output to Stdout, prefixed
+    // with the step ID; off by default (only the final summary prints).
+    StreamOutput bool
+
+    // stream is the shared live-output sink; non-nil exactly when
+    // StreamOutput is on (initialized by Run itself).
+    stream *stepStreamer
 	Stdout, Stderr     io.Writer
 }
 
@@ -133,6 +140,9 @@ func Run(ctx context.Context, plan planner.Plan, opts Options) (result Result) {
 	if opts.StepTimeout <= 0 {
 		opts.StepTimeout = DefaultStepTimeout
 	}
+    if opts.StreamOutput {
+        opts.stream = newStepStreamer(opts.Stdout)
+    }
 	var guard *vcs.Guard
 	if opts.GitGuard {
 		dir, derr := stepWorkDir(opts)
