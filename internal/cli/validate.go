@@ -81,6 +81,9 @@ func ValidateConfig(cfg *config.Config) error {
 			return i18n.Errorv(i18n.MsgErrReasoningBudget, cfg.ReasoningBudget)
 		}
 	}
+	if cfg.MaxRetries < 0 || cfg.MaxRetries > 5 {
+		return i18n.Errorv(i18n.MsgErrMaxRetries, cfg.MaxRetries)
+	}
 	if cfg.OpenAIBaseURL != "" || cfg.OpenAIKey != "" || cfg.OpenAIModel != "" {
 		if cfg.OpenAIBaseURL == "" {
 			return i18n.Errorv(i18n.MsgErrOpenaiRequired)

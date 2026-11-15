@@ -129,6 +129,8 @@ type Config struct {
 
 	LogMaxMB int
 	LogKeep  int
+	// MaxRetries is the per-run limit of retries for a single step (0 = disabled).
+	MaxRetries int
 
 	// Derived — not settable by the user; filled in after parse/validate.
 	// ChatTemplateSet reports whether -chat-template (or the file field

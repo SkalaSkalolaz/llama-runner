@@ -181,6 +181,7 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	fs.BoolVar(&cfg.QuietServer, "quiet-server", cfg.QuietServer, i18n.T(i18n.MsgFlagQuietServer))
 	fs.IntVar(&cfg.LogMaxMB, "log-max-mb", cfg.LogMaxMB, i18n.T(i18n.MsgFlagLogMaxMB))
 	fs.IntVar(&cfg.LogKeep, "log-keep", cfg.LogKeep, i18n.T(i18n.MsgFlagLogKeep))
+	fs.IntVar(&cfg.MaxRetries, "max-retries", cfg.MaxRetries, i18n.T(i18n.MsgFlagMaxRetries))
 	fs.StringVar(&cfg.McpAddr, "mcp-addr", cfg.McpAddr, i18n.T(i18n.MsgFlagMcpAddr))
 	fs.StringVar(&cfg.McpConfigOut, "mcp-config", cfg.McpConfigOut, i18n.T(i18n.MsgFlagMcpConfig))
 	fs.BoolVar(&cfg.McpStrict, "mcp-strict", cfg.McpStrict, i18n.T(i18n.MsgFlagMcpStrict))

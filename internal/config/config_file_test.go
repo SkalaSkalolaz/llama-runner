@@ -137,3 +137,30 @@ func TestApplyFileConfig_GitGuard(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func TestApplyFileConfig_MaxRetries(t *testing.T) {
+	// nil must not overwrite the default (0).
+	cfg := DefaultConfig()
+	if cfg.MaxRetries != 0 {
+		t.Errorf("MaxRetries default = %d, want 0", cfg.MaxRetries)
+	}
+	fc := FileConfig{} // nil MaxRetries
+	if err := ApplyFileConfig(cfg, fc); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxRetries != 0 {
+		t.Errorf("MaxRetries should remain 0 when FileConfig field is nil")
+	}
+
+	// non-nil value must be applied.
+	cfg2 := DefaultConfig()
+	fc2 := FileConfig{MaxRetries: intPtr(3)}
+	if err := ApplyFileConfig(cfg2, fc2); err != nil {
+		t.Fatal(err)
+	}
+	if cfg2.MaxRetries != 3 {
+		t.Errorf("MaxRetries = %d, want 3", cfg2.MaxRetries)
+	}
+}
+
+func intPtr(i int) *int { return &i }

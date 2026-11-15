@@ -133,6 +133,7 @@ type FileConfig struct {
 	LogFile              *string `json:"logFile,omitempty"`
 	LogMaxMB             *int    `json:"logMaxMB,omitempty"`
 	LogKeep              *int    `json:"logKeep,omitempty"`
+	MaxRetries           *int    `json:"maxRetries,omitempty"`
 	QuietServer          *bool   `json:"quietServer,omitempty"`
 	McpAddr              *string `json:"mcpAddr,omitempty"`
 	McpConfigOut         *string `json:"mcpConfig,omitempty"`
@@ -231,6 +232,9 @@ func ApplyFileConfig(cfg *Config, fc FileConfig) error {
 	}
 	if fc.LogKeep != nil {
 		cfg.LogKeep = *fc.LogKeep
+	}
+	if fc.MaxRetries != nil {
+		cfg.MaxRetries = *fc.MaxRetries
 	}
 	setB(&cfg.QuietServer, fc.QuietServer)
 	set(&cfg.McpAddr, fc.McpAddr)

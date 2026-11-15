@@ -99,6 +99,7 @@ Claude Code:
   -log-max-mb int      макс. размер лога llama-server в МБ перед ротацией
                        (по умолчанию 50; 0 — не ротировать)
   -log-keep int        сколько архивов лога хранить (по умолчанию 5; 0 — без архивов)
+  -max-retries int     повторы провалившегося шага: 0..5 (0 — выключено)
   -mcp-addr string     адрес mcp-search-server (по умолчанию 127.0.0.1:8090)
   -mcp-config string   путь к MCP-конфигу (по умолчанию временный)
   -mcp-strict          передать --strict-mcp-config
@@ -252,6 +253,7 @@ Claude Code:
   -log-max-mb int      max log size in MB before rotation
                        (default 50; 0 = no rotation)
   -log-keep int        how many log archives to keep (default 5; 0 = no archives)
+  -max-retries int     retries for a failed step: 0..5 (0 = disabled)
   -mcp-addr string     mcp-search-server address (default 127.0.0.1:8090)
   -mcp-config string   path to MCP config (default: temp file)
   -mcp-strict          pass --strict-mcp-config

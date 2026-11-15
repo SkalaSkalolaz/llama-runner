@@ -274,3 +274,44 @@ func TestParseFlags_GitGuard(t *testing.T) {
 		t.Error("GitGuardAllowDirty should be true")
 	}
 }
+
+func TestParseFlags_MaxRetries(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var buf bytes.Buffer
+
+	// Default is 0.
+	cfg, err := ParseFlags([]string{}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxRetries != 0 {
+		t.Errorf("MaxRetries default = %d, want 0", cfg.MaxRetries)
+	}
+
+	// -max-retries 3 must set the value.
+	cfg, err = ParseFlags([]string{"-max-retries", "3"}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxRetries != 3 {
+		t.Errorf("MaxRetries = %d, want 3", cfg.MaxRetries)
+	}
+
+	// -max-retries 0 must set the value.
+	cfg, err = ParseFlags([]string{"-max-retries", "0"}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxRetries != 0 {
+		t.Errorf("MaxRetries = %d, want 0", cfg.MaxRetries)
+	}
+
+	// -max-retries 5 must set the value.
+	cfg, err = ParseFlags([]string{"-max-retries", "5"}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxRetries != 5 {
+		t.Errorf("MaxRetries = %d, want 5", cfg.MaxRetries)
+	}
+}

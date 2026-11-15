@@ -110,6 +110,7 @@ const (
 	MsgFlagDoctor          = "flag_doctor"
 	MsgFlagTask            = "flag_task"
 	MsgFlagPlanOnly        = "flag_plan_only"
+	MsgFlagMaxRetries      = "flag_max_retries"
 
 	// --- Launch flow (run.go) ---
 	MsgWarnOpenaiIgnored       = "warn_openai_ignored"
@@ -319,6 +320,8 @@ const (
 	MsgErrExecVerify      = "err_exec_verify"
 	MsgErrExecPlan        = "err_exec_plan"
 	MsgExecDone           = "exec_done"
+	MsgExecStepRetry      = "exec_step_retry"
+	MsgErrMaxRetries      = "err_max_retries"
 
 	// --- Git guard (internal/vcs) ---
 	MsgFlagGitGuard           = "flag_git_guard"
@@ -492,6 +495,7 @@ var messages = map[string]i18nMessage{
 	MsgFlagDoctor:          {"показать разрешённые пути и версию, не запуская процессы", "show resolved paths and version without starting processes"},
 	MsgFlagTask:            {"задача для планировщика (профиль с \"mode\": \"auto\")", "task for the planner (a profile declaring \"mode\": \"auto\")"},
 	MsgFlagPlanOnly:        {"построить план и выйти, без исполнения", "build the plan and exit, without executing it"},
+	MsgFlagMaxRetries:      {"повторы провалившегося шага: 0..5 (0 — выключено)", "retries for a failed step: 0..5 (0 — disabled)"},
 
 	// --- Launch flow ---
 	MsgWarnOpenaiIgnored:    {"предупреждение: -openai/-key/-model-openai игнорируются в режиме -server", "warning: -openai/-key/-model-openai are ignored in -server mode"},
@@ -728,6 +732,8 @@ var messages = map[string]i18nMessage{
 	MsgErrExecVerify:      {"проверка %q не прошла: %s", "verification %q failed: %s"},
 	MsgErrExecPlan:        {"не удалось упорядочить план: %v", "failed to order the plan: %v"},
 	MsgExecDone:           {"Исполнение завершено за %s: выполнено %d из %d шагов (в плане %d)", "Execution finished in %s: %d of %d steps done (%d in plan)"},
+	MsgExecStepRetry:      {"[повтор %d/%d] повтор шага %s: %v", "[retry %d/%d] retrying step %s: %v"},
+	MsgErrMaxRetries:      {"некорректный -max-retries %d: ожидается число от 0 до 5", "invalid -max-retries %d: expected a number from 0 to 5"},
 
 	// --- Git guard (internal/vcs) ---
 	MsgFlagGitGuard:           {"ветка + коммит-чекпоинт на волну + откат при провале (auto-режим)", "branch + checkpoint commit per wave + rollback on failure (auto mode)"},

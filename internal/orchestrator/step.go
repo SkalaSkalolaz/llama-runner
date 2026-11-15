@@ -41,8 +41,11 @@ const (
 // back as StepResult{OK: false} — Run decides what it means for the plan.
 // The step's duration is measured through the named result, so EVERY exit
 // path (including failures) reports how long the step took.
+//
+// retry is an optional English prompt block injected before the claude -p
+// invocation; empty string means no retry block (first attempt).
 func runStep(ctx context.Context, step planner.Step, opts Options, baseURL string,
-	steps []planner.Step, byID map[string]StepResult) (res StepResult) {
+	steps []planner.Step, byID map[string]StepResult, retry string) (res StepResult) {
 	start := time.Now()
 	res = StepResult{Step: step, Alias: step.Alias}
 	defer func() { res.Duration = time.Since(start) }()
@@ -53,16 +56,22 @@ func runStep(ctx context.Context, step planner.Step, opts Options, baseURL strin
 	claudePath, err := lookClaude(opts)
 	if err != nil {
 		res.Err = err
+		res.kind = failSetup
 		return res
 	}
 	dir, err := stepWorkDir(opts)
 	if err != nil {
 		res.Err = err
+		res.kind = failSetup
 		return res
 	}
 	pc := stepConfig(opts, step.Alias)
 	prior := buildPriorBlock(priorContext(step, steps, byID), dir)
-	cmd := opts.Runner.Command(claudePath, "-p", stepPrompt(opts.Task, step, prior), "--model", pc.Alias)
+    prompt := stepPrompt(opts.Task, step, prior)
+    if retry != "" {
+        prompt += "\n" + retry
+    }
+    cmd := opts.Runner.Command(claudePath, "-p", prompt, "--model", pc.Alias)
 	cmd.Env = cli.BuildClaudeEnv(pc, baseURL, os.Environ())
 	cmd.Dir = dir
 	var stdout, stderr cappedBuffer
@@ -70,6 +79,7 @@ func runStep(ctx context.Context, step planner.Step, opts Options, baseURL strin
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		res.Err = err
+		res.kind = failSetup
 		return res
 	}
 	tracked := proc.Track(cmd)
@@ -83,17 +93,20 @@ func runStep(ctx context.Context, step planner.Step, opts Options, baseURL strin
 		}
 		<-tracked.Done
 		res.Err = i18n.Errorv(i18n.MsgErrExecStepTimeout, step.ID, opts.StepTimeout)
+		res.kind = failTimeout
 		return res
 	}
 	if waitErr := tracked.Wait(); waitErr != nil {
 		res.Err = fmt.Errorf("%w; output: %s", waitErr, tail(stderr.String()))
+		res.kind = failExec
 		return res
 	}
 	res.Output = pickSummary(stdout.String(), stderr.String())
 	// Verify gets the PARENT context, not stepCtx: it must receive its
 	// own full timeout budget regardless of what claude already spent.
-	if err := verifyStep(ctx, step, dir, opts); err != nil {
-		res.Err = err
+	if k, verr := verifyStep(ctx, step, dir, opts); verr != nil {
+		res.kind = k
+		res.Err = verr
 		return res
 	}
 	res.OK = true
@@ -184,18 +197,21 @@ func stepPrompt(task string, step planner.Step, prior string) string {
 // from the parent context: a step that spent 29 of its 30 minutes in the
 // model must not leave go test with one minute. Ctrl-C still propagates,
 // because ctx is the run's context.
-func verifyStep(ctx context.Context, step planner.Step, dir string, opts Options) error {
+//
+// Returns (failNone, nil) on success; otherwise the failure kind and the
+// error.
+func verifyStep(ctx context.Context, step planner.Step, dir string, opts Options) (failureKind, error) {
 	if step.Artifact != "" && looksLikePath(step.Artifact) {
 		p := step.Artifact
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(dir, p)
 		}
 		if _, err := os.Stat(p); err != nil {
-			return i18n.Errorv(i18n.MsgErrExecArtifact, p, err)
+			return failArtifact, i18n.Errorv(i18n.MsgErrExecArtifact, p, err)
 		}
 	}
 	if strings.TrimSpace(step.Verify) == "" {
-		return nil
+		return failNone, nil
 	}
 	vctx, cancel := context.WithTimeout(ctx, opts.StepTimeout)
 	defer cancel()
@@ -205,7 +221,7 @@ func verifyStep(ctx context.Context, step planner.Step, dir string, opts Options
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Start(); err != nil {
-		return err
+		return failVerify, err
 	}
 	tracked := proc.Track(cmd)
 	select {
@@ -215,12 +231,12 @@ func verifyStep(ctx context.Context, step planner.Step, dir string, opts Options
 			_ = cmd.Process.Kill()
 		}
 		<-tracked.Done
-		return vctx.Err()
+		return failTimeout, vctx.Err()
 	}
 	if err := tracked.Wait(); err != nil {
-		return i18n.Errorv(i18n.MsgErrExecVerify, step.Verify, tail(out.String()))
+		return failVerify, i18n.Errorv(i18n.MsgErrExecVerify, step.Verify, tail(out.String()))
 	}
-	return nil
+	return failNone, nil
 }
 
 // verifyCommand wraps the verify string in the platform shell.

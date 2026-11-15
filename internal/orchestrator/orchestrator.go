@@ -97,6 +97,11 @@ type StepResult struct {
 	Err error
 	// Duration is how long the step took, including its verification.
 	Duration time.Duration
+	// Attempts is the number of attempts made (1 means succeeded on the
+	// first try). Set by runStepWithRetry.
+	Attempts int
+	// kind classifies the failure reason; used by retry logic.
+	kind failureKind
 }
 
 // Result summarises a run.
@@ -305,7 +310,7 @@ func runWave(ctx context.Context, wave []planner.Step, opts Options, baseURL str
 		wg.Add(1)
 		go func(i int, s planner.Step) {
 			defer wg.Done()
-			results[i] = runStep(ctx, s, opts, baseURL, steps, byID)
+			results[i] = runStepWithRetry(ctx, s, opts, baseURL, steps, byID)
 		}(i, step)
 	}
 	wg.Wait()
