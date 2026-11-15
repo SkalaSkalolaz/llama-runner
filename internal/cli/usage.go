@@ -125,6 +125,8 @@ Claude Code:
   -plan-only           построить план и выйти, без исполнения
   -git-guard           ветка + чекпоинт на волну + откат при провале (auto-режим)
   -git-guard-allow-dirty разрешить -git-guard на грязном дереве
+  -repo-map            добавить карту проекта в промпт планировщика (auto-режим)
+  -preflight           проверить verify-команды и артефакты плана до исполнения
 
 Обновление llama.cpp:
   -update
@@ -160,6 +162,18 @@ Claude Code:
 
   # Автоматическое исполнение задачи планировщиком и агентами
   llama-runner -p auto -task "отрефакторить пакет config"
+
+ # Авто-режим с git-страховкой: ветка прогона + чекпоинт на волну + откат
+  llama-runner -p auto -git-guard -task "отрефакторить пакет config"
+
+  # Git-страховка на грязном дереве (незакоммиченные правки разрешены)
+  llama-runner -p auto -git-guard -git-guard-allow-dirty -task "отрефакторить пакет config"
+
+  # Карта проекта + preflight плана + до двух повторов провалившегося шага
+  llama-runner -p auto -repo-map -preflight -max-retries 2 -task "добавить тесты для internal/vcs"
+
+  # Карта проекта и preflight в сухом прогоне: только план, без исполнения
+  llama-runner -p auto -repo-map -preflight -plan-only -task "отрефакторить пакет config"
 
   # Скачать модель с HuggingFace и запустить с ней
   llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
@@ -279,6 +293,8 @@ Config:
   -plan-only           build the plan and exit, without executing it
   -git-guard           branch + checkpoint commit per wave + rollback on failure (auto mode)
   -git-guard-allow-dirty allow -git-guard on a dirty working tree
+  -repo-map            add a project map to the planner prompt (auto mode)
+  -preflight           check the plan verify commands and artifacts before execution
 
 llama.cpp update:
   -update
@@ -314,6 +330,18 @@ Examples:
 
   # Automatic execution of a task by the planner and its agents
   llama-runner -p auto -task "refactor the config package"
+
+# Auto mode with the git guard: run branch + checkpoint per wave + rollback
+  llama-runner -p auto -git-guard -task "refactor the config package"
+
+  # Git guard on a dirty working tree (uncommitted changes allowed)
+  llama-runner -p auto -git-guard -git-guard-allow-dirty -task "refactor the config package"
+
+  # Project map + plan preflight + up to two retries of a failed step
+  llama-runner -p auto -repo-map -preflight -max-retries 2 -task "add tests for internal/vcs"
+
+  # Project map and preflight in a dry run: plan only, no execution
+  llama-runner -p auto -repo-map -preflight -plan-only -task "refactor the config package"
 
   # Download a model from Hugging Face and launch with it
   llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf

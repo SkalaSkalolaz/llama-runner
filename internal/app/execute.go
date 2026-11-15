@@ -26,7 +26,7 @@ const execStepTimeout = 300 * time.Minute
 func runExecute(ctx context.Context, cfg *config.Config, home, baseURL string,
 	sw orchestrator.Swapper, cmdRunner runner.CommandRunner,
 	stdout, stderr io.Writer) int {
-	plan, ok := buildPlan(ctx, cfg, baseURL, stdout, stderr)
+	plan, ok := buildPlan(ctx, cfg, home, baseURL, cmdRunner, stdout, stderr)
 	if !ok {
 		return 1
 	}

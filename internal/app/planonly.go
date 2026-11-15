@@ -13,7 +13,11 @@ import (
 	"github.com/SkalaSkalolaz/llama-runner/internal/cli"
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 	"github.com/SkalaSkalolaz/llama-runner/internal/i18n"
+	"github.com/SkalaSkalolaz/llama-runner/internal/orchestrator"
 	"github.com/SkalaSkalolaz/llama-runner/internal/planner"
+	"github.com/SkalaSkalolaz/llama-runner/internal/preflight"
+	"github.com/SkalaSkalolaz/llama-runner/internal/repomap"
+	"github.com/SkalaSkalolaz/llama-runner/internal/runner"
 )
 
 // planTimeout bounds the planning conversation (both -plan-only and the
@@ -48,16 +52,47 @@ func catalogModels(cfg *config.Config) []planner.Model {
 }
 
 // buildPlan asks the planner model for a validated plan. Progress goes to
-// stdout, warnings to stderr; false means the planner was unreachable and
-// the caller must stop.
-func buildPlan(ctx context.Context, cfg *config.Config, baseURL string,
-	stdout, stderr io.Writer) (planner.Plan, bool) {
+// stderr; false means the plan could not be built and the caller must stop.
+// With -repo-map the working directory is scanned and described to the
+// planner; with -preflight every candidate plan is checked before it is
+// accepted, and check errors feed the same repair round as invalid JSON.
+// With both flags off the behaviour is byte-identical to the previous version.
+func buildPlan(ctx context.Context, cfg *config.Config, home, baseURL string,
+	cmdRunner runner.CommandRunner, stdout, stderr io.Writer) (planner.Plan, bool) {
 	fmt.Fprint(stderr, i18n.TF(i18n.MsgPlanBuilding, cfg.Alias))
-	p := planner.New(planner.Options{
+	opts := planner.Options{
 		BaseURL: baseURL,
 		Alias:   cfg.Alias,
 		Models:  catalogModels(cfg),
-	})
+	}
+	if cfg.RepoMap || cfg.Preflight {
+		dir, derr := orchestrator.WorkDir(cfg, home)
+		if derr != nil {
+			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrPlanBuild, derr))
+			return planner.Plan{}, false
+		}
+		if cfg.RepoMap {
+			info, serr := repomap.Scan(dir)
+			if serr != nil {
+				fmt.Fprint(stderr, i18n.TF(i18n.MsgWarnRepoMap, serr))
+			} else {
+				opts.Project = info.Prompt()
+				if cfg.Verbose && opts.Project != "" {
+					fmt.Fprint(stderr, i18n.TF(i18n.MsgRepoMapLine, dir, strings.Join(info.Stacks, ", ")))
+				}
+			}
+		}
+		if cfg.Preflight {
+			opts.ExtraCheck = func(p planner.Plan) error {
+				rep := preflight.Check(ctx, p, dir, cmdRunner)
+				for _, f := range rep.Findings {
+					fmt.Fprint(stderr, i18n.TF(i18n.MsgPreflightFinding, f.StepID, f.Message))
+				}
+				return rep.Err()
+			}
+		}
+	}
+	p := planner.New(opts)
 	res, err := p.Build(ctx, cfg.Task)
 	if err != nil {
 		fmt.Fprint(stderr, i18n.TF(i18n.MsgErrPlanBuild, err))
@@ -79,9 +114,9 @@ func buildPlan(ctx context.Context, cfg *config.Config, baseURL string,
 //
 // Exit codes: 0 — a plan was produced (a fallback plan is a WARNING, not a
 // failure); 1 — the planner could not be reached or answered unusably.
-func runPlanOnly(ctx context.Context, cfg *config.Config, baseURL string,
-	stdout, stderr io.Writer) int {
-	plan, ok := buildPlan(ctx, cfg, baseURL, stdout, stderr)
+func runPlanOnly(ctx context.Context, cfg *config.Config, home, baseURL string,
+	cmdRunner runner.CommandRunner, stdout, stderr io.Writer) int {
+	plan, ok := buildPlan(ctx, cfg, home, baseURL, cmdRunner, stdout, stderr)
 	if !ok {
 		return 1
 	}

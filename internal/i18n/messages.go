@@ -338,6 +338,17 @@ const (
 	MsgVcsNoCommits           = "vcs_no_commits"
 	MsgVcsCmd                 = "vcs_cmd"
 	MsgVcsUntrackedLeft       = "vcs_untracked_left"
+	// --- Repo map & plan preflight (internal/repomap, internal/preflight, app/planonly.go) ---
+	MsgFlagRepoMap        = "flag_repo_map"
+	MsgFlagPreflight      = "flag_preflight"
+	MsgRepoMapLine        = "repo_map_line"
+	MsgWarnRepoMap        = "warn_repo_map"
+	MsgPreflightFinding   = "preflight_finding"
+	MsgPreflightSyntax    = "preflight_syntax"
+	MsgPreflightNoCmd     = "preflight_no_cmd"
+	MsgPreflightOutside   = "preflight_outside"
+	MsgPreflightDangerous = "preflight_dangerous"
+	MsgPreflightFailed    = "preflight_failed"
 )
 
 // messages is the complete translation catalog: one entry per key with the
@@ -750,4 +761,15 @@ var messages = map[string]i18nMessage{
 	MsgVcsNoCommits:           {"в %s нет ни одного коммита", "%s has no commits yet"},
 	MsgVcsCmd:                 {"git %s: %v", "git %s: %v"},
 	MsgVcsUntrackedLeft:       {"[git] остались неотслеживаемые файлы (не удалены):\n%s", "[git] untracked files left in place (not removed):\n%s"},
+	// --- Repo map & plan preflight ---
+	MsgFlagRepoMap:        {"добавить карту проекта в промпт планировщика", "add a project map to the planner prompt"},
+	MsgFlagPreflight:      {"проверить verify-команды и артефакты плана до исполнения", "check the plan verify commands and artifacts before execution"},
+	MsgRepoMapLine:        {"карта проекта: %s (стек: %s)", "project map: %s (stack: %s)"},
+	MsgWarnRepoMap:        {"предупреждение: карта проекта недоступна: %v", "warning: project map unavailable: %v"},
+	MsgPreflightFinding:   {"[preflight] шаг %s: %s", "[preflight] step %s: %s"},
+	MsgPreflightSyntax:    {"проверка %q: синтаксическая ошибка: %s", "verify %q: syntax error: %s"},
+	MsgPreflightNoCmd:     {"проверка %q: команда %q не найдена в PATH", "verify %q: command %q not found in PATH"},
+	MsgPreflightOutside:   {"артефакт %q вне рабочей директории", "artifact %q is outside the working directory"},
+	MsgPreflightDangerous: {"проверка %q содержит опасную команду (%s)", "verify %q contains a dangerous command (%s)"},
+	MsgPreflightFailed:    {"план не прошёл preflight: %s", "the plan failed preflight: %s"},
 }

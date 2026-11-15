@@ -61,7 +61,7 @@ func planUpstream(t *testing.T, content string) *httptest.Server {
 func TestRunPlanOnly_PrintsJSONPlan(t *testing.T) {
 	srv := planUpstream(t, `{"steps":[{"id":"1","role":"coder","goal":"g","alias":"coder"}]}`)
 	var out, errb bytes.Buffer
-	if code := runPlanOnly(context.Background(), planOnlyCfg(), srv.URL, &out, &errb); code != 0 {
+	if code := runPlanOnly(context.Background(), planOnlyCfg(), t.TempDir(), srv.URL, scriptCmdRunner{script: "true"}, &out, &errb); code != 0 {
 		t.Fatalf("code = %d, stderr = %s", code, errb.String())
 	}
 	body := out.String()
@@ -93,7 +93,7 @@ func TestRunPlanOnly_PrintsJSONPlan(t *testing.T) {
 func TestRunPlanOnly_FallbackWarnsOnStderr(t *testing.T) {
 	srv := planUpstream(t, "no json at all")
 	var out, errb bytes.Buffer
-	if code := runPlanOnly(context.Background(), planOnlyCfg(), srv.URL, &out, &errb); code != 0 {
+	if code := runPlanOnly(context.Background(), planOnlyCfg(), t.TempDir(), srv.URL, scriptCmdRunner{script: "true"}, &out, &errb); code != 0 {
 		t.Fatalf("a fallback is a warning, code = %d", code)
 	}
 	if !strings.Contains(errb.String(), "warning") {
@@ -106,7 +106,7 @@ func TestRunPlanOnly_FallbackWarnsOnStderr(t *testing.T) {
 
 func TestRunPlanOnly_DeadServerIsExitOne(t *testing.T) {
 	var out, errb bytes.Buffer
-	code := runPlanOnly(context.Background(), planOnlyCfg(), "http://127.0.0.1:1", &out, &errb)
+	code := runPlanOnly(context.Background(), planOnlyCfg(), t.TempDir(), "http://127.0.0.1:1", scriptCmdRunner{script: "true"}, &out, &errb)
 	if code != 1 {
 		t.Fatalf("code = %d, want 1", code)
 	}

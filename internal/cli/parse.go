@@ -206,7 +206,8 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	fs.BoolVar(&cfg.GitGuard, "git-guard", cfg.GitGuard, i18n.T(i18n.MsgFlagGitGuard))
 	fs.BoolVar(&cfg.GitGuardAllowDirty, "git-guard-allow-dirty", cfg.GitGuardAllowDirty,
 		i18n.T(i18n.MsgFlagGitGuardAllowDirty))
-
+	fs.BoolVar(&cfg.RepoMap, "repo-map", cfg.RepoMap, i18n.T(i18n.MsgFlagRepoMap))
+	fs.BoolVar(&cfg.Preflight, "preflight", cfg.Preflight, i18n.T(i18n.MsgFlagPreflight))
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}

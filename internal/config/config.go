@@ -123,7 +123,13 @@ type Config struct {
 	GitGuard bool
 	// GitGuardAllowDirty permits -git-guard to start even when the working
 	// tree is dirty (uncommitted changes are ignored).
-	GitGuardAllowDirty   bool
+	GitGuardAllowDirty bool
+	// RepoMap adds a deterministic project map to the planner prompt
+	// (auto mode). Per-run user intent.
+	RepoMap bool
+	// Preflight checks the plan's verify commands and artifacts before
+	// execution (auto mode). Per-run user intent.
+	Preflight            bool
 	DoctorFlag           bool
 	ChatTemplateFallback string
 

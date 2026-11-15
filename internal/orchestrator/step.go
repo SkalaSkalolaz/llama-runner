@@ -67,11 +67,11 @@ func runStep(ctx context.Context, step planner.Step, opts Options, baseURL strin
 	}
 	pc := stepConfig(opts, step.Alias)
 	prior := buildPriorBlock(priorContext(step, steps, byID), dir)
-    prompt := stepPrompt(opts.Task, step, prior)
-    if retry != "" {
-        prompt += "\n" + retry
-    }
-    cmd := opts.Runner.Command(claudePath, "-p", prompt, "--model", pc.Alias)
+	prompt := stepPrompt(opts.Task, step, prior)
+	if retry != "" {
+		prompt += "\n" + retry
+	}
+	cmd := opts.Runner.Command(claudePath, "-p", prompt, "--model", pc.Alias)
 	cmd.Env = cli.BuildClaudeEnv(pc, baseURL, os.Environ())
 	cmd.Dir = dir
 	var stdout, stderr cappedBuffer

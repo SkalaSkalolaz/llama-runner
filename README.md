@@ -64,12 +64,16 @@ go build -o llama-runner ./cmd/llama-runner
   native Anthropic API at `/v1/messages`, with Anthropic-specific features (thinking,
   cache_control, tool_use/tool_result) preserved verbatim. Token authentication via
   `-proxy-token`.
-- **Git-guard:** the flag `-git-guard` enables a temporary branch for the plan run, checkpoints after each successful wave, and automatic rollback to the last checkpoint on failure.
-  planner — it decomposes the task into steps, picks a model from
-  `profiles` for each step (by `description`), and the orchestrator
-  executes the plan with hot-swapping between models. Entry points:
-  `-p auto -task "..."` (headless) or `-p auto` (interactive loop).
-  See the "Auto orchestration" section.
+- **Auto mode:** a profile declaring `"mode": "auto"` becomes the
+planner — it decomposes the task into steps, picks a model from
+`profiles` for each step (by `description`), and the orchestrator
+executes the plan with hot-swapping between models. Entry points:
+`-p auto -task "..."` (headless) or `-p auto` (interactive loop).
+See the "Auto orchestration" section.
+- **Git guard:** `-git-guard` creates a run branch, a checkpoint commit after each successful wave, and a rollback on failure (auto mode).
+- **Step retries:** `-max-retries N` (0..5) retries a failed step with the previous error injected into the prompt; timeouts and Ctrl-C are never retried.
+- **Project map:** `-repo-map` adds the working directory's stack, directory tree and languages to the planner prompt.
+- **Plan preflight:** `-preflight` checks verify commands (`sh -n`, PATH) and artifact paths before execution; errors go back to the planner for repair.
 - **MCP proxy:** `-webui-mcp-proxy` starts `mcp-search-server`, generates a temporary
   MCP config and passes CORS through. With `-mcp-strict` — only this MCP, no third-party
   servers from `~/.claude.json`.
@@ -149,6 +153,8 @@ go build -o llama-runner ./cmd/llama-runner
 | `-mcp-addr` | `127.0.0.1:8090` | Address of `mcp-search-server` |
 | `-mcp-config` | temp file | Where to write the MCP config |
 | `-mcp-strict` | `false` | Pass `--strict-mcp-config` |
+| `-git-guard` | `false` | Auto mode: run branch + checkpoint per wave + rollback on failure |
+| `-git-guard-allow-dirty` | `false` | Allow `-git-guard` on a dirty working tree |
 
 ### External provider (hybrid mode)
 
@@ -171,6 +177,9 @@ go build -o llama-runner ./cmd/llama-runner
 | `-p` | _(not set)_ | Profile from the config file; a profile with `"mode": "auto"` enables auto mode |
 | `-task` | _(not set)_ | Task for the planner: build the plan and execute it (only for a profile with `"mode": "auto"`) |
 | `-plan-only` | | Build the plan and exit, without executing it (requires `-task`; only with `"mode": "auto"`) |
+| `-max-retries` | `0` | Retries for a failed step, 0..5 (0 = disabled); per-profile field `maxRetries` |
+| `-repo-map` | `false` | Project map (stack, tree, languages) in the planner prompt |
+| `-preflight` | `false` | Check the plan's verify commands and artifacts before execution |
 | `-doctor` | | Diagnostics without spawning processes |
 | `-v` | | Print the command before running it |
 | `-version` | | Print the version |
@@ -484,6 +493,60 @@ the planner uses it to decide which profile gets each step. Every other
 profile (`big`, `coder`, …) is a worker; its `parallel` caps the number
 of agents that may run on that model at once.
 
+### Git guard (`-git-guard`)
+
+Optional protection for auto-mode runs:
+
+- before the run starts, the agent's working directory must be a git
+  repository with a clean tree (a dirty tree is allowed only with
+  `-git-guard-allow-dirty`);
+- a branch `llama-runner/run-<YYYYMMDD-HHMMSS>` is created from the current
+  HEAD — your branch is never touched;
+- a checkpoint commit is taken after every fully successful wave of steps;
+- if a wave contains a failure, `git reset --hard` rolls back to the last
+  checkpoint;
+- at the end, `git diff --stat` from the base and the branch name are
+  printed: the result stays in the branch, you merge it yourself.
+
+Untracked files are never deleted. Checkpoint commits use local
+`user.name`/`user.email`, skip hooks (`--no-verify`) and GPG signing.
+The flag is off by default.
+
+### Step retries (`-max-retries`)
+
+`-max-retries N` (0..5, default 0 = disabled) retries a failed step on the
+same model, injecting the previous error text and output into the prompt:
+"fix that specific problem, do not start over". Retried: a non-zero model
+exit, a missing artifact, a failed verify. Never retried: the step timeout,
+Ctrl-C, setup failures (claude not found, unavailable working directory).
+The limit can be set per profile via the `"maxRetries"` config field: a
+positive profile value wins over the root one; the result is clamped to
+0..5. The model is never switched between retries — swapping inside a wave
+is forbidden.
+
+### Project map and preflight (`-repo-map`, `-preflight`)
+
+`-repo-map` quickly scans the agent's working directory before planning
+(no models, no network) and adds a "Project context" block to the planner's
+system prompt: the stack detected from root markers (`go.mod`,
+`package.json`, `Cargo.toml`, `pyproject.toml`, …), languages by file
+extension, a shallow directory tree and suggested verify commands. The
+planner no longer guesses the task's language from its wording.
+
+`-preflight` checks every step after plan validation and before execution:
+
+- verify syntax via `sh -n` (the command is only parsed, nothing runs);
+- the first command of each verify segment is looked up on PATH (shell
+  builtins are skipped);
+- the artifact path must stay inside the working directory (a warning);
+- dangerous patterns (`rm -rf`, `sudo`, `git push`, `git reset --hard`, …)
+  produce a warning, not a block.
+
+Errors (syntax, missing command) go back to the planner through the same
+repair round as invalid JSON; warnings are only printed to stderr. Works
+in `-plan-only` too. Both flags are off by default: without them the
+planner prompt is byte-identical to the previous version.
+
 ## Auto-downloading models
 
 The installer can optionally fetch the small default Qwen model for you (see [Install](#install)); the `-download` flag below is for choosing your own model.
@@ -572,6 +635,13 @@ For gated Hugging Face repositories, set `HF_TOKEN` or
 
 # Profile from the config file
 ./llama-runner -p a3b
+
+# Auto mode with every safety net: git branch, step retries, project map, preflight
+./llama-runner -p auto -git-guard -max-retries 2 -repo-map -preflight \
+  -task "refactor the config package"
+
+# Plan only, but with the project map and preflight checks
+./llama-runner -p auto -repo-map -preflight -plan-only -task "add tests for internal/vcs"
 
 # Download a model from Hugging Face and launch with it
 ./llama-runner -download ~/GGUF/https://huggingface.co/AtomicChat/DeepSeek-V4.1-Flash-1017-Uncensored-GSQ-RCO-GGUF/resolve/main/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00004.gguf

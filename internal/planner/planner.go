@@ -37,6 +37,12 @@ type Options struct {
 	Client *http.Client
 	// MaxTokens is optional; 0 means defaultMaxTokens.
 	MaxTokens int
+	// Project, when non-empty, is a deterministic project description
+	// (see internal/repomap) added to the system prompt.
+	Project string
+	// ExtraCheck, when non-nil, runs after Validate; its error triggers
+	// the same repair round as a validation error.
+	ExtraCheck func(Plan) error
 }
 
 // Planner asks the local "auto" model for a plan and validates the answer.
@@ -84,7 +90,7 @@ func (p *Planner) Build(ctx context.Context, task string) (Result, error) {
 		aliases = append(aliases, m.Alias)
 	}
 	msgs := []message{
-		{Role: "system", Content: systemPrompt(p.opts.Models, p.opts.Alias)},
+		{Role: "system", Content: systemPrompt(p.opts.Models, p.opts.Alias, p.opts.Project)},
 		{Role: "user", Content: strings.TrimSpace(task)},
 	}
 	var lastErr error
@@ -96,6 +102,9 @@ func (p *Planner) Build(ctx context.Context, task string) (Result, error) {
 		plan, verr := Parse(reply)
 		if verr == nil {
 			verr = plan.Validate(aliases)
+		}
+		if verr == nil && p.opts.ExtraCheck != nil {
+			verr = p.opts.ExtraCheck(plan)
 		}
 		if verr == nil {
 			return Result{Plan: plan, Attempts: attempt, Repaired: attempt > 1}, nil

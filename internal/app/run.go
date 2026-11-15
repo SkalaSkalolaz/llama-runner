@@ -341,7 +341,7 @@ func Run(args []string, stdout, stderr io.Writer, cmdRunner runner.CommandRunner
 			// above stops the server.
 			ctx, cancel := context.WithTimeout(context.Background(), planTimeout)
 			defer cancel()
-			return runPlanOnly(ctx, cfg, ServerBaseURL(cfg), stdout, stderr)
+			return runPlanOnly(ctx, cfg, home, ServerBaseURL(cfg), cmdRunner, stdout, stderr)
 
 		case cfg.Task != "":
 			// Headless execution: plan + execute, then stop. Ctrl-C

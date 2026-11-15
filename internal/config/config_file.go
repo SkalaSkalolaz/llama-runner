@@ -157,6 +157,10 @@ type FileConfig struct {
 	GitGuard *bool `json:"gitGuard,omitempty"`
 	// GitGuardAllowDirty permits -git-guard on a dirty working tree.
 	GitGuardAllowDirty *bool `json:"gitGuardAllowDirty,omitempty"`
+	// RepoMap adds a project map to the planner prompt.
+	RepoMap *bool `json:"repoMap,omitempty"`
+	// Preflight checks the plan before execution.
+	Preflight *bool `json:"preflight,omitempty"`
 }
 
 // ApplyFileConfig overlays the set (non-nil) fields of fc onto cfg; nil
@@ -252,6 +256,8 @@ func ApplyFileConfig(cfg *Config, fc FileConfig) error {
 
 	setB(&cfg.GitGuard, fc.GitGuard)
 	setB(&cfg.GitGuardAllowDirty, fc.GitGuardAllowDirty)
+	setB(&cfg.RepoMap, fc.RepoMap)
+	setB(&cfg.Preflight, fc.Preflight)
 
 	if fc.ReadyTimeout != nil {
 		d, err := time.ParseDuration(*fc.ReadyTimeout)

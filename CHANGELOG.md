@@ -4,11 +4,42 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [SemVer](https://semver.org/).
 
-## v1.10.1
-
+## Unreleased
 ### Added
-- **Git guard:** a new optional `-git-guard` flag for auto-mode. It enables a temporary branch for the plan run, checkpoints after each successful wave, and automatic rollback to the last checkpoint on failure.
+- **Git guard:** a new optional `-git-guard` flag for auto mode: a dedicated
+  `llama-runner/run-<timestamp>` branch, a checkpoint commit after each
+  successful wave, and `git reset --hard` rollback to the last checkpoint on
+  a failed wave. Untracked files are never deleted; `-git-guard-allow-dirty`
+  permits starting on a dirty tree. New package `internal/vcs`. Off by default.
+- **Step retries:** `-max-retries N` (0..5) and the per-profile `maxRetries`
+  field retry a failed step on the same model with the previous error and
+  output injected into the prompt. Failure kinds are classified
+  (`failExec`/`failArtifact`/`failVerify` are retried; setup failures,
+  timeouts and cancellation are not). `StepResult.Attempts` records the
+  attempt count; the step duration covers all attempts. Off by default.
+- **Project map:** `-repo-map` (config `repoMap`) scans the agent's working
+  directory before planning — stack markers, language mix, a shallow tree,
+  suggested verify commands — and adds a deterministic "Project context"
+  block to the planner's system prompt (`planner.Options.Project`). New
+  package `internal/repomap`. Off by default.
+- **Plan preflight:** `-preflight` (config `preflight`) checks every plan
+  before execution: verify syntax via `sh -n`, command availability on PATH,
+  artifact paths inside the working directory, dangerous-pattern warnings.
+  Errors feed the planner's existing repair round via
+  `planner.Options.ExtraCheck`; warnings are printed to stderr. Works in
+  `-plan-only`. New package `internal/preflight`. Off by default.
+### Fixed
+- The retry prompt block is now actually injected into the `claude -p`
+  invocation (`internal/orchestrator/step.go` previously accepted the retry
+  text but never used it).
+- Restored the auto-mode feature bullet in both READMEs, damaged by the
+  git-guard documentation edit; added the missing flag-table rows for
+  `-git-guard`, `-git-guard-allow-dirty`, `-max-retries`, `-repo-map` and
+  `-preflight`.
+- CLI help and README examples now cover `-git-guard`, `-git-guard-allow-dirty`,
+  `-max-retries`, `-repo-map` and `-preflight`.
 
+## v1.10.1
 ### Added
 - Per-step and total execution timing. `StepResult.Duration` records how
   long each step took (including verification, on every exit path), and
