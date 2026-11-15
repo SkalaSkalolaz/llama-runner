@@ -129,7 +129,10 @@ type Config struct {
 	RepoMap bool
 	// Preflight checks the plan's verify commands and artifacts before
 	// execution (auto mode). Per-run user intent.
-	Preflight            bool
+	Preflight bool
+	// StreamOutput prints each step's live output to the terminal,
+	// prefixed with the step ID (auto mode). Per-run user intent.
+	StreamOutput         bool
 	DoctorFlag           bool
 	ChatTemplateFallback string
 

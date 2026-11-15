@@ -161,6 +161,8 @@ type FileConfig struct {
 	RepoMap *bool `json:"repoMap,omitempty"`
 	// Preflight checks the plan before execution.
 	Preflight *bool `json:"preflight,omitempty"`
+	// StreamOutput prints each step's live output to the terminal.
+	StreamOutput *bool `json:"streamOutput,omitempty"`
 }
 
 // ApplyFileConfig overlays the set (non-nil) fields of fc onto cfg; nil
@@ -258,6 +260,7 @@ func ApplyFileConfig(cfg *Config, fc FileConfig) error {
 	setB(&cfg.GitGuardAllowDirty, fc.GitGuardAllowDirty)
 	setB(&cfg.RepoMap, fc.RepoMap)
 	setB(&cfg.Preflight, fc.Preflight)
+	setB(&cfg.StreamOutput, fc.StreamOutput)
 
 	if fc.ReadyTimeout != nil {
 		d, err := time.ParseDuration(*fc.ReadyTimeout)
