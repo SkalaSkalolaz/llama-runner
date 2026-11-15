@@ -13,14 +13,17 @@ func TestStepStreamWriter_LinesAndFlush(t *testing.T) {
 	var buf bytes.Buffer
 	s := newStepStreamer(&buf)
 	w := s.writer("1")
+
 	if _, err := w.Write([]byte("hel")); err != nil {
 		t.Fatal(err)
 	}
 	if buf.Len() != 0 {
 		t.Errorf("partial line emitted early: %q", buf.String())
 	}
+
 	_, _ = w.Write([]byte("lo\nworld\n"))
-	if got := buf.String(); got != "[1] hello\n[1] …ed lines missing: %q", got)
+	if got := buf.String(); got != "[1] hello\n[1] world\n" {
+		t.Errorf("lines = %q, want %q", got, "[1] hello\n[1] world\n")
 	}
 }
 
