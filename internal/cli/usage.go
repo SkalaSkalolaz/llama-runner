@@ -128,6 +128,8 @@ Claude Code:
   -repo-map            добавить карту проекта в промпт планировщика (auto-режим)
   -preflight           проверить verify-команды и артефакты плана до исполнения
   -stream-output       печатать живой вывод шагов в терминал (auto-режим)
+  -resume              продолжить последний прогон с места остановки (только auto-режим)
+
 
 Обновление llama.cpp:
   -update
@@ -297,6 +299,8 @@ Config:
   -repo-map            add a project map to the planner prompt (auto mode)
   -preflight           check the plan verify commands and artifacts before execution
   -stream-output       print each step's live output to the terminal (auto mode)
+  -resume              resume the last run from where it stopped (auto mode only)
+
 
 llama.cpp update:
   -update

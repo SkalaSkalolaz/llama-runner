@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -19,39 +20,75 @@ import (
 // its verification command — each gets the full budget.
 const execStepTimeout = 300 * time.Minute
 
-// runExecute is the headless auto-mode run: build the plan, print the
-// human-readable listing, then execute it step by step. Only the
-// orchestrator's output carries time prefixes; the planning phase and the
-// listing stay clean. -plan-only (runPlanOnly) keeps its JSON untouched.
+// runExecute is the headless auto-mode run: build the plan (or load the
+// journal on -resume), print the human-readable listing, then execute the
+// plan step by step. The run journal is rewritten after every wave to
+// ~/.cache/llama-runner/last-run.json, so an interrupted run can be
+// continued with -resume. Only the orchestrator's output carries time
+// prefixes; the planning phase and the listing stay clean.
 func runExecute(ctx context.Context, cfg *config.Config, home, baseURL string,
 	sw orchestrator.Swapper, cmdRunner runner.CommandRunner,
 	stdout, stderr io.Writer) int {
-	plan, ok := buildPlan(ctx, cfg, home, baseURL, cmdRunner, stdout, stderr)
-	if !ok {
-		return 1
+	journalPath := filepath.Join(home, ".cache", "llama-runner", "last-run.json")
+	var (
+		plan    planner.Plan
+		journal *orchestrator.Journal
+		task    = cfg.Task
+	)
+	if cfg.Resume {
+		j, jerr := orchestrator.LoadJournal(journalPath)
+		if jerr != nil {
+			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrResumeJSON, jerr))
+			return 1
+		}
+		if j == nil {
+			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrResumeNoJournal, journalPath))
+			return 1
+		}
+		if dir, derr := orchestrator.WorkDir(cfg, home); derr == nil && j.WorkDir != dir {
+			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrResumeMismatch))
+			return 1
+		}
+		if cfg.Task != "" && cfg.Task != j.Task {
+			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrResumeMismatch))
+			return 1
+		}
+		plan, journal, task = j.Plan, j, j.Task
+	} else {
+		p, ok := buildPlan(ctx, cfg, home, baseURL, cmdRunner, stdout, stderr)
+		if !ok {
+			return 1
+		}
+		plan = p
+		dir, derr := orchestrator.WorkDir(cfg, home)
+		if derr != nil {
+			fmt.Fprint(stderr, i18n.TF(i18n.MsgErrPlanBuild, derr))
+			return 1
+		}
+		journal = orchestrator.NewJournal(cfg.Task, dir, plan)
 	}
 	fmt.Fprint(stdout, i18n.TF(i18n.MsgPlanHeader, len(plan.Steps)))
 	printPlan(stdout, plan)
-
 	outW := newTimePrefixWriter(stdout)
 	errW := newTimePrefixWriter(stderr)
 	defer func() { _ = outW.Flush(); _ = errW.Flush() }()
-
 	res := orchestrator.Run(ctx, plan, orchestrator.Options{
 		Cfg:                cfg,
 		Profiles:           cfg.Profiles,
 		Home:               home,
 		Runner:             cmdRunner,
-		Task:               cfg.Task,
+		Task:               task,
 		BaseURL:            baseURL,
 		Swapper:            sw,
 		StepTimeout:        execStepTimeout,
 		GitGuard:           cfg.GitGuard,
 		GitGuardAllowDirty: cfg.GitGuardAllowDirty,
+		StreamOutput:       cfg.StreamOutput,
+		Journal:            journal,
+		JournalPath:        journalPath,
 		Stdout:             outW,
 		Stderr:             errW,
 	})
-
 	if res.Failed {
 		return 1
 	}

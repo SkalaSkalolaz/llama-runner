@@ -107,6 +107,17 @@ func ValidateConfig(cfg *config.Config) error {
 			}
 		}
 	}
+	if cfg.Resume {
+		if !cfg.AutoMode() {
+			return i18n.Errorv(i18n.MsgErrResumeNeedsAuto)
+		}
+		if cfg.PlanOnly {
+			return i18n.Errorv(i18n.MsgErrResumePlanOnly)
+		}
+		if cfg.GitGuard {
+			return i18n.Errorv(i18n.MsgErrResumeGitGuard)
+		}
+	}
 	return nil
 }
 

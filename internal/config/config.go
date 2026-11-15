@@ -115,7 +115,11 @@ type Config struct {
 	// Task is the user task handed to the planner (-task). PlanOnly asks
 	// for the plan without executing it (-plan-only). Both are per-run CLI
 	// intent, not persisted settings, so neither has a FileConfig field.
-	Task     string
+	Task string
+	// Resume continues the last interrupted run from its journal
+	// instead of re-planning (-resume). Per-run CLI intent; no
+	// config-file field on purpose.
+	Resume   bool
 	PlanOnly bool
 	// GitGuard enables a Git safety net for auto mode: creates a branch,
 	// checkpoints per wave, and rolls back on failure. It is a per-run

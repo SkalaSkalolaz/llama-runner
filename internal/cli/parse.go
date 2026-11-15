@@ -174,6 +174,8 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	fs.BoolVar(&cfg.ServerOnly, "server", false, i18n.T(i18n.MsgFlagServer))
 	fs.StringVar(&cfg.ClaudeBin, "claude-bin", cfg.ClaudeBin, i18n.T(i18n.MsgFlagClaudeBin))
 	fs.StringVar(&cfg.ClaudeDir, "claude-dir", cfg.ClaudeDir, i18n.T(i18n.MsgFlagClaudeDir))
+	fs.BoolVar(&cfg.StreamOutput, "stream-output", false, i18n.T(i18n.MsgFlagStreamOutput))
+	fs.BoolVar(&cfg.Resume, "resume", cfg.Resume, i18n.T(i18n.MsgFlagResume))
 	fs.StringVar(&cfg.Alias, "alias", cfg.Alias, i18n.T(i18n.MsgFlagAlias))
 	fs.DurationVar(&cfg.ReadyTimeout, "ready-timeout", cfg.ReadyTimeout, i18n.T(i18n.MsgFlagReadyTimeout))
 	fs.StringVar(&cfg.ChatTemplate, "chat-template", cfg.ChatTemplate, i18n.T(i18n.MsgFlagChatTemplate))
@@ -208,7 +210,6 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 		i18n.T(i18n.MsgFlagGitGuardAllowDirty))
 	fs.BoolVar(&cfg.RepoMap, "repo-map", cfg.RepoMap, i18n.T(i18n.MsgFlagRepoMap))
 	fs.BoolVar(&cfg.Preflight, "preflight", cfg.Preflight, i18n.T(i18n.MsgFlagPreflight))
-	fs.BoolVar(&cfg.StreamOutput, "stream-output", cfg.StreamOutput, i18n.T(i18n.MsgFlagStreamOutput))
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}

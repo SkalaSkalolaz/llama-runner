@@ -342,6 +342,15 @@ const (
 	MsgFlagRepoMap        = "flag_repo_map"
 	MsgFlagPreflight      = "flag_preflight"
 	MsgFlagStreamOutput   = "flag_stream_output"
+	MsgFlagResume         = "flag_resume"
+	MsgResumeLoaded       = "resume_loaded"
+	MsgErrResumeNoJournal = "err_resume_no_journal"
+	MsgErrResumeMismatch  = "err_resume_mismatch"
+	MsgErrResumeJSON      = "err_resume_json"
+	MsgErrResumePlanOnly  = "err_resume_plan_only"
+	MsgErrResumeGitGuard  = "err_resume_git_guard"
+	MsgErrResumeNeedsAuto = "err_resume_needs_auto"
+	MsgWarnJournalSave    = "warn_journal_save"
 	MsgRepoMapLine        = "repo_map_line"
 	MsgWarnRepoMap        = "warn_repo_map"
 	MsgPreflightFinding   = "preflight_finding"
@@ -766,6 +775,15 @@ var messages = map[string]i18nMessage{
 	MsgFlagRepoMap:        {"добавить карту проекта в промпт планировщика", "add a project map to the planner prompt"},
 	MsgFlagPreflight:      {"проверить verify-команды и артефакты плана до исполнения", "check the plan verify commands and artifacts before execution"},
 	MsgFlagStreamOutput:   {"печатать живой вывод шагов в терминал (auto-режим)", "print each step's live output to the terminal (auto mode)"},
+	MsgFlagResume:         {"продолжить последний прогон с места остановки (журнал в ~/.cache/llama-runner/last-run.json)", "resume the last run from where it stopped (journal in ~/.cache/llama-runner/last-run.json)"},
+	MsgResumeLoaded:       {"продолжение прогона: %d из %d шагов уже выполнено", "resuming run: %d of %d steps already done"},
+	MsgErrResumeNoJournal: {"журнал прогона не найден (%s): сначала запустите задачу", "no run journal found (%s): run a task first"},
+	MsgErrResumeMismatch:  {"журнал не соответствует текущей задаче или директории — -resume невозможен", "the journal does not match the current task or directory — cannot -resume"},
+	MsgErrResumeJSON:      {"журнал прогона повреждён: %v", "the run journal is corrupt: %v"},
+	MsgErrResumePlanOnly:  {"-resume несовместим с -plan-only", "-resume is not compatible with -plan-only"},
+	MsgErrResumeGitGuard:  {"-resume несовместим с -git-guard в этой версии", "-resume is not compatible with -git-guard in this version"},
+	MsgErrResumeNeedsAuto: {"-resume доступен только в профиле с \"mode\": \"auto\"", "-resume is available only in a profile declaring \"mode\": \"auto\""},
+	MsgWarnJournalSave:    {"предупреждение: не удалось сохранить журнал прогона: %v", "warning: failed to save the run journal: %v"},
 	MsgRepoMapLine:        {"карта проекта: %s (стек: %s)", "project map: %s (stack: %s)"},
 	MsgWarnRepoMap:        {"предупреждение: карта проекта недоступна: %v", "warning: project map unavailable: %v"},
 	MsgPreflightFinding:   {"[preflight] шаг %s: %s", "[preflight] step %s: %s"},

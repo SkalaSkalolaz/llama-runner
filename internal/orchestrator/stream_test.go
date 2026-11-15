@@ -36,7 +36,13 @@ func TestRun_NoStreamingByDefault(t *testing.T) {
 	if res.Failed {
 		t.Fatalf("run failed: %+v", res.Steps)
 	}
-	if strings.Contains(out.String(), "hidden-without-flag") {
-		t.Errorf("step output leaked to stdout without -stream-output: %q", out.String())
+	got := out.String()
+	// Summary всегда есть (стандартное поведение Run)
+	if !strings.Contains(got, "Step 1/1") {
+		t.Errorf("summary missing: %q", got)
+	}
+	// Но построчный стриминг с префиксом [1] — только со стримингом
+	if strings.Contains(got, "[1] hidden-without-flag") {
+		t.Errorf("streaming lines leaked without -stream-output: %q", got)
 	}
 }

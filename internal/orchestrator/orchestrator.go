@@ -80,14 +80,20 @@ type Options struct {
 	// GitGuardAllowDirty starts the guard on a dirty working tree instead
 	// of refusing to run.
 	GitGuardAllowDirty bool
-    // StreamOutput tees each step's live output to Stdout, prefixed
-    // with the step ID; off by default (only the final summary prints).
-    StreamOutput bool
+	// StreamOutput tees each step's live output to Stdout, prefixed
+	// with the step ID; off by default (only the final summary prints).
+	StreamOutput bool
 
-    // stream is the shared live-output sink; non-nil exactly when
-    // StreamOutput is on (initialized by Run itself).
-    stream *stepStreamer
-	Stdout, Stderr     io.Writer
+	// stream is the shared live-output sink; non-nil exactly when
+	// StreamOutput is on (initialized by Run itself).
+	stream *stepStreamer
+	// Journal, when non-nil, is persisted to JournalPath after every
+	// wave; when it already carries completed steps (a -resume run),
+	// those steps are seeded into byID and never re-executed.
+	Journal *Journal
+	// JournalPath is where the Journal is saved; empty disables saving.
+	JournalPath    string
+	Stdout, Stderr io.Writer
 }
 
 // StepResult reports how one step ended.
@@ -140,9 +146,9 @@ func Run(ctx context.Context, plan planner.Plan, opts Options) (result Result) {
 	if opts.StepTimeout <= 0 {
 		opts.StepTimeout = DefaultStepTimeout
 	}
-    if opts.StreamOutput {
-        opts.stream = newStepStreamer(opts.Stdout)
-    }
+	if opts.StreamOutput {
+		opts.stream = newStepStreamer(opts.Stdout)
+	}
 	var guard *vcs.Guard
 	if opts.GitGuard {
 		dir, derr := stepWorkDir(opts)
@@ -172,6 +178,15 @@ func Run(ctx context.Context, plan planner.Plan, opts Options) (result Result) {
 	currentURL := opts.BaseURL
 
 	byID := make(map[string]StepResult, len(steps))
+	if opts.Journal != nil {
+		seeded := opts.Journal.SeedResults(steps)
+		for id, r := range seeded {
+			byID[id] = r
+		}
+		if len(seeded) > 0 {
+			fmt.Fprint(opts.Stdout, i18n.TF(i18n.MsgResumeLoaded, len(seeded), len(steps)))
+		}
+	}
 	failed := false
 	for len(byID) < len(steps) {
 		if ctx.Err() != nil {
@@ -262,6 +277,12 @@ func Run(ctx context.Context, plan planner.Plan, opts Options) (result Result) {
 			} else {
 				failed = true
 				fmt.Fprint(opts.Stderr, i18n.TF(i18n.MsgExecStepFail, r.Step.ID, formatDuration(r.Duration), r.Err))
+			}
+		}
+		if opts.Journal != nil && opts.JournalPath != "" {
+			opts.Journal.Sync(byID)
+			if jerr := opts.Journal.Save(opts.JournalPath); jerr != nil {
+				fmt.Fprint(opts.Stderr, i18n.TF(i18n.MsgWarnJournalSave, jerr))
 			}
 		}
 		// Git guard bookkeeping, strictly between waves: a checkpoint
