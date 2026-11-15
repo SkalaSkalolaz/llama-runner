@@ -349,6 +349,9 @@ const (
 	MsgPreflightOutside   = "preflight_outside"
 	MsgPreflightDangerous = "preflight_dangerous"
 	MsgPreflightFailed    = "preflight_failed"
+
+	// --- Streaming & resume (internal/orchestrator, app/execute.go) ---
+	MsgFlagStreamOutput = "flag_stream_output"
 )
 
 // messages is the complete translation catalog: one entry per key with the
@@ -772,4 +775,7 @@ var messages = map[string]i18nMessage{
 	MsgPreflightOutside:   {"артефакт %q вне рабочей директории", "artifact %q is outside the working directory"},
 	MsgPreflightDangerous: {"проверка %q содержит опасную команду (%s)", "verify %q contains a dangerous command (%s)"},
 	MsgPreflightFailed:    {"план не прошёл preflight: %s", "the plan failed preflight: %s"},
+
+	// --- Streaming & resume (internal/orchestrator, app/execute.go) ---
+	MsgFlagStreamOutput: {"печатать живой вывод шагов в терминал (auto-режим)", "print each step's live output to the terminal (auto mode)"},
 }
