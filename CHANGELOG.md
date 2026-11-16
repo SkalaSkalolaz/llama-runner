@@ -4,6 +4,29 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [SemVer](https://semver.org/).
 
+## v1.11.2
+### Removed
+
+- **BREAKING:** The `-git-guard` and `-git-guard-allow-dirty` flags have 
+been removed along with the `internal/vcs` package. The guard no longer creates 
+a `llama-runner/*` branch, performs a checkpoint commit to the wave, 
+or reverts changes on failure. Auto-mode (`-p auto`) no longer affects 
+the git state of the working tree.
+- The `gitGuard` and `gitGuardAllowDirty` configuration keys have been removed 
+from `config.json` (they are silently ignored when reading - backward compat 
+for old configs).
+- The `-resume` × `-git-guard` incompatibility check (`MsgErrResumeGitGuard`) 
+has been removed: the combination no longer exists, and `-resume` works independently.
+- Removed strings and examples with `-git-guard` / `-git-guard-allow-dirty` 
+(RU + EN) from the help text (`internal/cli/usage.go`).
+- Removed keys `MsgFlagGitGuard`, `MsgFlagGitGuardAllowDirty`, `MsgErrGitGuard`, 
+`MsgGitGuard*`, `MsgErrGitGuard*`, `MsgErrResumeGitGuard`, `MsgVcs*` from the i18n catalog.
+
+### Changed
+
+- Пример в help-тексте, ссылавшийся на `internal/vcs`, заменён на
+  `internal/planner`.
+
 ## v1.11.1
 ### Added
 - **Git guard** (`-git-guard`) — branch creation, per-wave checkpoints, rollback on failure

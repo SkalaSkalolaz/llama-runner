@@ -46,7 +46,6 @@ go build -o llama-runner ./cmd/llama-runner
 
 - **Автоматический режим:** профиль с `"mode": "auto"` — планировщик: разбивает задачу
   на шаги, выбирает модели из `profiles`, оркестратор исполняет с hot-swap
-- **Git-страховка:** `-git-guard` создаёт ветку прогона, чекпоинт на волну, откат при провале
 - **Повторы шагов:** `-max-retries N` (0..5) повторяет провалившиеся шаги с контекстом ошибки
 - **Карта проекта:** `-repo-map` добавляет контекст рабочей директории в промпт планировщика
 - **Preflight плана:** `-preflight` проверяет verify-команды и артефакты до исполнения
@@ -91,7 +90,6 @@ go build -o llama-runner ./cmd/llama-runner
 | `-ready-timeout` | `180s` | Таймаут `/health` |
 | `-log-file` | `~/.cache/llama-runner/llama-server.log` | Файл логов |
 | `-log-max-mb` / `-log-keep` | `50` / `5` | Ротация логов |
-| `-git-guard` | `false` | Git-страховка (auto-режим) |
 | `-max-retries` | `0` | Повторы шагов (0..5) |
 | `-stream-output` | `false` | Живой вывод шагов в терминал |
 | `-resume` | `false` | Продолжить последний прогон из журнала |
@@ -198,7 +196,6 @@ OpenAI-совместимым API:
 **Интерактивный:** `llama-runner -p auto` (цикл задача → план → исполнение)
 
 **Страховки:**
-- `-git-guard` — ветка + чекпоинт на волну + откат
 - `-max-retries N` — повторы провалившихся шагов с контекстом ошибки
 - `-repo-map` — контекст проекта в промпт планировщика
 - `-preflight` — проверка verify-команд и артефактов до исполнения
@@ -227,7 +224,7 @@ OpenAI-совместимым API:
   -proxy-token $(openssl rand -hex 16)
 
 # Auto-режим со всеми страховками
-./llama-runner -p auto -git-guard -max-retries 2 -repo-map -preflight \
+./llama-runner -p auto -max-retries 2 -repo-map -preflight \
   -task "отрефакторить пакет config"
 
 # Скачать модель и запустить

@@ -44,7 +44,6 @@ go build -o llama-runner ./cmd/llama-runner
 
 - **Auto mode:** a profile with `"mode": "auto"` becomes the planner — it decomposes
   tasks, picks models from `profiles`, and the orchestrator executes with hot-swapping
-- **Git guard:** `-git-guard` creates a run branch, checkpoints per wave, rolls back on failure
 - **Step retries:** `-max-retries N` (0..5) retries failed steps with error context
 - **Project map:** `-repo-map` adds working directory context to the planner prompt
 - **Plan preflight:** `-preflight` checks verify commands and artifacts before execution
@@ -89,7 +88,6 @@ go build -o llama-runner ./cmd/llama-runner
 | `-ready-timeout` | `180s` | `/health` timeout |
 | `-log-file` | `~/.cache/llama-runner/llama-server.log` | Log file |
 | `-log-max-mb` / `-log-keep` | `50` / `5` | Log rotation |
-| `-git-guard` | `false` | Git safety net (auto mode) |
 | `-max-retries` | `0` | Step retries (0..5) |
 | `-stream-output` | `false` | Live step output to terminal |
 | `-resume` | `false` | Resume last run from journal |
@@ -195,7 +193,6 @@ the plan with hot-swapping between models.
 **Interactive:** `llama-runner -p auto` (task → plan → execute loop)
 
 **Safety nets:**
-- `-git-guard` — branch + checkpoint per wave + rollback
 - `-max-retries N` — retry failed steps with error context
 - `-repo-map` — project context in planner prompt
 - `-preflight` — verify commands and artifacts before execution
@@ -217,14 +214,14 @@ Sharded models (`*-00001-of-00004.gguf`) download the entire set. Resumable via
 # Server + Claude Code
 ./llama-runner -alias qwen2.5-0.5b -claude-dir ~/my-project
 
+# Auto-mode with all insurance policies
+./llama-runner -p auto -max-retries 2 -repo-map -preflight \
+  -task "refactor config package"
+
 # Hybrid mode with proxy token
 ./llama-runner -openai https://api.orcarouter.ai/v1 \
   -key $ORCAROUTER_API_KEY -model-openai deepseek/deepseek-v4-flash-free \
   -proxy-token $(openssl rand -hex 16)
-
-# Auto mode with all safety nets
-./llama-runner -p auto -git-guard -max-retries 2 -repo-map -preflight \
-  -task "refactor the config package"
 
 # Download model and launch
 ./llama-runner -download ~/GGUF/https://huggingface.co/org/repo/resolve/main/model.gguf
