@@ -323,21 +323,6 @@ const (
 	MsgExecStepRetry      = "exec_step_retry"
 	MsgErrMaxRetries      = "err_max_retries"
 
-	// --- Git guard (internal/vcs) ---
-	MsgFlagGitGuard           = "flag_git_guard"
-	MsgFlagGitGuardAllowDirty = "flag_git_guard_allow_dirty"
-	MsgErrGitGuard            = "err_git_guard"
-	MsgGitGuardBranch         = "git_guard_branch"
-	MsgGitGuardCheckpoint     = "git_guard_checkpoint"
-	MsgErrGitGuardCheckpoint  = "err_git_guard_checkpoint"
-	MsgGitGuardRollback       = "git_guard_rollback"
-	MsgErrGitGuardRollback    = "err_git_guard_rollback"
-	MsgGitGuardSummary        = "git_guard_summary"
-	MsgVcsNotRepo             = "vcs_not_repo"
-	MsgVcsDirty               = "vcs_dirty"
-	MsgVcsNoCommits           = "vcs_no_commits"
-	MsgVcsCmd                 = "vcs_cmd"
-	MsgVcsUntrackedLeft       = "vcs_untracked_left"
 	// --- Repo map & plan preflight (internal/repomap, internal/preflight, app/planonly.go) ---
 	MsgFlagRepoMap        = "flag_repo_map"
 	MsgFlagPreflight      = "flag_preflight"
@@ -348,7 +333,6 @@ const (
 	MsgErrResumeMismatch  = "err_resume_mismatch"
 	MsgErrResumeJSON      = "err_resume_json"
 	MsgErrResumePlanOnly  = "err_resume_plan_only"
-	MsgErrResumeGitGuard  = "err_resume_git_guard"
 	MsgErrResumeNeedsAuto = "err_resume_needs_auto"
 	MsgWarnJournalSave    = "warn_journal_save"
 	MsgRepoMapLine        = "repo_map_line"
@@ -756,21 +740,6 @@ var messages = map[string]i18nMessage{
 	MsgExecStepRetry:      {"[повтор %d/%d] повтор шага %s: %v", "[retry %d/%d] retrying step %s: %v"},
 	MsgErrMaxRetries:      {"некорректный -max-retries %d: ожидается число от 0 до 5", "invalid -max-retries %d: expected a number from 0 to 5"},
 
-	// --- Git guard (internal/vcs) ---
-	MsgFlagGitGuard:           {"ветка + коммит-чекпоинт на волну + откат при провале (auto-режим)", "branch + checkpoint commit per wave + rollback on failure (auto mode)"},
-	MsgFlagGitGuardAllowDirty: {"разрешить -git-guard на грязном дереве", "allow -git-guard on a dirty working tree"},
-	MsgErrGitGuard:            {"git-страховка не включена: %v", "git guard not enabled: %v"},
-	MsgGitGuardBranch:         {"[git] ветка %s от %s", "[git] branch %s from %s"},
-	MsgGitGuardCheckpoint:     {"[git] чекпоинт %s", "[git] checkpoint %s"},
-	MsgErrGitGuardCheckpoint:  {"[git] чекпоинт не создан: %v", "[git] checkpoint failed: %v"},
-	MsgGitGuardRollback:       {"[git] откат к последнему чекпоинту", "[git] rolled back to the last checkpoint"},
-	MsgErrGitGuardRollback:    {"[git] откат не удался: %v", "[git] rollback failed: %v"},
-	MsgGitGuardSummary:        {"[git] изменения прогона (ветка %s):\n%s", "[git] run changes (branch %s):\n%s"},
-	MsgVcsNotRepo:             {"%s не является git-репозиторием", "%s is not a git repository"},
-	MsgVcsDirty:               {"в %s есть незакоммиченные изменения: закоммитьте их или укажите -git-guard-allow-dirty", "%s has uncommitted changes: commit them or pass -git-guard-allow-dirty"},
-	MsgVcsNoCommits:           {"в %s нет ни одного коммита", "%s has no commits yet"},
-	MsgVcsCmd:                 {"git %s: %v", "git %s: %v"},
-	MsgVcsUntrackedLeft:       {"[git] остались неотслеживаемые файлы (не удалены):\n%s", "[git] untracked files left in place (not removed):\n%s"},
 	// --- Repo map & plan preflight ---
 	MsgFlagRepoMap:        {"добавить карту проекта в промпт планировщика", "add a project map to the planner prompt"},
 	MsgFlagPreflight:      {"проверить verify-команды и артефакты плана до исполнения", "check the plan verify commands and artifacts before execution"},
@@ -781,7 +750,6 @@ var messages = map[string]i18nMessage{
 	MsgErrResumeMismatch:  {"журнал не соответствует текущей задаче или директории — -resume невозможен", "the journal does not match the current task or directory — cannot -resume"},
 	MsgErrResumeJSON:      {"журнал прогона повреждён: %v", "the run journal is corrupt: %v"},
 	MsgErrResumePlanOnly:  {"-resume несовместим с -plan-only", "-resume is not compatible with -plan-only"},
-	MsgErrResumeGitGuard:  {"-resume несовместим с -git-guard в этой версии", "-resume is not compatible with -git-guard in this version"},
 	MsgErrResumeNeedsAuto: {"-resume доступен только в профиле с \"mode\": \"auto\"", "-resume is available only in a profile declaring \"mode\": \"auto\""},
 	MsgWarnJournalSave:    {"предупреждение: не удалось сохранить журнал прогона: %v", "warning: failed to save the run journal: %v"},
 	MsgRepoMapLine:        {"карта проекта: %s (стек: %s)", "project map: %s (stack: %s)"},

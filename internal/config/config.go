@@ -121,13 +121,6 @@ type Config struct {
 	// config-file field on purpose.
 	Resume   bool
 	PlanOnly bool
-	// GitGuard enables a Git safety net for auto mode: creates a branch,
-	// checkpoints per wave, and rolls back on failure. It is a per-run
-	// user intent, not a persisted setting.
-	GitGuard bool
-	// GitGuardAllowDirty permits -git-guard to start even when the working
-	// tree is dirty (uncommitted changes are ignored).
-	GitGuardAllowDirty bool
 	// RepoMap adds a deterministic project map to the planner prompt
 	// (auto mode). Per-run user intent.
 	RepoMap bool

@@ -205,9 +205,6 @@ func ParseFlagsWithHome(args []string, stderr io.Writer, home string) (*config.C
 	// auto mode: the task and the headless plan-only dry run.
 	fs.StringVar(&cfg.Task, "task", cfg.Task, i18n.T(i18n.MsgFlagTask))
 	fs.BoolVar(&cfg.PlanOnly, "plan-only", false, i18n.T(i18n.MsgFlagPlanOnly))
-	fs.BoolVar(&cfg.GitGuard, "git-guard", cfg.GitGuard, i18n.T(i18n.MsgFlagGitGuard))
-	fs.BoolVar(&cfg.GitGuardAllowDirty, "git-guard-allow-dirty", cfg.GitGuardAllowDirty,
-		i18n.T(i18n.MsgFlagGitGuardAllowDirty))
 	fs.BoolVar(&cfg.RepoMap, "repo-map", cfg.RepoMap, i18n.T(i18n.MsgFlagRepoMap))
 	fs.BoolVar(&cfg.Preflight, "preflight", cfg.Preflight, i18n.T(i18n.MsgFlagPreflight))
 	if err := fs.Parse(args); err != nil {

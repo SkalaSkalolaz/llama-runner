@@ -153,10 +153,6 @@ type FileConfig struct {
 	// Profiles
 	Profiles map[string]FileConfig `json:"profiles,omitempty"`
 
-	// GitGuard enables a Git safety net for auto mode (branch + checkpoint + rollback).
-	GitGuard *bool `json:"gitGuard,omitempty"`
-	// GitGuardAllowDirty permits -git-guard on a dirty working tree.
-	GitGuardAllowDirty *bool `json:"gitGuardAllowDirty,omitempty"`
 	// RepoMap adds a project map to the planner prompt.
 	RepoMap *bool `json:"repoMap,omitempty"`
 	// Preflight checks the plan before execution.
@@ -256,8 +252,6 @@ func ApplyFileConfig(cfg *Config, fc FileConfig) error {
 	set(&cfg.ProxyToken, fc.ProxyToken)
 	setB(&cfg.ProxyAllowRemote, fc.ProxyAllowRemote)
 
-	setB(&cfg.GitGuard, fc.GitGuard)
-	setB(&cfg.GitGuardAllowDirty, fc.GitGuardAllowDirty)
 	setB(&cfg.RepoMap, fc.RepoMap)
 	setB(&cfg.Preflight, fc.Preflight)
 	setB(&cfg.StreamOutput, fc.StreamOutput)

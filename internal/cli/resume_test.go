@@ -37,9 +37,4 @@ func TestValidateConfig_Resume(t *testing.T) {
 	if err := ValidateConfig(c); err == nil {
 		t.Error("resume with -plan-only must fail")
 	}
-	c = base()
-	c.GitGuard = true
-	if err := ValidateConfig(c); err == nil {
-		t.Error("resume with -git-guard must fail")
-	}
 }

@@ -114,9 +114,6 @@ func ValidateConfig(cfg *config.Config) error {
 		if cfg.PlanOnly {
 			return i18n.Errorv(i18n.MsgErrResumePlanOnly)
 		}
-		if cfg.GitGuard {
-			return i18n.Errorv(i18n.MsgErrResumeGitGuard)
-		}
 	}
 	return nil
 }

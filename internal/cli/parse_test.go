@@ -226,55 +226,6 @@ func TestParseFlags_ProfileModelDoesNotSetModelSet(t *testing.T) {
 	}
 }
 
-// --- GitGuard / GitGuardAllowDirty ---
-
-func TestParseFlags_GitGuard(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	var buf bytes.Buffer
-
-	// Both flags default to false.
-	cfg, err := ParseFlags([]string{}, &buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.GitGuard {
-		t.Error("GitGuard should be false by default")
-	}
-	if cfg.GitGuardAllowDirty {
-		t.Error("GitGuardAllowDirty should be false by default")
-	}
-
-	// -git-guard must set GitGuard.
-	cfg, err = ParseFlags([]string{"-git-guard"}, &buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.GitGuard {
-		t.Error("GitGuard should be true with -git-guard")
-	}
-
-	// -git-guard-allow-dirty must set GitGuardAllowDirty.
-	cfg, err = ParseFlags([]string{"-git-guard-allow-dirty"}, &buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.GitGuardAllowDirty {
-		t.Error("GitGuardAllowDirty should be true with -git-guard-allow-dirty")
-	}
-
-	// Both together.
-	cfg, err = ParseFlags([]string{"-git-guard", "-git-guard-allow-dirty"}, &buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.GitGuard {
-		t.Error("GitGuard should be true")
-	}
-	if !cfg.GitGuardAllowDirty {
-		t.Error("GitGuardAllowDirty should be true")
-	}
-}
-
 func TestParseFlags_MaxRetries(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var buf bytes.Buffer
