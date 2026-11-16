@@ -34,6 +34,11 @@ ASSUME_YES=0
 # scripts/update-embedded-hashes.py on every release; do not edit by hand.
 # Format: VERSION<TAB>OS<TAB>ARCH<TAB>SHA256
 EMBEDDED_HASHES='
+v1.11.3	windows	amd64	70da0fad9e38f70a45ea7d861f4d40d4dc92a626edda132042df186f95d88d50
+v1.11.3	linux	arm64	26ef83680e9fb39d75933b1a7881d8b74a1ad6a38e4a05951810daaa4e168cb4
+v1.11.3	linux	amd64	1b28da43d54ca2cdf885f44b7510a0071ba4b075d642ea4bbde63e2e2861b00c
+v1.11.3	darwin	arm64	6561416e72f3b506350c2d1e2b1f0bf95e25b2509608a1dea874ea214521f7f6
+v1.11.3	darwin	amd64	eb2b18a9df3524afa0820665dcf7fed59808ea38680ac11e6e73a3e4eecda3b4
 v1.11.2	windows	amd64	26bfbb3c99abc300ca7e37579d061fa07d0257cfceace6661b6cfc141869165a
 v1.11.2	linux	arm64	8d76f214814a8158a7baaa3d0482c02eb8ecb63e70c271a5bd0ec0aa92be8d29
 v1.11.2	linux	amd64	a206c823d1edca0955c3777f2d89fcd271b92968a19fdff3ca90f17d32964cce
