@@ -29,6 +29,7 @@ type profileSwapper struct {
 
 	mu           sync.Mutex
 	currentAlias string
+	currentURL   string
 	stopped      bool
 
 	inflight atomic.Int64
@@ -76,13 +77,16 @@ func (s *profileSwapper) CurrentURL() string {
 	if s.currentAlias == "" {
 		return ""
 	}
+	if s.currentURL != "" {
+		return s.currentURL
+	}
+	// До первого свопа сервер действительно слушает порт из конфига.
 	cfg, ok := s.profiles[s.currentAlias]
 	if !ok || cfg == nil {
 		return ""
 	}
 	return ServerBaseURL(cfg)
 }
-
 func (s *profileSwapper) IncInflight() { s.inflight.Add(1) }
 func (s *profileSwapper) DecInflight() { s.inflight.Add(-1) }
 
@@ -128,7 +132,11 @@ func (s *profileSwapper) SwapTo(ctx context.Context, alias string) (string, erro
 		return "", errors.New("swapper stopped")
 	}
 	alias = strings.TrimSpace(alias)
+
 	if strings.EqualFold(alias, s.currentAlias) {
+		if s.currentURL != "" {
+			return s.currentURL, nil
+		}
 		if cfg, ok := s.profiles[alias]; ok {
 			return ServerBaseURL(cfg), nil
 		}
@@ -162,18 +170,21 @@ func (s *profileSwapper) SwapTo(ctx context.Context, alias string) (string, erro
 		if prevCfg, ok := s.profiles[prevAlias]; ok {
 			if prevSpec, pcode := SpecForConfig(prevCfg, s.home, s.stdout, s.stderr); pcode == 0 {
 				prevSpec.Log = s.logSink
-				if _, rerr := s.mgr.SwapTo(prevSpec); rerr == nil {
+				if restored, rerr := s.mgr.SwapTo(prevSpec); rerr == nil {
 					s.currentAlias = prevAlias
+					s.currentURL = restored.BaseURL
 					return "", fmt.Errorf("swap to %q failed (%v); restored %q", alias, err, prevAlias)
 				}
 			}
 		}
 		s.currentAlias = ""
+		s.currentURL = ""
 		return "", err
 	}
-
 	s.currentAlias = alias
+	s.currentURL = newSpec.BaseURL
 	return newSpec.BaseURL, nil
+
 }
 
 var _ proxy.Swapper = (*profileSwapper)(nil)

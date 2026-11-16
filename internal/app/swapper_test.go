@@ -9,6 +9,21 @@ import (
 	"github.com/SkalaSkalolaz/llama-runner/internal/config"
 )
 
+func TestProfileSwapper_CurrentURL_PrefersLiveURL(t *testing.T) {
+	s := &profileSwapper{
+		currentAlias: "a",
+		currentURL:   "http://127.0.0.1:54321",
+		profiles:     map[string]*config.Config{"a": {Alias: "a", Host: "127.0.0.1", Port: "8080"}},
+	}
+	if got := s.CurrentURL(); got != "http://127.0.0.1:54321" {
+		t.Errorf("CurrentURL = %q, want the live URL, not the config port", got)
+	}
+	url, err := s.SwapTo(context.Background(), "a")
+	if err != nil || url != "http://127.0.0.1:54321" {
+		t.Errorf("same-alias SwapTo = (%q, %v), want the live URL", url, err)
+	}
+}
+
 func TestProfileSwapper_IncDec_Wait(t *testing.T) {
 	s := &profileSwapper{}
 	s.IncInflight()
