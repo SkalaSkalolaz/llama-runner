@@ -4,6 +4,39 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [SemVer](https://semver.org/).
 
+## v1.11.3
+
+### Fixed
+- **Hot-swap via `/model` in Claude Code mode no longer breaks the session with
+  endless `502 … dial tcp 127.0.0.1:8080: connect: connection refused` retries.**
+  `ServerManager.StopAndStart` relaunches llama-server on a fresh free port on
+  every swap, but `profileSwapper.CurrentURL()` kept deriving the URL from the
+  profile's static config (`port` in config.json). The proxy treats the swapper
+  as the source of truth (`currentServerURL`), so after the first switch every
+  request — including Claude Code's background traffic — went to the old, dead
+  port, and the correct URL saved by `setServerURL(newURL)` was never consulted.
+  `profileSwapper` now stores the actual base URL returned by
+  `ServerManager.SwapTo` and serves it from `CurrentURL()`:
+  - updated on every successful swap **and on the rollback path** (restoring
+    the previous profile also reallocates the port);
+  - the same-alias no-op returns the live URL instead of the config one;
+  - cleared in `Stop()`;
+  - before the first swap the config-derived URL is still used (the initial
+    server really listens on the configured port), so single-model launches
+    and existing tests are unchanged.
+  Auto mode (`-p auto`) was never affected: the orchestrator uses the URL
+  returned by `SwapTo` directly and runs without the proxy.
+
+### Added
+- Regression test `TestProfileSwapper_CurrentURL_PrefersLiveURL`
+  (`internal/app/swapper_test.go`): `CurrentURL()` and the same-alias `SwapTo`
+  must return the live URL, not the config port.
+
+### Changed
+- The comment on `profileSwapper.CurrentURL()` now describes the real behaviour
+  (it previously claimed the config-derived URL included the swapped port).
+- Version fallback in `cmd/llama-runner/main.go` bumped to `1.11.3`.
+
 ## v1.11.2
 ### Removed
 
